@@ -9,6 +9,7 @@ saves
 plots/
 c_generated_code/
 /build
+**/*.png
 
 # pixi environments
 .pixi/*

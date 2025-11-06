@@ -3,8 +3,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
 import wandb
-from train_rl import Args, evaluate_ppo, train_ppo  # noqa: F401
+from rl_diffsim.ppo.train_rl_torch import Args, evaluate_ppo, train_ppo  # noqa: F401
 
 
 # 1: Define objective/training function

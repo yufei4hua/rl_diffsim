@@ -1,38 +1,29 @@
 """A naive RL pipeline for drone racing."""
-import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import fire
 import gymnasium as gym
-import jax
-import jax.numpy as jp
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from crazyflow.envs.norm_actions_wrapper import NormalizeActions
-from gymnasium import spaces
-from gymnasium.spaces import flatten_space
-from gymnasium.vector import (
-    VectorActionWrapper,  # noqa: F401
-    VectorEnv,
-    VectorObservationWrapper,
-    VectorRewardWrapper,
-    VectorWrapper,
-)
-from gymnasium.vector.utils import batch_space
+from gymnasium.vector import VectorEnv
 from gymnasium.wrappers.vector.jax_to_torch import JaxToTorch
-from jax import Array
-from jax.scipy.spatial.transform import Rotation as R
-from scipy.interpolate import CubicSpline  # noqa: F401
 from torch import Tensor
 from torch.distributions.normal import Normal
 
 import wandb
 from rl_diffsim.envs.rand_traj import RandTrajEnv
+from rl_diffsim.ppo.wrappers import (
+    ActionPenalty,
+    AngleReward,
+    FlattenJaxObservation,
+    RecordData,
+)
 
 
 # region Arguments
@@ -110,259 +101,9 @@ class Args:
         args.minibatch_size = int(args.batch_size // args.num_minibatches)
         args.num_iterations = args.total_timesteps // args.batch_size
         return args
-
-
-    
-# region Wrappers
-# class ActionTransform(VectorActionWrapper):
-#     """Wrapper to transform rotation vector to attitude commands."""
-
-#     def __init__(self, env: VectorEnv):
-#         super().__init__(env)
-#         self._action_scale = (1 / super().unwrapped.freq) * 5 * jp.pi
-#         self._action_scale = jp.array(0.1)
-#         # Compute scale and mean for rescaling
-#         thrust_low = self.single_action_space.low[-1]
-#         thrust_high = self.single_action_space.high[-1]
-#         self._scale = jp.array((thrust_high - thrust_low) / 2.0, device=super().unwrapped.device)
-#         self._mean = jp.array((thrust_high + thrust_low) / 2.0, device=super().unwrapped.device)
-#         # Modify the wrapper's action space to [-1, 1]
-#         self.single_action_space.low = -np.ones_like(self.single_action_space.low)
-#         self.single_action_space.high = np.ones_like(self.single_action_space.high)
-#         self.action_space = batch_space(self.single_action_space, self.num_envs)
-
-#     def actions(self, actions: Array) -> Array:
-#         rpy = jp.clip(actions[..., :3], -1.0, 1.0) * jp.pi/2
-#         # obs = super().unwrapped.obs()
-#         # rpy = self._action_rot2rpy(jp.array(obs["quat"]), actions[..., :3], self._action_scale)
-#         # rpy = (R.from_matrix(obs["quat"].reshape(-1,3,3)) * R.from_rotvec(jp.clip(actions[..., :3], -1.0, 1.0) * self._action_scale)).as_euler("xyz")
-#         # rpy = (R.from_rotvec(jp.clip(actions[..., :3], -1.0, 1.0) * self._action_scale)).as_euler("xyz")
-#         # rpy = R.from_quat(obs["quat"]).as_euler("xyz") + actions[..., :3] * self._action_scale
-#         rpy = rpy.at[..., 2].set(0.0)
-#         actions = actions.at[..., :3].set(rpy)
-#         th = jp.clip(actions[..., -1], -1.0, 1.0) * self._scale + self._mean
-#         actions = actions.at[..., -1].set(th)
-#         return actions
-    
-#     @staticmethod
-#     @jax.jit
-#     def _action_rot2rpy(rot_mat, action_rot, action_scale):
-#         rpy = (R.from_matrix(rot_mat.reshape(-1, 3, 3)) * R.from_rotvec(jp.clip(action_rot, -1.0, 1.0) * action_scale)).as_euler("xyz")
-#         return rpy
-    
-class StackObs(VectorObservationWrapper):
-    """Wrapper to stack history observations."""
-    def __init__(self, env: VectorEnv, n_obs: int = 0):
-        """Init."""
-        super().__init__(env)
-        self.n_obs = n_obs
-        print(f"{n_obs=}")
-        if self.n_obs > 0:
-            # Update observation space
-            spec = {k: v for k, v in self.single_observation_space.items()}
-            spec["prev_obs"] = spaces.Box(-np.inf, np.inf, shape=(13 * self.n_obs,))
-            self.single_observation_space = spaces.Dict(spec)
-            self.observation_space = batch_space(self.single_observation_space, self.num_envs)
-            # Init obs buffer
-            init_obs = env.unwrapped.obs()
-            self._prev_obs = jp.zeros((self.num_envs, self.n_obs, 13))
-            for _ in range(n_obs):
-                self._prev_obs = self._update_prev_obs(self._prev_obs, init_obs)
-
-    def observations(self, observations: dict) -> dict:
-        """Override observation."""
-        if self.n_obs > 0:
-            observations["prev_obs"] = self._prev_obs.reshape(self.num_envs, -1)
-            self._prev_obs = self._update_prev_obs(self._prev_obs, observations)
-        return observations
-    
-    @staticmethod
-    @jax.jit
-    def _update_prev_obs(prev_obs: Array, obs: dict) -> Array:
-        """Update previous observations."""
-        basic_obs_key = ["pos", "quat", "vel", "ang_vel"]
-        basic_obs = jp.concatenate(
-            [jp.reshape(obs[k], (obs[k].shape[0], -1)) for k in basic_obs_key], axis=-1
-        )
-        prev_obs = jp.concatenate(
-            [prev_obs[:, 1:, :], basic_obs[:, None, :]], axis=1
-        )
-        return prev_obs
-
-
-class AngleReward(VectorRewardWrapper):
-    """Wrapper to penalize orientation in the reward."""
-    def __init__(self, env: VectorEnv, rpy_coef: float = 0.08):
-        super().__init__(env)
-        self.rpy_coef = rpy_coef
-
-    def step(self, actions: Array) -> tuple[Array, Array, Array, Array, dict]:
-        actions = actions.at[..., 2].set(0.0) # block yaw output because we don't need it
-        observations, rewards, terminations, truncations, infos = self.env.step(actions)
-        return observations, self.rewards(rewards, observations), terminations, truncations, infos
-    def rewards(self, rewards: Array, observations: dict[str, Array]) -> Array:
-        # apply rpy penalty
-        rpy_norm = jp.linalg.norm(R.from_quat(observations["quat"]).as_euler("xyz"), axis=-1)
-        rewards -= self.rpy_coef * rpy_norm
-        return rewards
-        
-class ActionPenalty(VectorObservationWrapper):
-    """Wrapper to apply action penalty."""
-    def __init__(self, env: VectorEnv, act_coef: float = 0.01, d_act_th_coef: float = 0.2, d_act_xy_coef: float = 0.4):
-        """Init."""
-        super().__init__(env)
-        # Update observation space
-        spec = {k: v for k, v in self.single_observation_space.items()}
-        spec["last_action"] = spaces.Box(-np.inf, np.inf, shape=(4,))
-        self.single_observation_space = spaces.Dict(spec)
-        self.observation_space = batch_space(self.single_observation_space, self.num_envs)
-        self._last_action = jp.zeros((self.num_envs, 4))
-        self.act_coef = act_coef
-        self.d_act_th_coef = d_act_th_coef
-        self.d_act_xy_coef = d_act_xy_coef
-
-    def step(self, action: Array) -> tuple[Array, Array, Array, Array, dict]:
-        """Override step."""
-        obs, reward, terminated, truncated, info = super().step(action)
-        # penalty on actions
-        action_diff = action - self._last_action
-        # energy
-        reward -= self.act_coef * action[..., -1] ** 2
-        # smoothness
-        reward -= self.d_act_th_coef * action_diff[..., -1] ** 2
-        reward -= self.d_act_xy_coef * jp.sum(action_diff[..., :3] ** 2, axis=-1)
-        self._last_action = action
-        return self.observations(obs), reward, terminated, truncated, info
-    
-    def observations(self, observations: dict) -> dict:
-        """Override observation."""
-        observations["last_action"] = self._last_action
-        return observations
-
-class FlattenJaxObservation(VectorObservationWrapper):
-    """Wrapper to flatten the observations."""
-    def __init__(self, env: VectorEnv):
-        """Init."""
-        super().__init__(env)
-        self.single_observation_space = flatten_space(env.single_observation_space)
-        self.observation_space = flatten_space(env.observation_space)
-
-    def observations(self, observations: dict) -> dict:
-        """Flatten observations."""
-        return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1)
-    
-class ObsNoise(VectorObservationWrapper):
-    """Simple wrapper to add noise to the observations."""
-
-    def __init__(self, env: VectorEnv, noise_std: float = 0.01):
-        """Wrap the environment to add noise to the observations."""
-        super().__init__(env)
-        self.noise_std = noise_std
-        self.prng_key = jax.random.PRNGKey(0)
-
-    def observations(self, observation: Array) -> Array:
-        """Add noise to the observations."""
-        self.prng_key, key = jax.random.split(self.prng_key)
-        noise = jax.random.normal(key, shape=observation.shape) * self.noise_std
-        return observation + noise
-    
-class RecordData(VectorWrapper):
-    """Wrapper to record usefull data for debugging."""
-
-    def __init__(self, env: VectorEnv):
-        super().__init__(env)
-        self._record_act  = []
-        self._record_pos  = []
-        self._record_goal = []
-        self._record_rpy  = []
-
-    def step(self, actions: Any):
-        obs, rewards, terminated, truncated, infos = self.env.step(actions)
-        raw_env = self.env.unwrapped
-
-        act = np.asarray(actions)
-        self._record_act.append(act.copy())
-        pos = np.asarray(raw_env.sim.data.states.pos[:, 0, :])   # shape: (n_worlds, 3)
-        self._record_pos.append(pos.copy())
-        goal = np.asarray(raw_env.trajectories[np.arange(raw_env.steps.shape[0]), raw_env.steps.squeeze(1)])
-        self._record_goal.append(goal.copy())
-        rpy = np.asarray(R.from_quat(raw_env.sim.data.states.quat[:, 0, :]).as_euler("xyz"))
-        self._record_rpy.append(rpy.copy())
-
-        return obs, rewards, terminated, truncated, infos
-    
-    def calc_rmse(self):
-        # compute rmse for all worlds
-        pos = np.array(self._record_pos)     # shape: (T, num_envs, 3)
-        goal = np.array(self._record_goal)   # shape: (T, num_envs, 3)
-        pos_err = np.linalg.norm(pos - goal, axis=-1)  # shape: (T, num_envs)
-        rmse = np.sqrt(np.mean(pos_err ** 2))*1000 # mm
-
-        return rmse
-    
-    def plot_eval(self, save_path: str = "eval_plot.png"):
-        import matplotlib
-        matplotlib.use("Agg")  # render to raster images
-        import matplotlib.pyplot as plt
-        actions = np.array(self._record_act)
-        pos = np.array(self._record_pos)
-        goal = np.array(self._record_goal)
-        rpy = np.array(self._record_rpy)
-
-        # Plot the actions over time
-        fig, axes = plt.subplots(3, 4, figsize=(18, 12))
-        axes = axes.flatten()
-
-        action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
-        for i in range(4):
-            axes[i].plot(actions[:, 0, i])
-            axes[i].set_title(f"{action_labels[i]} Command")
-            axes[i].set_xlabel("Time Step")
-            axes[i].set_ylabel("Action Value")
-            axes[i].grid(True)
-
-        # Plot position components
-        position_labels = ["X Position", "Y Position", "Z Position"]
-        for i in range(3):
-            axes[4 + i].plot(pos[:, 0, i])
-            axes[4 + i].set_title(position_labels[i])
-            axes[4 + i].set_xlabel("Time Step")
-            axes[4 + i].set_ylabel("Position (m)")
-            axes[4 + i].grid(True)
-        # Plot goal position components in same plots
-        for i in range(3):
-            axes[4 + i].plot(goal[:, 0, i], linestyle="--")
-            axes[4 + i].legend(["Position", "Goal"])
-        # Plot error in position
-        pos_err = np.linalg.norm(pos[:, 0] - goal[:, 0], axis=1)
-        axes[7].plot(pos_err)
-        axes[7].set_title("Position Error")
-        axes[7].set_xlabel("Time Step")
-        axes[7].set_ylabel("Error (m)")
-        axes[7].grid(True)
-
-        # Plot angle components (roll, pitch, yaw)
-        rpy_labels = ["Roll", "Pitch", "Yaw"]
-        for i in range(3):
-            axes[8 + i].plot(rpy[:, 0, i])
-            axes[8 + i].set_title(f"{rpy_labels[i]} Angle")
-            axes[8 + i].set_xlabel("Time Step")
-            axes[8 + i].set_ylabel("Angle (rad)")
-            axes[8 + i].grid(True)
-
-        # compute RMSE for position
-        rmse_pos = np.sqrt(np.mean(pos_err**2))
-        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos*1000:.3f} mm", fontsize=14)
-        axes[11].axis("off")
-
-        plt.tight_layout()
-        plt.savefig(Path(__file__).parent / save_path)
-
-        return fig, axes, rmse_pos
     
 def set_seeds(seed: int):
     """Seed everything."""
-    random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)

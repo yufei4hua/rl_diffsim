@@ -1,5 +1,6 @@
 """"PPO agent implementation using Flax."""
 import functools
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jp
@@ -81,42 +82,44 @@ class Agent:
             params=critic_params,
             tx=critic_tx,
         )
+        # Build jittable actor and critic inference functions
+        def _get_action_sample(params: dict, obs: Array, key: Array) -> tuple[Array, Array]:
+            """Get stochastic action sample for collecting rollout."""
+            mean, logstd = self.actor.apply(params, obs)
+            std = jp.exp(logstd)
+            new_key, sub = jax.random.split(key)
+            eps = jax.random.normal(sub, mean.shape, dtype=mean.dtype)
+            action = mean + std * eps
+            logp = -0.5 * (eps ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
+            logp = jp.sum(logp, axis=-1)
+            entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
+            return (action, logp, entropy), new_key 
 
-    @functools.partial(jax.jit, static_argnums=0)
-    def get_action(
-        self,
-        params: dict,
-        obs: Array,
-        key: Array,
-        action: Array = None,
-        deterministic: bool = False,
-    ) -> tuple[tuple[Array, Array, Array], Array]:
-        """Get action, log probability and entropy, from the actor-critic networks."""
-        mean, logstd = self.actor.apply(params, obs)
-        std = jp.exp(logstd)
+        def _get_action_logprob(params: dict, obs: Array, action: Array) -> tuple[Array, Array]:
+            """Get log probability and entropy of given action for training."""
+            mean, logstd = self.actor.apply(params, obs)
+            std = jp.exp(logstd)
+            logp = -0.5 * (((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
+            logp = jp.sum(logp, axis=-1)
+            entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
+            return logp, entropy
 
-        if action is None:
-            if deterministic:
-                action = mean
-            else:
-                key, sub = jax.random.split(key)
-                eps = jax.random.normal(sub, mean.shape, dtype=mean.dtype)
-                action = mean + std * eps
+        def _get_action_mean(params: dict, obs: Array) -> Array:
+            """Get deterministic action (mean)."""
+            mean, logstd = self.actor.apply(params, obs)
+            return mean
 
-        logprob = -0.5 * (((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
-        logprob = jp.sum(logprob, axis=-1)
-        entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
+        def _get_value(params: dict, obs: Array) -> Array:
+            return jp.squeeze(self.critic.apply(params, obs))
 
-        return (action, logprob, entropy), key
-
-    @functools.partial(jax.jit, static_argnums=0)
-    def get_value(self, params: dict, obs: Array) -> Array:
-        """Get value from the critic network."""
-        return self.critic.apply(params, obs)
+        self.get_action_mean = jax.jit(_get_action_mean)
+        self.get_action_sample = jax.jit(_get_action_sample)
+        self.get_action_logprob = jax.jit(_get_action_logprob)
+        self.get_value = jax.jit(_get_value)
 
 
 if __name__ == "__main__":
-    """Test the PPO agent implementation."""
+    """Test the agent implementation."""
     # initialization
     obs_dim, act_dim = 13, 4
     agent = Agent(
@@ -128,28 +131,31 @@ if __name__ == "__main__":
         critic_lr=1e-3,
     )
 
-    obs = jp.ones((obs_dim,), dtype=jp.float32)
+    obs = jp.ones((2, obs_dim), dtype=jp.float32)
 
     # rollout - sample actions
     key = jax.random.PRNGKey(1)
-    (action, logp, entropy), key = agent.get_action(
+    (action, logp, entropy), key = agent.get_action_sample(
         agent.actor_states.params,
-        obs[None, :],
-        key=key,
+        obs,
+        key,
     )
-    value = agent.get_value(agent.critic_states.params, obs[None, :])
+    value = agent.get_value(agent.critic_states.params, obs)
     print("Rollout:")
     print(action, logp, entropy, value)
 
     # optimization - get log probabilities
-    chosen_action = jp.ones((1, act_dim), dtype=jp.float32)
-    (action, logp, entropy), key = agent.get_action(
+    chosen_action = action
+    logp, entropy = agent.get_action_logprob(
         agent.actor_states.params,
-        obs[None, :],
-        key=key,
-        action=action,
-        deterministic=True,
+        obs,
+        chosen_action,
     )
-    value = agent.get_value(agent.critic_states.params, obs[None, :])
+    value = agent.get_value(agent.critic_states.params, obs)
     print("Optimization:")
     print(chosen_action, logp, entropy, value)
+
+    # deployment - get deterministic action
+    action = agent.get_action_mean(agent.actor_states.params, obs)
+    print("Deployment:")
+    print(action)

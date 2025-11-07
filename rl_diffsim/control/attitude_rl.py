@@ -23,7 +23,7 @@ from drone_models.core import load_params
 from scipy.interpolate import CubicSpline
 
 from rl_diffsim.control.controller import Controller
-from rl_diffsim.ppo.train_rl import Agent
+from rl_diffsim.ppo.train_rl_torch import Agent
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray

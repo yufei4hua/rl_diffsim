@@ -181,7 +181,7 @@ def collect_rollout(envs, agent: Agent, actor_params, critic_params, next_obs, n
         obs_buf = obs_buf.at[step].set(obs)
         dones_buf = dones_buf.at[step].set(dones)
 
-        (action, logprob, entropy), key = agent.get_action(actor_params, obs, key)
+        (action, logprob, entropy), key = agent.get_action_sample(actor_params, obs, key)
         value = agent.get_value(critic_params, obs)
 
         values_buf = values_buf.at[step].set(jp.squeeze(value))
@@ -235,15 +235,15 @@ def update_policy(agent: Agent, args: Args, data: dict, envs) -> float:
     b_values = data["values"].reshape(-1)
 
     def loss_fn(actor_params, critic_params, obs_mb, acts_mb, old_logprobs_mb, adv_mb, ret_mb, val_mb):
-        mean, logstd = agent.actor.apply(actor_params, obs_mb)
-        std = jp.exp(logstd)
-        logp = -0.5 * (((acts_mb - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
-        logp = jp.sum(logp, axis=-1)
+        logp, entropy = agent.get_action_logprob(
+            actor_params,
+            obs_mb,
+            acts_mb,
+        )
         ratio = jp.exp(logp - old_logprobs_mb)
         pg_loss1 = -adv_mb * ratio
         pg_loss2 = -adv_mb * jp.clip(ratio, 1.0 - args.clip_coef, 1.0 + args.clip_coef)
         pg_loss = jp.mean(jp.maximum(pg_loss1, pg_loss2))
-        entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
         entropy_loss = jp.mean(entropy)
 
         value = agent.critic.apply(critic_params, obs_mb).reshape(-1)
@@ -385,8 +385,12 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     # create Agent (weights will be overwritten)
     key = set_seeds(args.seed)
     init_key, _ = jax.random.split(key)
-    agent = Agent(key=init_key, obs_dim=eval_env.single_observation_space.shape, act_dim=eval_env.single_action_space.shape)
-
+    agent = Agent(
+        key=init_key,
+        obs_dim=eval_env.single_observation_space.shape[0],
+        act_dim=eval_env.single_action_space.shape[0],
+        hidden_size=64,
+    )
     # load params
     with open(model_path, "rb") as f:
         import pickle
@@ -411,9 +415,9 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
         steps = 0
         key = set_seeds(ep_seed)
         while not done:
-            (action, _, _), key = agent.get_action(agent.actor_states.params, obs, key, deterministic=True)
+            action = agent.get_action_mean(agent.actor_states.params, obs)
             # step env (numpy interface)
-            obs_np, reward, terminated, truncated, info = eval_env.step(np.asarray(action))
+            obs_np, reward, terminated, truncated, info = eval_env.step(action)
             eval_env.render()
             done = bool(terminated | truncated)
             episode_reward += float(np.asarray(reward).item())
@@ -445,7 +449,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
       n_eval: number of evaluation episodes to run after training (or standalone)
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/ppo_model.ckpt"
+    model_path = Path(__file__).parents[2] / "saves/ppo_model_flax.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--do_train False" to skip training

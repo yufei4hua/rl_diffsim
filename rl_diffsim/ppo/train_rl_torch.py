@@ -435,7 +435,7 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 def main(wandb_enabled: bool = True, train: bool = True, eval: int = 1):
     """Main."""
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/ppo_model.ckpt"
+    model_path = Path(__file__).parents[2] / "saves/ppo_model_torch.ckpt"
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     jax_device = args.jax_device
 

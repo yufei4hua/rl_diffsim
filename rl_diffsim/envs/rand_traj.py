@@ -141,8 +141,8 @@ class RandTrajEnv(DroneEnv):
     def obs(self) -> dict[str, Array]:
         """Observations."""
         obs = super().obs()
-        idx = np.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
-        dpos = self.trajectories[np.arange(self.trajectories.shape[0])[:, None], idx] - self.sim.data.states.pos
+        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
+        dpos = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx] - self.sim.data.states.pos
         obs["local_samples"] = dpos.reshape(-1, 3 * self.n_samples)
         return obs
 
@@ -150,7 +150,7 @@ class RandTrajEnv(DroneEnv):
         """Rewards."""
         obs = self.obs()
         pos = obs["pos"] # (num_envs, 3)
-        goal = self.trajectories[np.arange(self.trajectories.shape[0])[:, None], self.steps][:, 0, :] # (num_envs, 3)
+        goal = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], self.steps][:, 0, :] # (num_envs, 3)
         # distance to next trajectory point
         norm_distance = jp.linalg.norm(pos - goal, axis=-1)
         reward = jp.exp(-2.0 * norm_distance) # encourage flying close to goal

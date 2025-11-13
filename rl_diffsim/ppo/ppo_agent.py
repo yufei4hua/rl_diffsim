@@ -1,11 +1,12 @@
 """"PPO agent implementation using Flax."""
-import functools
-from typing import Any, Callable
+
+from typing import Callable
 
 import jax
 import jax.numpy as jp
 import optax
 from flax import linen as nn
+from flax import struct
 from flax.linen.initializers import orthogonal, zeros
 from flax.training import train_state
 from jax import Array
@@ -52,40 +53,49 @@ class CriticNet(nn.Module):
         value = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=zeros)(x)
         return value.squeeze(-1)
 
-class Agent:
+class Agent(struct.PyTreeNode):
     """PPO agent class with actor and critic networks."""
-    def __init__(
-            self,
-            key: Array, 
-            obs_dim: int, 
-            act_dim: int, 
+    actor_states: train_state.TrainState = struct.field(pytree_node=True)
+    critic_states: train_state.TrainState = struct.field(pytree_node=True)
+    get_action_mean: Callable = struct.field(pytree_node=False)
+    get_action_sample: Callable = struct.field(pytree_node=False)
+    get_action_logprob: Callable = struct.field(pytree_node=False)
+    get_value: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(
+            cls,
+            key: jax.random.PRNGKey,
+            obs_dim: int,
+            act_dim: int,
             hidden_size: int = 64,
             actor_lr: float | optax.Schedule = 3e-4,
             critic_lr: float | optax.Schedule = 1e-3,
         ) -> dict:
         """Initialize the PPO agent's actor and critic networks."""
-        self.actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
-        self.critic = CriticNet(hidden_size=hidden_size)
+        actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
+        critic = CriticNet(hidden_size=hidden_size)
         k1, k2 = jax.random.split(key)
         dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
-        actor_params = self.actor.init(k1, dummy_obs)
-        critic_params = self.critic.init(k2, dummy_obs)
+        actor_params = actor.init(k1, dummy_obs)
+        critic_params = critic.init(k2, dummy_obs)
         actor_tx = optax.adam(learning_rate=actor_lr)
         critic_tx = optax.adam(learning_rate=critic_lr)
-        self.actor_states = train_state.TrainState.create(
-            apply_fn=self.actor.apply,
+        actor_states = train_state.TrainState.create(
+            apply_fn=actor.apply,
             params=actor_params,
             tx=actor_tx,
         )
-        self.critic_states = train_state.TrainState.create(
-            apply_fn=self.critic.apply,
+        critic_states = train_state.TrainState.create(
+            apply_fn=critic.apply,
             params=critic_params,
             tx=critic_tx,
         )
+        
         # Build jittable actor and critic inference functions
         def _get_action_sample(params: dict, obs: Array, key: Array) -> tuple[Array, Array]:
             """Get stochastic action sample for collecting rollout."""
-            mean, logstd = self.actor.apply(params, obs)
+            mean, logstd = actor.apply(params, obs)
             std = jp.exp(logstd)
             new_key, sub = jax.random.split(key)
             eps = jax.random.normal(sub, mean.shape, dtype=mean.dtype)
@@ -97,7 +107,7 @@ class Agent:
 
         def _get_action_logprob(params: dict, obs: Array, action: Array) -> tuple[Array, Array]:
             """Get log probability and entropy of given action for training."""
-            mean, logstd = self.actor.apply(params, obs)
+            mean, logstd = actor.apply(params, obs)
             std = jp.exp(logstd)
             logp = -0.5 * (((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
             logp = jp.sum(logp, axis=-1)
@@ -106,23 +116,27 @@ class Agent:
 
         def _get_action_mean(params: dict, obs: Array) -> Array:
             """Get deterministic action (mean)."""
-            mean, logstd = self.actor.apply(params, obs)
+            mean, logstd = actor.apply(params, obs)
             return mean
 
         def _get_value(params: dict, obs: Array) -> Array:
-            return jp.squeeze(self.critic.apply(params, obs))
-
-        self.get_action_mean = jax.jit(_get_action_mean)
-        self.get_action_sample = jax.jit(_get_action_sample)
-        self.get_action_logprob = jax.jit(_get_action_logprob)
-        self.get_value = jax.jit(_get_value)
+            return jp.squeeze(critic.apply(params, obs))
+        
+        return cls(
+            actor_states=actor_states,
+            critic_states=critic_states,
+            get_action_mean=jax.jit(_get_action_mean),
+            get_action_sample=jax.jit(_get_action_sample),
+            get_action_logprob=jax.jit(_get_action_logprob),
+            get_value=jax.jit(_get_value),
+        )
 
 
 if __name__ == "__main__":
     """Test the agent implementation."""
     # initialization
     obs_dim, act_dim = 13, 4
-    agent = Agent(
+    agent = Agent.create(
         jax.random.PRNGKey(0),
         obs_dim=obs_dim,
         act_dim=act_dim,

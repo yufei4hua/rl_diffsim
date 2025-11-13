@@ -1,12 +1,13 @@
 """A naive RL pipeline for drone racing."""
 import functools
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import fire
-import gymnasium as gym
+import flax
 import jax
 import jax.numpy as jp
 import numpy as np
@@ -25,9 +26,10 @@ from rl_diffsim.ppo.wrappers import (
     RecordData,
 )
 
+# jax.config.update("jax_log_compiles", True)
 
 # region Arguments
-@dataclass
+@dataclass(frozen=True)
 class Args:
     """Class to store configurations."""
     seed: int = 42
@@ -99,11 +101,28 @@ class Args:
     def create(**kwargs: Any) -> "Args":
         """Create arguments class."""
         args = Args(**kwargs)
-        args.batch_size = int(args.num_envs * args.num_steps)
-        args.minibatch_size = int(args.batch_size // args.num_minibatches)
-        args.num_iterations = args.total_timesteps // args.batch_size
-        return args
+        batch_size = int(args.num_envs * args.num_steps)
+        minibatch_size = int(batch_size // args.num_minibatches)
+        num_iterations = args.total_timesteps // batch_size
+        return replace(
+            args,
+            batch_size=batch_size,
+            minibatch_size=minibatch_size,
+            num_iterations=num_iterations,
+        )
 
+# region Utils
+@flax.struct.dataclass
+class RolloutData:
+    """Class for storing rollout data."""
+    obs: jp.array
+    actions: jp.array
+    logprobs: jp.array
+    rewards: jp.array
+    dones: jp.array
+    values: jp.array
+    advantages: jp.array
+    returns: jp.array
 
 # region MakeEnvs
 def make_envs(
@@ -136,31 +155,51 @@ def make_envs(
     # env = ObsNoise(env, noise_std=0.01)
     return env
 
+# region GAE
+@functools.partial(jax.jit, static_argnames=("args",))
+def compute_gae(
+    args: Args,
+    agent: Agent,
+    next_obs: np.ndarray,
+    next_done: np.ndarray,
+    data: RolloutData,
+) -> RolloutData:
+    """Compute GAE advantages and returns."""
+    last_value = agent.get_value(agent.critic_states.params, next_obs)
 
-# region Utils
-def set_seeds(seed: int) -> jax.Array:
-    """Seed everything."""
-    np.random.seed(seed)
-    key = jax.random.PRNGKey(seed)
-    return key
+    advantages = jp.zeros((args.num_envs,))
+    dones = jp.concatenate([data.dones, next_done[None, :]], axis=0)
+    values = jp.concatenate([data.values, last_value[None, :]], axis=0)
 
-# region Train
-def compute_gae(rewards: Array, values: Array, dones: Array, last_value: Array, gamma: float, lam: float):
-    """Compute GAE advantages and returns (pure JAX)."""
-    T = rewards.shape[0]
-    advantages = jp.zeros_like(rewards)
-    lastgaelam = 0.0
-    for t in range(T - 1, -1, -1):
-        nextvalues = last_value if t == T - 1 else values[t + 1]
-        nextnonterminal = 1.0 - dones[t + 1] if t < T - 1 else 1.0 - dones[-1]
-        delta = rewards[t] + gamma * nextvalues * nextnonterminal - values[t]
-        lastgaelam = delta + gamma * lam * nextnonterminal * lastgaelam
-        advantages = advantages.at[t].set(lastgaelam)
-    returns = advantages + values
-    return advantages, returns
+    def compute_gae_once(carry: Array, inp: tuple[Array, Array, Array, Array]) -> tuple[Array, Array]:
+        """Compute one step of GAE in scan."""
+        advantages = carry
+        nextdone, nextvalues, curvalues, reward = inp
+        nextnonterminal = 1.0 - nextdone
 
+        delta = reward + args.gamma * nextvalues * nextnonterminal - curvalues
+        advantages = delta + args.gamma * args.gae_lambda * nextnonterminal * advantages
+        return advantages, advantages
 
-def collect_rollout(envs, agent: Agent, actor_params, critic_params, next_obs, next_done, args: Args, key: Array):
+    _, advantages = jax.lax.scan(
+        compute_gae_once, advantages, (dones[1:], values[1:], values[:-1], data.rewards), reverse=True
+    )
+    data = data.replace(
+        advantages=advantages,
+        returns=advantages + data.values,
+    )
+    return data
+
+# region Rollout
+# @functools.partial(jax.jit, static_argnames=("envs", "args", "get_action_sample_fn", "get_value_fn"))
+def collect_rollout(
+        envs: VectorEnv, 
+        args: Args, 
+        agent: Agent,
+        next_obs: dict, 
+        next_done: dict, 
+        key: jax.random.PRNGKey
+    ) -> tuple[dict, Array, Array, Array]:
     """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
     # buffers
     obs_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
@@ -181,19 +220,15 @@ def collect_rollout(envs, agent: Agent, actor_params, critic_params, next_obs, n
         obs_buf = obs_buf.at[step].set(obs)
         dones_buf = dones_buf.at[step].set(dones)
 
-        (action, logprob, entropy), key = agent.get_action_sample(actor_params, obs, key)
-        value = agent.get_value(critic_params, obs)
+        (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
+        value = agent.get_value(agent.critic_states.params, obs)
 
         values_buf = values_buf.at[step].set(jp.squeeze(value))
         actions_buf = actions_buf.at[step].set(action)
         logprobs_buf = logprobs_buf.at[step].set(logprob)
 
-        # step envs (envs uses numpy interface)
-        next_obs_np, reward, terminations, truncations, infos = envs.step(action)
-        next_obs = jp.array(next_obs_np)
-        reward = jp.array(reward)
-        terminations = jp.array(terminations)
-        truncations = jp.array(truncations)
+        # step envs
+        next_obs, reward, terminations, truncations, infos = envs.step(action) # TODO: this is currently not jittable
 
         rewards_buf = rewards_buf.at[step].set(reward)
         sum_rewards = sum_rewards + reward
@@ -206,86 +241,92 @@ def collect_rollout(envs, agent: Agent, actor_params, critic_params, next_obs, n
 
         obs = next_obs
 
-    data = {
-        "obs": obs_buf,
-        "actions": actions_buf,
-        "logprobs": logprobs_buf,
-        "rewards": rewards_buf,
-        "dones": dones_buf,
-        "values": values_buf,
-        "next_obs": obs,
-        "next_done": dones,
-        "sum_rewards_hist": sum_rewards_hist,
-    }
-    return data, obs, dones, key
+    return RolloutData(
+        obs=obs_buf,
+        actions=actions_buf,
+        logprobs=logprobs_buf,
+        rewards=rewards_buf,
+        dones=dones_buf,
+        values=values_buf,
+        returns=jp.zeros_like(rewards_buf),
+        advantages=jp.zeros_like(rewards_buf),
+    ), obs, dones, sum_rewards_hist, key
 
+# region PG
+@functools.partial(jax.jit, static_argnames=("args",))
+def update_policy(
+        args: Args,
+        agent: Agent,
+        data: RolloutData,
+        key: jax.random.PRNGKey,
+    ) -> float:
+    """Performs PPO updates. Returns losses."""
 
-def update_policy(agent: Agent, args: Args, data: dict, envs) -> float:
-    """Performs PPO updates using optax / flax TrainState. Returns explained variance."""
-    # bootstrap last value
-    last_value = agent.get_value(agent.critic_states.params, data["next_obs"])  # shape (num_envs,)
-    advantages, returns = compute_gae(data["rewards"], data["values"], data["dones"], last_value, args.gamma, args.gae_lambda)
-
-    # flatten
-    b_obs = data["obs"].reshape((-1,) + envs.single_observation_space.shape)
-    b_actions = data["actions"].reshape((-1,) + envs.single_action_space.shape)
-    b_logprobs = data["logprobs"].reshape(-1)
-    b_advantages = advantages.reshape(-1)
-    b_returns = returns.reshape(-1)
-    b_values = data["values"].reshape(-1)
-
+    # loss function
     def loss_fn(actor_params, critic_params, obs_mb, acts_mb, old_logprobs_mb, adv_mb, ret_mb, val_mb):
-        logp, entropy = agent.get_action_logprob(
-            actor_params,
-            obs_mb,
-            acts_mb,
-        )
+        # ppo policy loss
+        logp, entropy = agent.get_action_logprob(actor_params, obs_mb, acts_mb)
         ratio = jp.exp(logp - old_logprobs_mb)
         pg_loss1 = -adv_mb * ratio
         pg_loss2 = -adv_mb * jp.clip(ratio, 1.0 - args.clip_coef, 1.0 + args.clip_coef)
         pg_loss = jp.mean(jp.maximum(pg_loss1, pg_loss2))
         entropy_loss = jp.mean(entropy)
 
-        value = agent.critic.apply(critic_params, obs_mb).reshape(-1)
-        if args.clip_vloss:
-            v_unclipped = (value - ret_mb) ** 2
-            v_clipped = val_mb + jp.clip(value - val_mb, -args.clip_coef, args.clip_coef)
-            v_clipped_loss = (v_clipped - ret_mb) ** 2
-            v_loss = 0.5 * jp.mean(jp.maximum(v_unclipped, v_clipped_loss))
-        else:
-            v_loss = 0.5 * jp.mean((value - ret_mb) ** 2)
+        # ppo value loss (clip by default)
+        value = agent.get_value(critic_params, obs_mb).reshape(-1)
+        v_unclipped = (value - ret_mb) ** 2
+        v_clipped = val_mb + jp.clip(value - val_mb, -args.clip_coef, args.clip_coef)
+        v_clipped_loss = (v_clipped - ret_mb) ** 2
+        v_loss = 0.5 * jp.mean(jp.maximum(v_unclipped, v_clipped_loss))
 
         loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
         approx_kl = jp.mean((ratio - 1.0) - (logp - old_logprobs_mb))
-        return loss, (pg_loss, v_loss, entropy_loss, approx_kl)
+        return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
+    
+    grad_fn = jax.value_and_grad(loss_fn, argnums=(0, 1), has_aux=True)
 
-    b_inds = np.arange(args.batch_size)
-    rng = np.random.default_rng()
-    for epoch in range(args.update_epochs):
-        rng.shuffle(b_inds)
-        for start in range(0, args.batch_size, args.minibatch_size):
-            mb_inds = b_inds[start : start + args.minibatch_size]
-            obs_mb = b_obs[mb_inds]
-            acts_mb = b_actions[mb_inds]
-            old_logprobs_mb = b_logprobs[mb_inds]
-            adv_mb = b_advantages[mb_inds]
-            ret_mb = b_returns[mb_inds]
-            val_mb = b_values[mb_inds]
+    # batch: loop over epochs
+    def update_epoch(carry: tuple[Agent, jax.random.PRNGKey], inp: int) -> tuple[Agent, jax.random.PRNGKey]:
+        agent, key = carry
+        key, subkey = jax.random.split(key)
+        def process_data(x: jp.array) -> jp.array:
+            x = x.reshape((-1,) + x.shape[2:])
+            x = jax.random.permutation(subkey, x)
+            x = jp.reshape(x, (args.num_minibatches, -1) + x.shape[1:])
+            return x
+        minibatches = jax.tree_util.tree_map(process_data, data)
+        # minibatch: scan minibatches
+        def update_minibatch(carry: Agent, minibatch: int) -> Agent:
+            agent = carry
+            (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), (g_actor, g_critic) = grad_fn(
+                agent.actor_states.params, 
+                agent.critic_states.params, 
+                minibatch.obs, 
+                minibatch.actions, 
+                minibatch.logprobs, 
+                minibatch.advantages, 
+                minibatch.returns, 
+                minibatch.values
+            )
 
-            grad_fn = jax.value_and_grad(loss_fn, argnums=(0, 1), has_aux=True)
-            (loss_val, aux), (g_actor, g_critic) = grad_fn(agent.actor_states.params, agent.critic_states.params, obs_mb, acts_mb, old_logprobs_mb, adv_mb, ret_mb, val_mb)
+            return agent.replace(
+                actor_states=agent.actor_states.apply_gradients(grads=g_actor),
+                critic_states=agent.critic_states.apply_gradients(grads=g_critic)
+            ), (pg_loss, v_loss, entropy_loss, approx_kl)
+        
+        agent, (pg_loss, v_loss, entropy_loss, approx_kl) = jax.lax.scan(update_minibatch, agent, minibatches)
 
-            agent.actor_states = agent.actor_states.apply_gradients(grads=g_actor)
-            agent.critic_states = agent.critic_states.apply_gradients(grads=g_critic)
+        return (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl)
+    
+    (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl) = jax.lax.scan(update_epoch, (agent, key), (), length=args.update_epochs)
+    
+    y_pred = data.values.reshape(-1)
+    y_true = data.returns.reshape(-1)
+    var_y = jp.var(y_true)
+    explained_var = jp.where(var_y == 0, jp.nan, 1.0 - jp.var(y_true - y_pred) / var_y)
+    return pg_loss, v_loss, entropy_loss, approx_kl, explained_var, key
 
-    # explained variance
-    y_pred = np.asarray(b_values)
-    y_true = np.asarray(b_returns)
-    var_y = np.var(y_true)
-    explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-    return explained_var
-
-
+# region Train
 def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> None:
     """Train.
 
@@ -297,7 +338,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, config=vars(args))
 
     train_start_time = time.time()
-    key = set_seeds(args.seed)
+    key = jax.random.PRNGKey(args.seed)
     print("Training on device:", jax_device)
 
     # make envs
@@ -321,7 +362,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
     # setup agent
     init_key, key = jax.random.split(key)
-    agent = Agent(
+    agent = Agent.create(
         key=init_key,
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
@@ -333,24 +374,46 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     # start the game
     global_step = 0
     next_obs, _ = envs.reset(seed=args.seed)
-    next_obs = jp.array(next_obs)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards_hist = []
 
     for iteration in range(1, args.num_iterations + 1):
         start_time = time.time()
-        data, next_obs, next_done, key = collect_rollout(envs, agent, agent.actor_states.params, agent.critic_states.params, next_obs, next_done, args, key)
-        explained_var = update_policy(agent, args, data, envs)
-        global_step += args.batch_size
-        sum_rewards_hist.extend(data["sum_rewards_hist"])
+        # 1. collect rollouts
+        data, next_obs, next_done, sum_rewards_hist_batch, key = collect_rollout(
+            envs=envs, 
+            args=args, 
+            agent=agent,
+            next_obs=next_obs, 
+            next_done=next_done, 
+            key=key
+        )
+        print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
+        # 2. bootstrap last value
+        start_gae_time = time.time()
+        data = compute_gae(args, agent, next_obs,  next_done, data)
+        print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
+        # 3. update policy
+        start_pg_time = time.time()
+        pg_loss, v_loss, entropy_loss, approx_kl, explained_var, key = update_policy(args, agent, data, key)
+        print(f"PG {time.time() - start_pg_time:.5f} s")
+        # 4. logging
+        sum_rewards_hist.extend(sum_rewards_hist_batch)
+        print(f"Iter {iteration}/{args.num_iterations} took {time.time() - start_time:.2f} seconds")
 
         if wandb_enabled:
-            # log rewards_hist
-            for step, reward in data["sum_rewards_hist"]:
+            for step, reward in sum_rewards_hist_batch:
                 wandb.log({"train/reward": reward}, step=global_step+step)
-            wandb.log({"losses/explained_variance": float(explained_var), "charts/SPS": int(global_step / (time.time() - start_time))}, step=global_step)
+            wandb.log({
+                "losses/pg_loss": jp.mean(pg_loss),
+                "losses/v_loss": jp.mean(v_loss),
+                "losses/entropy_loss": jp.mean(entropy_loss),
+                "losses/approx_kl": jp.mean(approx_kl),
+                "losses/explained_variance": jp.mean(explained_var),
+                "charts/SPS": int(global_step / (time.time() - train_start_time)),
+            }, step=global_step + args.batch_size)
 
-        print(f"Iter {iteration}/{args.num_iterations} took {time.time() - start_time:.2f} seconds")
+        global_step += args.batch_size
 
     train_end_time = time.time()
     print(f"Training for {global_step} steps took {train_end_time - train_start_time:.2f} seconds.")
@@ -371,7 +434,6 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
     `n_eval` episodes with deterministic actions.
     """
-    set_seeds(args.seed)
     r_coefs = {
         "n_obs": args.n_obs,
         "rpy_coef": args.rpy_coef,
@@ -382,11 +444,9 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     eval_env = make_envs(num_envs=1, coefs=r_coefs)
     eval_env = RecordData(eval_env)
 
-    # create Agent (weights will be overwritten)
-    key = set_seeds(args.seed)
-    init_key, _ = jax.random.split(key)
-    agent = Agent(
-        key=init_key,
+    # create Agent
+    agent = Agent.create(
+        key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
         hidden_size=64,
@@ -394,14 +454,12 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     # load params
     with open(model_path, "rb") as f:
         import pickle
-
         params = pickle.load(f)
-
-    # replace params in train states
-    if "actor" in params:
-        agent.actor_states = agent.actor_states.replace(params=params["actor"])
-    if "critic" in params:
-        agent.critic_states = agent.critic_states.replace(params=params["critic"])
+    
+    agent = agent.replace(
+        actor_states=agent.actor_states.replace(params=params["actor"]),
+        critic_states=agent.critic_states.replace(params=params["critic"]),
+    )
 
     episode_rewards = []
     episode_lengths = []
@@ -413,7 +471,6 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
         done = False
         episode_reward = 0.0
         steps = 0
-        key = set_seeds(ep_seed)
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             # step env (numpy interface)
@@ -452,7 +509,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
     model_path = Path(__file__).parents[2] / "saves/ppo_model_flax.ckpt"
     jax_device = args.jax_device
 
-    if train:  # use "--do_train False" to skip training
+    if train:  # use "--train False" to skip training
         _ = train_ppo(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes

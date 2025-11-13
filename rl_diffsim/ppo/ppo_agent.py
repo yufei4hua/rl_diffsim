@@ -79,8 +79,8 @@ class Agent(struct.PyTreeNode):
         dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
         actor_params = actor.init(k1, dummy_obs)
         critic_params = critic.init(k2, dummy_obs)
-        actor_tx = optax.adam(learning_rate=actor_lr)
-        critic_tx = optax.adam(learning_rate=critic_lr)
+        actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
+        critic_tx = optax.adamw(learning_rate=critic_lr, eps=1e-5)
         actor_states = train_state.TrainState.create(
             apply_fn=actor.apply,
             params=actor_params,

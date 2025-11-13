@@ -17,6 +17,7 @@ from torch import Tensor
 from torch.distributions.normal import Normal
 
 import wandb
+from rl_diffsim.envs.figure_eight_jittable import FigureEightEnv
 from rl_diffsim.envs.rand_traj import RandTrajEnv
 from rl_diffsim.ppo.wrappers import (
     ActionPenalty,
@@ -119,7 +120,7 @@ def make_envs(
         reset_rotor: bool = False,
     ) -> VectorEnv:
     """Make environments for training RL policy."""
-    env: RandTrajEnv = RandTrajEnv(
+    env: FigureEightEnv = FigureEightEnv(
         n_samples=10,
         num_envs=num_envs,
         freq=50,

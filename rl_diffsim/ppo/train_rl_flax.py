@@ -1,7 +1,6 @@
 """A naive RL pipeline for drone racing."""
 import functools
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from jax import Array
 from ppo_agent import Agent
 
 import wandb
+from rl_diffsim.envs.figure_eight_jittable import FigureEightEnv
 from rl_diffsim.envs.rand_traj import RandTrajEnv
 from rl_diffsim.ppo.wrappers import (
     ActionPenalty,
@@ -26,7 +26,6 @@ from rl_diffsim.ppo.wrappers import (
     RecordData,
 )
 
-# jax.config.update("jax_log_compiles", True)
 
 # region Arguments
 @dataclass(frozen=True)
@@ -111,19 +110,6 @@ class Args:
             num_iterations=num_iterations,
         )
 
-# region Utils
-@flax.struct.dataclass
-class RolloutData:
-    """Class for storing rollout data."""
-    obs: jp.array
-    actions: jp.array
-    logprobs: jp.array
-    rewards: jp.array
-    dones: jp.array
-    values: jp.array
-    advantages: jp.array
-    returns: jp.array
-
 # region MakeEnvs
 def make_envs(
         num_envs: int = None,
@@ -132,7 +118,7 @@ def make_envs(
         reset_rotor: bool = False,
     ) -> VectorEnv:
     """Make environments for training RL policy."""
-    env: RandTrajEnv = RandTrajEnv(
+    env: FigureEightEnv = FigureEightEnv(
         n_samples=10,
         num_envs=num_envs,
         freq=50,
@@ -152,16 +138,90 @@ def make_envs(
         d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
     )
     env = FlattenJaxObservation(env)
-    # env = ObsNoise(env, noise_std=0.01)
     return env
+
+# region Utils
+@flax.struct.dataclass
+class RolloutData:
+    """Class for storing rollout data."""
+    obs: Array
+    actions: Array
+    logprobs: Array
+    rewards: Array
+    dones: Array
+    values: Array
+    advantages: Array
+    returns: Array
+
+# region Rollout
+# @functools.partial(jax.jit, static_argnames=("envs", "args"))
+def collect_rollout(
+        envs: VectorEnv,
+        args: Args,
+        agent: Agent,
+        next_obs: Array,
+        next_done: Array,
+        sum_rewards: Array,
+        key: Array,
+    ) -> tuple[dict, Array, Array, Array]:
+    """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
+    # buffers
+    obs_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
+    actions_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
+    logprobs_buf = jp.zeros((args.num_steps, args.num_envs))
+    rewards_buf = jp.zeros((args.num_steps, args.num_envs))
+    dones_buf = jp.zeros((args.num_steps, args.num_envs))
+    values_buf = jp.zeros((args.num_steps, args.num_envs))
+    sum_rewards_log = []
+
+    # start game
+    batch_step = 0
+    obs = next_obs
+    dones = next_done
+    for step in range(args.num_steps):
+        batch_step += args.num_envs
+        obs_buf = obs_buf.at[step].set(obs)
+        dones_buf = dones_buf.at[step].set(dones)
+
+        (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
+        value = agent.get_value(agent.critic_states.params, obs)
+
+        values_buf = values_buf.at[step].set(value)
+        actions_buf = actions_buf.at[step].set(action)
+        logprobs_buf = logprobs_buf.at[step].set(logprob)
+
+        # step envs
+        next_obs, reward, terminations, truncations, infos = envs.step(action) # TODO: this is currently not jittable
+        # envs.render()
+
+        rewards_buf = rewards_buf.at[step].set(reward)
+        sum_rewards = sum_rewards + reward
+        sum_rewards = jp.where(dones, 0.0, sum_rewards)
+        dones = terminations | truncations
+
+        if dones.any():
+            sum_rewards_log.append((batch_step, jp.mean(sum_rewards[dones])))
+
+        obs = next_obs
+
+    return RolloutData(
+        obs=obs_buf,
+        actions=actions_buf,
+        logprobs=logprobs_buf,
+        rewards=rewards_buf,
+        dones=dones_buf,
+        values=values_buf,
+        returns=jp.zeros_like(rewards_buf),
+        advantages=jp.zeros_like(rewards_buf),
+    ), obs, dones, sum_rewards, sum_rewards_log, key
 
 # region GAE
 @functools.partial(jax.jit, static_argnames=("args",))
 def compute_gae(
     args: Args,
     agent: Agent,
-    next_obs: np.ndarray,
-    next_done: np.ndarray,
+    next_obs: Array,
+    next_done: Array,
     data: RolloutData,
 ) -> RolloutData:
     """Compute GAE advantages and returns."""
@@ -190,75 +250,13 @@ def compute_gae(
     )
     return data
 
-# region Rollout
-# @functools.partial(jax.jit, static_argnames=("envs", "args", "get_action_sample_fn", "get_value_fn"))
-def collect_rollout(
-        envs: VectorEnv, 
-        args: Args, 
-        agent: Agent,
-        next_obs: dict, 
-        next_done: dict, 
-        key: jax.random.PRNGKey
-    ) -> tuple[dict, Array, Array, Array]:
-    """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
-    # buffers
-    obs_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
-    actions_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
-    logprobs_buf = jp.zeros((args.num_steps, args.num_envs))
-    rewards_buf = jp.zeros((args.num_steps, args.num_envs))
-    dones_buf = jp.zeros((args.num_steps, args.num_envs))
-    values_buf = jp.zeros((args.num_steps, args.num_envs))
-
-    sum_rewards = jp.zeros((args.num_envs,))
-    sum_rewards_hist: list[tuple[int, float]] = []
-    global_step = 0
-
-    obs = next_obs
-    dones = next_done
-    for step in range(args.num_steps):
-        global_step += args.num_envs
-        obs_buf = obs_buf.at[step].set(obs)
-        dones_buf = dones_buf.at[step].set(dones)
-
-        (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
-        value = agent.get_value(agent.critic_states.params, obs)
-
-        values_buf = values_buf.at[step].set(value)
-        actions_buf = actions_buf.at[step].set(action)
-        logprobs_buf = logprobs_buf.at[step].set(logprob)
-
-        # step envs
-        next_obs, reward, terminations, truncations, infos = envs.step(action) # TODO: this is currently not jittable
-        # envs.render()
-
-        rewards_buf = rewards_buf.at[step].set(reward)
-        sum_rewards = sum_rewards + reward
-        sum_rewards = jp.where(dones, 0.0, sum_rewards)
-        dones = terminations | truncations
-
-        if dones.any():
-            sum_rewards_hist.append((global_step, jp.mean(sum_rewards[dones])))
-
-        obs = next_obs
-
-    return RolloutData(
-        obs=obs_buf,
-        actions=actions_buf,
-        logprobs=logprobs_buf,
-        rewards=rewards_buf,
-        dones=dones_buf,
-        values=values_buf,
-        returns=jp.zeros_like(rewards_buf),
-        advantages=jp.zeros_like(rewards_buf),
-    ), obs, dones, sum_rewards_hist, key
-
 # region PG
 @functools.partial(jax.jit, static_argnames=("args",))
 def update_policy(
         args: Args,
         agent: Agent,
         data: RolloutData,
-        key: jax.random.PRNGKey,
+        key: Array,
     ) -> float:
     """Performs PPO updates. Returns losses."""
 
@@ -270,7 +268,7 @@ def update_policy(
         pg_loss1 = -adv_mb * ratio
         pg_loss2 = -adv_mb * jp.clip(ratio, 1.0 - args.clip_coef, 1.0 + args.clip_coef)
         pg_loss = jp.mean(jp.maximum(pg_loss1, pg_loss2))
-        entropy_loss = jp.mean(entropy)
+        entropy_loss = -jp.mean(entropy)
 
         # ppo value loss (clip by default)
         value = agent.get_value(critic_params, obs_mb).reshape(-1)
@@ -279,9 +277,9 @@ def update_policy(
         v_clipped_loss = (v_clipped - ret_mb) ** 2
         v_loss = 0.5 * jp.mean(jp.maximum(v_unclipped, v_clipped_loss))
 
-        loss = pg_loss - args.ent_coef * entropy_loss + args.vf_coef * v_loss
+        loss = pg_loss + args.ent_coef * entropy_loss + args.vf_coef * v_loss
         approx_kl = jp.mean((ratio - 1.0) - (logp - old_logprobs_mb))
-        return loss, (pg_loss, v_loss, entropy_loss, jax.lax.stop_gradient(approx_kl))
+        return loss, (pg_loss, v_loss, entropy_loss, approx_kl)
     
     grad_fn = jax.value_and_grad(loss_fn, argnums=(0, 1), has_aux=True)
 
@@ -289,12 +287,13 @@ def update_policy(
     def update_epoch(carry: tuple[Agent, jax.random.PRNGKey], inp: int) -> tuple[Agent, jax.random.PRNGKey]:
         agent, key = carry
         key, subkey = jax.random.split(key)
-        def process_data(x: jp.array) -> jp.array:
+        def process_data(x: Array) -> Array:
             x = x.reshape((-1,) + x.shape[2:])
             x = jax.random.permutation(subkey, x)
             x = jp.reshape(x, (args.num_minibatches, -1) + x.shape[1:])
             return x
         minibatches = jax.tree_util.tree_map(process_data, data)
+
         # minibatch: scan minibatches
         def update_minibatch(carry: Agent, minibatch: int) -> Agent:
             agent = carry
@@ -308,7 +307,6 @@ def update_policy(
                 minibatch.returns, 
                 minibatch.values
             )
-
             return agent.replace(
                 actor_states=agent.actor_states.apply_gradients(grads=g_actor),
                 critic_states=agent.critic_states.apply_gradients(grads=g_critic)
@@ -324,7 +322,7 @@ def update_policy(
     y_true = data.returns.reshape(-1)
     var_y = jp.var(y_true)
     explained_var = jp.where(var_y == 0, jp.nan, 1.0 - jp.var(y_true - y_pred) / var_y)
-    return pg_loss, v_loss, entropy_loss, approx_kl, explained_var, key
+    return (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var)
 
 # region Train
 def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> None:
@@ -375,40 +373,40 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     global_step = 0
     next_obs, _ = envs.reset(seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
-    sum_rewards_hist = []
+    sum_rewards = jp.zeros((args.num_envs,))
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iter {iteration}/{args.num_iterations}", end=": ")
         start_time = time.time()
         # 1. collect rollouts
-        data, next_obs, next_done, sum_rewards_hist_batch, key = collect_rollout(
+        data, next_obs, next_done, sum_rewards, sum_rewards_log, key = collect_rollout(
             envs=envs, 
             args=args, 
             agent=agent,
             next_obs=next_obs, 
             next_done=next_done, 
+            sum_rewards=sum_rewards,
             key=key
         )
         print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
         # 2. compute GAE
         start_gae_time = time.time()
-        data = compute_gae(args, agent, next_obs,  next_done, data)
+        data = compute_gae(args, agent, next_obs, next_done, data)
         print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
         # 3. update policy
         start_pg_time = time.time()
-        pg_loss, v_loss, entropy_loss, approx_kl, explained_var, key = update_policy(args, agent, data, key)
+        (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var) = update_policy(args, agent, data, key)
         print(f"PG {time.time() - start_pg_time:.5f} s", end=", ")
         # 4. logging
-        sum_rewards_hist.extend(sum_rewards_hist_batch)
         print(f"total {time.time() - start_time:.5f} s")
 
         if wandb_enabled:
-            for step, reward in sum_rewards_hist_batch:
-                wandb.log({"train/reward": reward}, step=global_step+step)
+            for batch_step, reward in sum_rewards_log:
+                wandb.log({"train/reward": reward}, step=global_step+batch_step)
             wandb.log({
                 "losses/pg_loss": jp.mean(pg_loss),
                 "losses/v_loss": jp.mean(v_loss),
-                "losses/entropy_loss": jp.mean(entropy_loss),
+                "losses/entropy": -jp.mean(entropy_loss),
                 "losses/approx_kl": jp.mean(approx_kl),
                 "losses/explained_variance": jp.mean(explained_var),
                 "charts/SPS": int(global_step / (time.time() - train_start_time)),
@@ -426,7 +424,6 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         print(f"model saved to {model_path}")
     envs.close()
 
-    return sum_rewards_hist
 
 # region Evaluate
 def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, float, list, list]:
@@ -466,19 +463,17 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 
     for episode in range(n_eval):
         obs, _ = eval_env.reset(seed=(ep_seed := ep_seed + 1))
-        obs = jp.array(obs)
         done = False
         episode_reward = 0.0
         steps = 0
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             # step env (numpy interface)
-            obs_np, reward, terminated, truncated, info = eval_env.step(action)
+            obs, reward, terminated, truncated, info = eval_env.step(action)
             eval_env.render()
             done = bool(terminated | truncated)
             episode_reward += float(np.asarray(reward).item())
             steps += 1
-            obs = jp.array(obs_np)
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
@@ -509,7 +504,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training
-        _ = train_ppo(args, model_path, jax_device, wandb_enabled)
+        train_ppo(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
         fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path)

@@ -15,11 +15,14 @@ Note:
 
 from gymnasium import register
 
+from rl_diffsim.envs.figure_eight_jittable import FigureEightEnv
 from rl_diffsim.envs.rand_traj import RandTrajEnv
 
 # region SimEnvs
 
 register(id="DroneRandTraj-v0", vector_entry_point=RandTrajEnv)
+
+register(id="DroneFigureEight-v0", vector_entry_point=FigureEightEnv)
 
 # register(
 #     id="DroneRacing-v0",

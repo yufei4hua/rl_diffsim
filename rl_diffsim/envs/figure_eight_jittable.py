@@ -14,7 +14,7 @@ from gymnasium.vector.utils import batch_space
 from jax import Array
 
 
-class RandTrajEnv(DroneEnv):
+class FigureEightEnv(DroneEnv):
     """Drone environment for following a random trajectory.
     
     This environment is used to follow a random trajectory. The observations contain the
@@ -92,17 +92,6 @@ class RandTrajEnv(DroneEnv):
         # self.sim.data = data.replace(states=data.states.replace(pos=jp.broadcast_to(self.takeoff_pos, (data.core.n_worlds, data.core.n_drones, 3))))
         self.sim.build_default_data()
 
-        # # Create a random trajectory based on spline interpolation (example, kept commented)
-        # n_steps = int(jp.ceil(self.trajectory_time * self.freq).item())
-        # t = jp.linspace(0, self.trajectory_time, n_steps)
-        # # Random control points
-        # scale = jp.array([1.2, 1.2, 0.5])
-        # waypoints = jp.array(jax.random.uniform(jax.random.PRNGKey(0), shape=(self.sim.n_worlds, self.num_waypoints, 3), minval=-1, maxval=1)) * scale
-        # waypoints = waypoints + 0.3*self.takeoff_pos + jp.array([0.0, 0.0, 0.7]) # shift up in z direction
-        # waypoints[:, 0, :] = self.takeoff_pos # set start point to takeoff position
-        # spline = CubicSpline(jp.linspace(0, self.trajectory_time, self.num_waypoints), waypoints, axis=1)
-        # self.trajectories = spline(t)  # (n_worlds, n_steps, 3)
-
         # Update observation space
         spec = {k: v for k, v in self.single_observation_space.items()}
         # use Python floats for infinity (compatible with gym spaces)
@@ -114,16 +103,6 @@ class RandTrajEnv(DroneEnv):
         self, *, seed: int | None = None, options: dict | None = None
     ) -> tuple[dict[str, Array], dict]:
         """Reset."""
-        # # Create a random trajectory based on spline interpolation (example, kept commented)
-        # t = jp.linspace(0, self.trajectory_time, self.n_steps)
-        # scale = jp.array([1.2, 1.2, 0.5])
-        # waypoints = jp.array(jax.random.uniform(jax.random.PRNGKey(0), shape=(self.sim.n_worlds, self.num_waypoints, 3), minval=-1, maxval=1)) * scale
-        # waypoints = waypoints + 0.3*self.takeoff_pos + jp.array([0.0, 0.0, 0.7]) # shift up in z direction
-        # waypoints[:, :3, :] = jp.array([[-1.5, 1.0, 0.07],[-1.0, 0.55, 0.4],[0.3, 0.35, 0.7]]) # set first three waypoints
-        # v0 = jp.tile(jp.array([[0.0, 0.0, 0.4]]), (self.sim.n_worlds, 1)) # takeoff velocity
-        # spline = CubicSpline(jp.linspace(0, self.trajectory_time, self.num_waypoints), waypoints, axis=1, bc_type=((1, v0), 'not-a-knot'))
-        # self.trajectories = spline(t)  # (n_worlds, n_steps, 3)
-
         super().reset(seed=seed)
         if seed is not None:
             self.sim.seed(seed)
@@ -158,21 +137,6 @@ class RandTrajEnv(DroneEnv):
         reward = jp.exp(-2.0 * norm_distance) # encourage flying close to goal
         reward = jp.where(self.terminated(), -1.0, reward) # penalize drones that crash into the ground
         return reward
-
-    def apply_action(self, action: Array):
-        """Apply the commanded state action to the simulation."""
-        action = action.reshape((self.sim.n_worlds, self.sim.n_drones, -1))
-        if "action" in self.disturbances:
-            key, subkey = jax.random.split(self.sim.data.core.rng_key)
-            action += self.disturbances["action"](subkey, action.shape)
-            self.sim.data = self.sim.data.replace(core=self.sim.data.core.replace(rng_key=key))
-        match self.sim.control:
-            case "attitude":
-                self.sim.attitude_control(action)
-            case "state":
-                self.sim.state_control(action)
-            case _:
-                raise ValueError(f"Unsupported control mode: {self.sim.control}")
 
     @property
     def steps(self) -> Array:

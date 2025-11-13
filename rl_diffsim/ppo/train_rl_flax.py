@@ -18,7 +18,6 @@ from ppo_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_eight_jittable import FigureEightEnv
-from rl_diffsim.envs.rand_traj import RandTrajEnv
 from rl_diffsim.ppo.wrappers import (
     ActionPenalty,
     AngleReward,
@@ -163,7 +162,7 @@ def collect_rollout(
         next_done: Array,
         sum_rewards: Array,
         key: Array,
-    ) -> tuple[dict, Array, Array, Array]:
+    ) -> tuple[RolloutData, Array, Array, Array, Array, Array]:
     """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
     # buffers
     obs_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)

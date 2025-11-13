@@ -122,20 +122,31 @@ class FigureEightEnv(DroneEnv):
     def obs(self) -> dict[str, Array]:
         """Observations."""
         obs = super().obs()
-        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
-        dpos = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx] - self.sim.data.states.pos
-        obs["local_samples"] = dpos.reshape(-1, 3 * self.n_samples)
+        obs["local_samples"] = self._aux_obs(self.trajectories, self.steps, self.sim.data.states.pos, self.sample_offsets)
         return obs
+    
+    @staticmethod
+    @jax.jit
+    def _aux_obs(trajectories: Array, steps: Array, pos: Array, sample_offsets: Array) -> dict[str, Array]:
+        """Static method version of obs for jitting."""
+        idx = jp.clip(steps + sample_offsets[None, ...], 0, trajectories.shape[1] - 1)
+        dpos = trajectories[jp.arange(trajectories.shape[0])[:, None], idx] - pos
+        local_samples = dpos.reshape(dpos.shape[0], dpos.shape[1] * dpos.shape[2])
+        return local_samples
 
     def reward(self) -> Array:
         """Rewards."""
-        obs = self.obs()
-        pos = obs["pos"] # (num_envs, 3)
+        pos = self.sim.data.states.pos[:, 0, :]
         goal = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], self.steps][:, 0, :] # (num_envs, 3)
+        return self._reward(self.terminated(), pos, goal)
+    
+    @staticmethod
+    @jax.jit
+    def _reward(terminated: Array, pos: Array, goal: Array) -> Array:
         # distance to next trajectory point
         norm_distance = jp.linalg.norm(pos - goal, axis=-1)
-        reward = jp.exp(-2.0 * norm_distance) # encourage flying close to goal
-        reward = jp.where(self.terminated(), -1.0, reward) # penalize drones that crash into the ground
+        reward = jp.exp(-2.0 * norm_distance)
+        reward = jp.where(terminated, -1.0, reward)
         return reward
 
     @property

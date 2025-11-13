@@ -243,6 +243,7 @@ def train_ppo(args: Args, model_path: Path, device: torch.device, jax_device: st
         sum_rewards_hist = []
 
         for iteration in range(1, args.num_iterations + 1):
+            print(f"Iter {iteration}/{args.num_iterations}", end=": ")
             start_time = time.time()
 
             # Annealing the rate if instructed to do so.
@@ -275,8 +276,10 @@ def train_ppo(args: Args, model_path: Path, device: torch.device, jax_device: st
                     for r in sum_rewards[next_done.bool()]:
                         wandb.log({"train/reward": r.item()}, step=global_step)
                         sum_rewards_hist.append(r.item())
+            print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
 
             # bootstrap value if not done
+            start_gae_time = time.time()
             with torch.no_grad():
                 next_value = agent.get_value(next_obs).reshape(1, -1)
                 advantages = torch.zeros_like(rewards).to(device)
@@ -291,7 +294,9 @@ def train_ppo(args: Args, model_path: Path, device: torch.device, jax_device: st
                     delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
                     advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
                 returns = advantages + values
-
+            print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
+            
+            start_pg_time = time.time()
             # flatten the batch
             b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
             b_logprobs = logprobs.reshape(-1)
@@ -358,6 +363,8 @@ def train_ppo(args: Args, model_path: Path, device: torch.device, jax_device: st
             var_y = np.var(y_true)
             explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
+            print(f"PG {time.time() - start_pg_time:.5f} s", end=", ")
+
             # TRY NOT TO MODIFY: record rewards for plotting purposes
             if wandb_enabled:
                 wandb.log(
@@ -373,8 +380,9 @@ def train_ppo(args: Args, model_path: Path, device: torch.device, jax_device: st
                         "charts/SPS": int(global_step / (time.time() - start_time)),
                     }, step=global_step
                 )
-            end_time = time.time()
-            print(f"Iter {iteration}/{args.num_iterations} took {end_time - start_time:.2f} seconds")
+            print(f"total {time.time() - start_time:.5f} s")
+            # end_time = time.time()
+            # print(f"Iter {iteration}/{args.num_iterations} took {end_time - start_time:.2f} seconds")
         train_end_time = time.time()
         print(f"Training for {global_step} steps took {train_end_time - train_start_time:.2f} seconds.")
         if model_path is not None:

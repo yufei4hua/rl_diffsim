@@ -223,12 +223,13 @@ def collect_rollout(
         (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
         value = agent.get_value(agent.critic_states.params, obs)
 
-        values_buf = values_buf.at[step].set(jp.squeeze(value))
+        values_buf = values_buf.at[step].set(value)
         actions_buf = actions_buf.at[step].set(action)
         logprobs_buf = logprobs_buf.at[step].set(logprob)
 
         # step envs
         next_obs, reward, terminations, truncations, infos = envs.step(action) # TODO: this is currently not jittable
+        # envs.render()
 
         rewards_buf = rewards_buf.at[step].set(reward)
         sum_rewards = sum_rewards + reward
@@ -236,8 +237,7 @@ def collect_rollout(
         dones = terminations | truncations
 
         if dones.any():
-            for r in sum_rewards[dones]:
-                sum_rewards_hist.append((global_step, float(r)))
+            sum_rewards_hist.append((global_step, jp.mean(sum_rewards[dones])))
 
         obs = next_obs
 
@@ -378,6 +378,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     sum_rewards_hist = []
 
     for iteration in range(1, args.num_iterations + 1):
+        print(f"Iter {iteration}/{args.num_iterations}", end=": ")
         start_time = time.time()
         # 1. collect rollouts
         data, next_obs, next_done, sum_rewards_hist_batch, key = collect_rollout(
@@ -389,17 +390,17 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             key=key
         )
         print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
-        # 2. bootstrap last value
+        # 2. compute GAE
         start_gae_time = time.time()
         data = compute_gae(args, agent, next_obs,  next_done, data)
         print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
         # 3. update policy
         start_pg_time = time.time()
         pg_loss, v_loss, entropy_loss, approx_kl, explained_var, key = update_policy(args, agent, data, key)
-        print(f"PG {time.time() - start_pg_time:.5f} s")
+        print(f"PG {time.time() - start_pg_time:.5f} s", end=", ")
         # 4. logging
         sum_rewards_hist.extend(sum_rewards_hist_batch)
-        print(f"Iter {iteration}/{args.num_iterations} took {time.time() - start_time:.2f} seconds")
+        print(f"total {time.time() - start_time:.5f} s")
 
         if wandb_enabled:
             for step, reward in sum_rewards_hist_batch:
@@ -444,18 +445,16 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     eval_env = make_envs(num_envs=1, coefs=r_coefs)
     eval_env = RecordData(eval_env)
 
-    # create Agent
+    # create Agent & load params
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
         hidden_size=64,
     )
-    # load params
     with open(model_path, "rb") as f:
         import pickle
         params = pickle.load(f)
-    
     agent = agent.replace(
         actor_states=agent.actor_states.replace(params=params["actor"]),
         critic_states=agent.critic_states.replace(params=params["critic"]),

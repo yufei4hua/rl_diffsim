@@ -39,8 +39,6 @@ class Args:
     """Class to store configurations."""
     seed: int = 42
     """seed of the experiment"""
-    torch_deterministic: bool = True
-    """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
     jax_device: str = "gpu"
@@ -51,7 +49,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 2_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -366,7 +364,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         "d_act_th_coef": args.d_act_th_coef,
         "act_coef": args.act_coef,
     }
-    envs = make_jitted_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs)
+    envs = make_jitted_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True)
 
     # setup annealing learning rate
     train_steps = args.num_iterations * args.update_epochs * args.num_minibatches

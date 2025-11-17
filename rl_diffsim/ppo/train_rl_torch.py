@@ -17,8 +17,7 @@ from torch import Tensor
 from torch.distributions.normal import Normal
 
 import wandb
-from rl_diffsim.envs.figure_eight_jittable import FigureEightEnv
-from rl_diffsim.envs.rand_traj import RandTrajEnv
+from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.ppo.wrappers import (
     ActionPenalty,
     AngleReward,

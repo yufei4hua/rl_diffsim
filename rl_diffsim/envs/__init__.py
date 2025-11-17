@@ -15,7 +15,7 @@ Note:
 
 from gymnasium import register
 
-from rl_diffsim.envs.figure_eight_jittable import FigureEightEnv
+from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.envs.rand_traj import RandTrajEnv
 
 # region SimEnvs

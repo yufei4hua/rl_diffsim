@@ -7,23 +7,25 @@ from typing import Any
 
 import fire
 import flax
+import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
 import optax
-from crazyflow.envs.norm_actions_wrapper import NormalizeActions
-from gymnasium.vector import VectorEnv
+from crazyflow.sim import Sim
 from jax import Array
 from ppo_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_8_env import FigureEightEnv
+from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.ppo.wrappers import (
     ActionPenalty,
     AngleReward,
     FlattenJaxObservation,
     RecordData,
 )
+from rl_diffsim.ppo.wrappers_jittable import FlattenJaxObservationJittable
 
 
 # region Arguments
@@ -110,12 +112,41 @@ class Args:
         )
 
 # region MakeEnvs
+def make_jitted_envs(
+        num_envs: int = None,
+        jax_device: str = "cpu",
+        coefs: dict = {},
+        reset_rotor: bool = False,
+    ) -> FigureEightJittableEnv:
+    """Make environments for training RL policy."""
+    env: FigureEightJittableEnv = FigureEightJittableEnv.create(
+        n_samples=10,
+        num_envs=num_envs,
+        freq=50,
+        drone_model="cf21B_500",
+        physics="so_rpy_rotor_drag",
+        device=jax_device,
+        reset_rotor=reset_rotor,
+    )
+    
+    # env = NormalizeActions(env)
+    # # env = ActionTransform(env)
+    # env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    # env = ActionPenalty(
+    #     env,
+    #     act_coef=coefs.get("act_coef", 0.04),
+    #     d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
+    #     d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
+    # )
+    env = FlattenJaxObservationJittable.create(env)
+    return env
+
 def make_envs(
         num_envs: int = None,
         jax_device: str = "cpu",
         coefs: dict = {},
         reset_rotor: bool = False,
-    ) -> VectorEnv:
+    ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv(
         n_samples=10,
@@ -153,57 +184,44 @@ class RolloutData:
     returns: Array
 
 # region Rollout
+@functools.partial(jax.jit, static_argnames=("args",))
 def collect_rollout(
-        envs: VectorEnv,
+        envs: struct.PyTreeNode,
         args: Args,
         agent: Agent,
         next_obs: Array,
         next_done: Array,
         sum_rewards: Array,
         key: Array,
-    ) -> tuple[RolloutData, Array, Array, Array, Array, Array]:
+    ) -> tuple[RolloutData, Array, Array, Array, Array]:
     """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
-    # buffers
-    obs_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
-    actions_buf = jp.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
-    logprobs_buf = jp.zeros((args.num_steps, args.num_envs))
-    rewards_buf = jp.zeros((args.num_steps, args.num_envs))
-    dones_buf = jp.zeros((args.num_steps, args.num_envs))
-    values_buf = jp.zeros((args.num_steps, args.num_envs))
-    sum_rewards_log = []
 
-    # start game
-    batch_step = 0
-    obs = next_obs
-    dones = next_done
-    for step in range(args.num_steps):
-        batch_step += args.num_envs
-        obs_buf = obs_buf.at[step].set(obs)
-        dones_buf = dones_buf.at[step].set(dones)
-
-        (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
+    # loop over args.num_steps
+    def step_once(carry: tuple, _) -> tuple[tuple, tuple]:
+        env, key, sum_rewards, obs, dones = carry
+        # 1. get action from policy
+        (action, logprob, entropy), key = agent.get_action_sample(
+            agent.actor_states.params, obs, key
+        )
         value = agent.get_value(agent.critic_states.params, obs)
 
-        values_buf = values_buf.at[step].set(value)
-        actions_buf = actions_buf.at[step].set(action)
-        logprobs_buf = logprobs_buf.at[step].set(logprob)
-
-        # step envs
-        next_obs, reward, terminations, truncations, infos = envs.step(action) # TODO: this is currently not jittable
-        # envs.render()
-
-        rewards_buf = rewards_buf.at[step].set(reward)
+        # 2. step environment
+        env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
         sum_rewards = sum_rewards + reward
+        sum_rewards = jp.where(dones, 0.0, sum_rewards)
         next_dones = terminations | truncations
 
-        if next_dones.any():
-            sum_rewards_log.append((batch_step, jp.mean(sum_rewards[next_dones])))
-            sum_rewards = jp.where(next_dones, 0.0, sum_rewards)
-            
-        obs = next_obs
-        dones = next_dones
+        return (env, key, sum_rewards, next_obs, next_dones), (obs, action, logprob, reward, dones, value)
 
-    return RolloutData(
+    (envs, key, sum_rewards, next_obs, next_done), rollout_data = jax.lax.scan(
+        step_once, 
+        (envs, key, sum_rewards, next_obs, next_done), 
+        length=args.num_steps
+    )
+
+    # construct rollout data
+    obs_buf, actions_buf, logprobs_buf, rewards_buf, dones_buf, values_buf = rollout_data
+    data = RolloutData(
         obs=obs_buf,
         actions=actions_buf,
         logprobs=logprobs_buf,
@@ -212,7 +230,8 @@ def collect_rollout(
         values=values_buf,
         returns=jp.zeros_like(rewards_buf),
         advantages=jp.zeros_like(rewards_buf),
-    ), next_obs, next_dones, sum_rewards, sum_rewards_log, key
+    )
+    return envs, data, next_obs, next_done, sum_rewards, key
 
 # region GAE
 @functools.partial(jax.jit, static_argnames=("args",))
@@ -346,7 +365,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         "d_act_th_coef": args.d_act_th_coef,
         "act_coef": args.act_coef,
     }
-    envs = make_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=False)
+    envs = make_jitted_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs)
 
     # setup annealing learning rate
     train_steps = args.num_iterations * args.update_epochs * args.num_minibatches
@@ -370,7 +389,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
     # start the game
     global_step = 0
-    next_obs, _ = envs.reset(seed=args.seed)
+    envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards = jp.zeros((args.num_envs,))
 
@@ -378,7 +397,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         print(f"Iter {iteration}/{args.num_iterations}", end=": ")
         start_time = time.time()
         # 1. collect rollouts
-        data, next_obs, next_done, sum_rewards, sum_rewards_log, key = collect_rollout(
+        envs, data, next_obs, next_done, sum_rewards, key = collect_rollout(
             envs=envs, 
             args=args, 
             agent=agent,
@@ -400,8 +419,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         print(f"total {time.time() - start_time:.5f} s")
 
         if wandb_enabled:
-            for batch_step, reward in sum_rewards_log:
-                wandb.log({"train/reward": reward}, step=global_step+batch_step)
+            wandb.log({"train/reward": jp.mean(sum_rewards[next_done])}, step=global_step + args.batch_size)
             wandb.log({
                 "losses/pg_loss": jp.mean(pg_loss),
                 "losses/v_loss": jp.mean(v_loss),
@@ -421,7 +439,6 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             import pickle
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
-    envs.close()
 
 
 # region Evaluate
@@ -458,7 +475,7 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 
     episode_rewards = []
     episode_lengths = []
-    ep_seed = args.seed
+    ep_seed = args.seed + 1
 
     for episode in range(n_eval):
         obs, _ = eval_env.reset(seed=(ep_seed := ep_seed + 1))

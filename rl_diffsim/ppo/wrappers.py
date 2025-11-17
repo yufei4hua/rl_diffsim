@@ -135,10 +135,11 @@ class FlattenJaxObservation(VectorObservationWrapper):
         super().__init__(env)
         self.single_observation_space = flatten_space(env.single_observation_space)
         self.observation_space = flatten_space(env.observation_space)
+        self._obs_keys = sorted(env.single_observation_space.spaces.keys())
 
     def observations(self, observations: dict) -> dict:
         """Flatten observations."""
-        return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1)
+        return jp.concatenate([jp.reshape(observations[k], (observations[k].shape[0], -1)) for k in self._obs_keys], axis=-1)
     
 class ObsNoise(VectorObservationWrapper):
     """Simple wrapper to add noise to the observations."""

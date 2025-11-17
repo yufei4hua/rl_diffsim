@@ -127,15 +127,14 @@ def make_envs(
         reset_rotor=reset_rotor,
     )
     
-    # env = NormalizeActions(env)
-    # # env = ActionTransform(env)
-    # env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
-    # env = ActionPenalty(
-    #     env,
-    #     act_coef=coefs.get("act_coef", 0.04),
-    #     d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
-    #     d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
-    # )
+    env = NormalizeActions(env)
+    env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = ActionPenalty(
+        env,
+        act_coef=coefs.get("act_coef", 0.04),
+        d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
+        d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
+    )
     env = FlattenJaxObservation(env)
     return env
 

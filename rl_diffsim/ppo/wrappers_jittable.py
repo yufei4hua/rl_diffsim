@@ -15,7 +15,107 @@ from jax.scipy.spatial.transform import Rotation as R
 
 
 @struct.dataclass
-class AngleRewardJittable(struct.PyTreeNode):
+class JittableWrapper(struct.PyTreeNode):
+    """Base class for jittable wrappers that delegates common metadata to the wrapped base.
+
+    Subclasses are expected to provide jitted `step` and `reset` callables and may override
+    any of the spaces by providing instance attributes (e.g. `single_observation_space`).
+    """
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    @property
+    def single_observation_space(self) -> spaces.Space:
+        """Return the single-observation Space of the wrapped base."""
+        return getattr(self.base, "single_observation_space")
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        """Return the (possibly batched) observation Space of the wrapped base."""
+        return getattr(self.base, "observation_space")
+
+    @property
+    def single_action_space(self) -> spaces.Space:
+        """Return the single-action Space of the wrapped base."""
+        return getattr(self.base, "single_action_space")
+
+    @property
+    def action_space(self) -> spaces.Space:
+        """Return the (possibly batched) action Space of the wrapped base."""
+        return getattr(self.base, "action_space")
+
+    @property
+    def num_envs(self) -> int:
+        """Return the number of parallel environments from the wrapped base."""
+        return getattr(self.base, "num_envs")
+
+    @property
+    def unwrapped(self) -> struct.PyTreeNode:
+        """Return the unwrapped (innermost) base environment."""
+        return getattr(self.base, "unwrapped", self.base)
+
+
+@struct.dataclass
+class NormalizeActionsJittable(JittableWrapper):
+    """Jittable wrapper that exposes actions in [-1, 1] and rescales them to the simulator range.
+
+    The wrapper stores the precomputed `scale` and `mean` as JAX arrays.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @property
+    def single_action_space(self) -> spaces.Space:
+        """Expose a normalized single-action space in [-1, 1]."""
+        base_space = self.base.single_action_space
+        return spaces.Box(-1.0, 1.0, shape=base_space.shape, dtype=base_space.dtype)
+
+    @property
+    def action_space(self) -> spaces.Space:
+        """Batched action space matching the wrapper's num_envs."""
+        return batch_space(self.single_action_space, self.num_envs)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode) -> "NormalizeActionsJittable":
+        """Create a NormalizeActions wrapper around `base`.
+
+        Parameters:
+            base: a jittable environment that exposes `single_action_space` and `num_envs`.
+
+        Returns:
+            NormalizeActionsJittable: wrapper with jitted step/reset.
+        """
+        # Read simulator action bounds from base (may be numpy arrays)
+        action_sim_low = jp.array(base.single_action_space.low)
+        action_sim_high = jp.array(base.single_action_space.high)
+
+        # Precompute scale and mean for rescaling from [-1,1] -> [low, high]
+        scale = (action_sim_high - action_sim_low) / 2.0
+        mean = (action_sim_high + action_sim_low) / 2.0
+
+        def _reset(env: "NormalizeActionsJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["NormalizeActionsJittable", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def _step(env: "NormalizeActionsJittable", actions: Array) -> tuple["NormalizeActionsJittable", tuple[Any, ...]]:
+            # actions are expected in [-1, 1]; clip and rescale to simulator range
+            action = jp.clip(actions, -1.0, 1.0) * scale + mean
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            env = env.replace(base=base_env)
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(
+            base=base,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
+
+@struct.dataclass
+class AngleRewardJittable(JittableWrapper):
     """Jittable wrapper to penalize orientation in the reward."""
     base: struct.PyTreeNode = struct.field(pytree_node=True)
 
@@ -24,7 +124,17 @@ class AngleRewardJittable(struct.PyTreeNode):
 
     @classmethod
     def create(cls, base: struct.PyTreeNode, rpy_coef: float = 0.08) -> "AngleRewardJittable":
-        def _reset(env: "AngleRewardJittable", *, seed: int | None = None, options: dict | None = None):
+        """Create an AngleRewardJittable around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+            rpy_coef: Coefficient used to penalize roll/pitch/yaw magnitudes in rewards.
+
+        Returns:
+            AngleRewardJittable: A configured wrapper with jitted step/reset.
+        """
+
+        def _reset(env: "AngleRewardJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["AngleRewardJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env)
             return env, (obs, info)
@@ -36,7 +146,7 @@ class AngleRewardJittable(struct.PyTreeNode):
             rewards -= rpy_coef * rpy_norm
             return rewards
 
-        def _step(env: "AngleRewardJittable", actions: Array):
+        def _step(env: "AngleRewardJittable", actions: Array) -> tuple["AngleRewardJittable", tuple[Any, ...]]:
             actions = actions.at[..., 2].set(0.0)
             base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(env.base, actions)
             rewards = _rewards(rewards, obs)
@@ -46,44 +156,33 @@ class AngleRewardJittable(struct.PyTreeNode):
 
         return cls(
             base=base,
-            rpy_coef=rpy_coef,
             step=jax.jit(_step),
             reset=jax.jit(_reset),
         )
 
-    @property
-    def single_observation_space(self):
-        return self.base.single_observation_space
-
-    @property
-    def observation_space(self):
-        return self.base.observation_space
-
-    @property
-    def action_space(self):
-        return self.base.action_space
-
-    @property
-    def num_envs(self):
-        return self.base.num_envs
-
-    @property
-    def unwrapped(self):
-        return getattr(self.base, "unwrapped", self.base)
 
 @struct.dataclass
-class ActionPenaltyJittable(struct.PyTreeNode):
+class ActionPenaltyJittable(JittableWrapper):
     """Jittable wrapper to apply action penalty and augment observations with last_action."""
 
     base: struct.PyTreeNode | AngleRewardJittable = struct.field(pytree_node=True)
-
-    single_observation_space: spaces.Dict = struct.field(pytree_node=False)
-    observation_space: spaces.Dict = struct.field(pytree_node=False)
-
     last_action: Array = struct.field(pytree_node=True)
 
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
+
+    @property
+    def single_observation_space(self) -> spaces.Space:
+        """Return the base single_observation_space augmented with last_action."""
+        spec = {k: v for k, v in self.base.single_observation_space.items()}
+        act_dim = self.base.action_space.shape[-1]
+        spec["last_action"] = spaces.Box(-np.inf, np.inf, shape=(act_dim,), dtype=np.float32)
+        return spaces.Dict(spec)
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        """Batched observation space matching the wrapper's num_envs."""
+        return batch_space(self.single_observation_space, self.num_envs)
 
     @classmethod
     def create(
@@ -93,92 +192,86 @@ class ActionPenaltyJittable(struct.PyTreeNode):
         d_act_th_coef: float = 0.2,
         d_act_xy_coef: float = 0.4,
     ) -> "ActionPenaltyJittable":
+        """Create an ActionPenaltyJittable that augments observations with `last_action` and applies action-based penalties to rewards.
+
+        Parameters:
+            base: The jittable environment to wrap.
+            act_coef, d_act_th_coef, d_act_xy_coef: Coefficients controlling the penalty terms.
+
+        Returns:
+            ActionPenaltyJittable: Configured wrapper instance.
+        """
         num_envs = base.num_envs
         act_dim = base.action_space.shape[-1]
-
-        spec = {k: v for k, v in base.single_observation_space.items()}
-        spec["last_action"] = spaces.Box(-np.inf, np.inf, shape=(act_dim,), dtype=np.float32)
-        single_observation_space = spaces.Dict(spec)
-        observation_space = batch_space(single_observation_space, num_envs)
-
+        # last_action is part of the observation dict (computed in property)
         last_action = jp.zeros((num_envs, act_dim), dtype=jp.float32)
-
-        def obs_with_last_action(env: "ActionPenaltyJittable", observations: dict[str, Array]) -> dict[str, Array]:
-            observations = dict(observations)
-            observations["last_action"] = env.last_action
-            return observations
-
-        def wrapped_reset(env: "ActionPenaltyJittable", *, seed: int | None = None, options: dict | None = None):
+        def _reset(env: "ActionPenaltyJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["ActionPenaltyJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env, last_action=jp.zeros_like(env.last_action))
-            obs = obs_with_last_action(env, obs)
+            obs["last_action"] = env.last_action
             return env, (obs, info)
 
-        def wrapped_step(env: "ActionPenaltyJittable", action: Array):
+        def _step(env: "ActionPenaltyJittable", action: Array) -> tuple["ActionPenaltyJittable", tuple[Any, ...]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
+            # penalty on actions
             action_diff = action - env.last_action
-
-            reward = reward - env.act_coef * action[..., -1] ** 2
-            reward = reward - env.d_act_th_coef * action_diff[..., -1] ** 2
-            reward = reward - env.d_act_xy_coef * jp.sum(action_diff[..., :3] ** 2, axis=-1)
+            # energy
+            reward = reward - act_coef * action[..., -1] ** 2
+            # smoothness
+            reward = reward - d_act_th_coef * action_diff[..., -1] ** 2
+            reward = reward - d_act_xy_coef * jp.sum(action_diff[..., :3] ** 2, axis=-1)
 
             new_last_action = action
             env = env.replace(base=base_env, last_action=new_last_action)
 
-            obs = obs_with_last_action(env, obs)
+            obs["last_action"] = env.last_action
             return env, (obs, reward, terminated, truncated, info)
 
         return cls(
             base=base,
-            act_coef=act_coef,
-            d_act_th_coef=d_act_th_coef,
-            d_act_xy_coef=d_act_xy_coef,
-            single_observation_space=single_observation_space,
-            observation_space=observation_space,
             last_action=last_action,
-            step=jax.jit(wrapped_step),
-            reset=jax.jit(wrapped_reset),
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
         )
 
-    @property
-    def action_space(self):
-        return self.base.action_space
-
-    @property
-    def num_envs(self):
-        return self.base.num_envs
-
-    @property
-    def unwrapped(self):
-        return getattr(self.base, "unwrapped", self.base)
-
 @struct.dataclass
-class FlattenJaxObservationJittable(struct.PyTreeNode):
+class FlattenJaxObservationJittable(JittableWrapper):
     """Jittable wrapper to flatten dict observations into a single array."""
     base: Any = struct.field(pytree_node=True)
 
-    single_observation_space: spaces.Box = struct.field(pytree_node=False)
-    observation_space: spaces.Box = struct.field(pytree_node=False)
+    @property
+    def single_observation_space(self) -> spaces.Space:
+        """Flattened single-observation space derived from the base."""
+        return flatten_space(self.base.single_observation_space)
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        """Flattened (batched) observation space derived from the base."""
+        return flatten_space(self.base.observation_space)
 
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
 
     @classmethod
     def create(cls, base: Any) -> "FlattenJaxObservationJittable":
-        single_observation_space = flatten_space(base.single_observation_space)
-        observation_space = flatten_space(base.observation_space)
+        """Create a FlattenJaxObservationJittable that concatenates dict observations.
+
+        Parameters:
+            base: The jittable environment to wrap.
+
+        Returns:
+            FlattenJaxObservationJittable: Configured wrapper instance.
+        """
 
         def flatten_obs(observations: dict[str, Array]) -> Array:
             return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1)
-
-        def wrapped_reset(env: "FlattenJaxObservationJittable", *, seed: int | None = None, options: dict | None = None):
+        def _reset(env: "FlattenJaxObservationJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["FlattenJaxObservationJittable", tuple[Array, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             flat_obs = flatten_obs(obs)
             env = env.replace(base=base_env)
             return env, (flat_obs, info)
-
-        def wrapped_step(env: "FlattenJaxObservationJittable", action: Array):
+        def _step(env: "FlattenJaxObservationJittable", action: Array) -> tuple["FlattenJaxObservationJittable", tuple[Array, Any]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
             flat_obs = flatten_obs(obs)
             env = env.replace(base=base_env)
@@ -186,32 +279,14 @@ class FlattenJaxObservationJittable(struct.PyTreeNode):
 
         return cls(
             base=base,
-            single_observation_space=single_observation_space,
-            observation_space=observation_space,
-            step=jax.jit(wrapped_step),
-            reset=jax.jit(wrapped_reset),
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
         )
-
-    @property
-    def single_action_space(self):
-        return self.base.single_action_space
-    
-    @property
-    def action_space(self):
-        return self.base.action_space
-
-    @property
-    def num_envs(self):
-        return self.base.num_envs
-
-    @property
-    def unwrapped(self):
-        return getattr(self.base, "unwrapped", self.base)
 
 if __name__ == "__main__":
     import time  # noqa: I001
     from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
-    """Test the jittable drone environment implementation."""
+    """Test the jittable wrappers implementation."""
     # Create the jittable environment
     env = FigureEightJittableEnv.create(
         num_envs=1024,
@@ -225,6 +300,10 @@ if __name__ == "__main__":
         samples_dt=0.1,
         reset_rotor=True,
     )
+    # wrap the environment
+    env = NormalizeActionsJittable.create(env)
+    env = AngleRewardJittable.create(env)
+    env = ActionPenaltyJittable.create(env)
     env = FlattenJaxObservationJittable.create(env)
 
     # Reset the environment
@@ -234,7 +313,7 @@ if __name__ == "__main__":
 
     def step_once(env: FigureEightJittableEnv, _) -> tuple[FigureEightJittableEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
-        base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
+        base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32) # fixed action
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
 
         env, (next_obs, reward, terminated, truncated, info) = env.step(env, action)

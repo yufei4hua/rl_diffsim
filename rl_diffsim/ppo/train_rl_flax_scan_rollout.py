@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jp
 import numpy as np
 import optax
-from crazyflow.sim import Sim
+from crazyflow.envs.norm_actions_wrapper import NormalizeActions
 from jax import Array
 from ppo_agent import Agent
 
@@ -25,7 +25,12 @@ from rl_diffsim.ppo.wrappers import (
     FlattenJaxObservation,
     RecordData,
 )
-from rl_diffsim.ppo.wrappers_jittable import FlattenJaxObservationJittable
+from rl_diffsim.ppo.wrappers_jittable import (
+    ActionPenaltyJittable,
+    AngleRewardJittable,
+    FlattenJaxObservationJittable,
+    NormalizeActionsJittable,
+)
 
 
 # region Arguments
@@ -129,15 +134,14 @@ def make_jitted_envs(
         reset_rotor=reset_rotor,
     )
     
-    # env = NormalizeActions(env)
-    # # env = ActionTransform(env)
-    # env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
-    # env = ActionPenalty(
-    #     env,
-    #     act_coef=coefs.get("act_coef", 0.04),
-    #     d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
-    #     d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
-    # )
+    env = NormalizeActionsJittable.create(env)
+    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = ActionPenaltyJittable.create(
+        env,
+        act_coef=coefs.get("act_coef", 0.04),
+        d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
+        d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
+    )
     env = FlattenJaxObservationJittable.create(env)
     return env
 
@@ -158,15 +162,14 @@ def make_envs(
         reset_rotor=reset_rotor,
     )
     
-    # env = NormalizeActions(env)
-    # # env = ActionTransform(env)
-    # env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
-    # env = ActionPenalty(
-    #     env,
-    #     act_coef=coefs.get("act_coef", 0.04),
-    #     d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
-    #     d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
-    # )
+    env = NormalizeActions(env)
+    env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = ActionPenalty(
+        env,
+        act_coef=coefs.get("act_coef", 0.04),
+        d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
+        d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
+    )
     env = FlattenJaxObservation(env)
     return env
 
@@ -200,9 +203,7 @@ def collect_rollout(
     def step_once(carry: tuple, _) -> tuple[tuple, tuple]:
         env, key, sum_rewards, obs, dones = carry
         # 1. get action from policy
-        (action, logprob, entropy), key = agent.get_action_sample(
-            agent.actor_states.params, obs, key
-        )
+        (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
         value = agent.get_value(agent.critic_states.params, obs)
 
         # 2. step environment

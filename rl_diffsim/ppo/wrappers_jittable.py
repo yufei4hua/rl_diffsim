@@ -472,10 +472,9 @@ class RenderSimJittable(JittableWrapper):
             reset=jax.jit(_reset),
         )
 
-    def render(self, env: struct.PyTreeNode, mode: str = "human"):
+    def render(self, env: struct.PyTreeNode):
         """Sync current data into sim and call its render function."""
-        data = env.unwrapped.data
-        self.sim.data = data
+        self.sim.data = env.unwrapped.data
         self.sim.render(world=self.world)
 
     def close(self):

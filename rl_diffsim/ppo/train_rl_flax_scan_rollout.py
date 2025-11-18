@@ -370,7 +370,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             sum_rewards=sum_rewards,
             key=key
         )
-        envs.render(envs)
+        # envs.render(envs)
         print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
         # 2. compute GAE
         start_gae_time = time.time()
@@ -404,7 +404,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             import pickle
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
-    envs.close()
+    # envs.close()
 
 
 # region Evaluate

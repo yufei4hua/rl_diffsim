@@ -374,7 +374,7 @@ class RecordDataJittable(JittableWrapper):
         rmse = np.sqrt(np.mean(pos_err ** 2))
         return rmse
 
-    def plot_eval(self, save_path: str = "eval_plot.png") -> tuple[plt.Figure, list[plt.Axes], float]:
+    def plot_eval(self, save_path: str = "eval_plot.png"):
         """Plot recorded traces and save to `save_path`."""
         import matplotlib
         matplotlib.use("Agg")  # render to raster images
@@ -430,8 +430,6 @@ class RecordDataJittable(JittableWrapper):
 
         plt.tight_layout()
         plt.savefig(Path(__file__).parent / save_path)
-
-        return fig, axes, rmse_pos
     
 @struct.dataclass
 class RenderSimJittable(JittableWrapper):

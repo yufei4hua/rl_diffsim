@@ -1,5 +1,5 @@
 """Jittable Drone Environment Implementation."""
-from typing import Callable, Literal, Mapping
+from typing import Callable, Literal
 
 import flax.struct as struct
 import jax

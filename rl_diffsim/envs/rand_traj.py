@@ -47,6 +47,7 @@ class RandTrajEnv(DroneEnv):
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
             device: Device to use for the simulation.
+            reset_rotor: Whether to reset rotor speeds on environment reset.
         """
         # Override reset randomization function
         self._reset_randomization = self.build_reset_randomization_fn(physics if reset_rotor else "no_reset_rotor")

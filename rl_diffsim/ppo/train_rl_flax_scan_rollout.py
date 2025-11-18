@@ -12,7 +12,6 @@ import jax
 import jax.numpy as jp
 import numpy as np
 import optax
-from crazyflow.envs.norm_actions_wrapper import NormalizeActions
 from jax import Array
 from ppo_agent import Agent
 
@@ -243,7 +242,7 @@ def update_policy(
     """Performs PPO updates. Returns losses."""
 
     # loss function
-    def loss_fn(actor_params, critic_params, obs_mb, acts_mb, old_logprobs_mb, adv_mb, ret_mb, val_mb):
+    def loss_fn(actor_params, critic_params, obs_mb, acts_mb, old_logprobs_mb, adv_mb, ret_mb, val_mb):  # noqa
         # ppo policy loss
         logp, entropy = agent.get_action_logprob(actor_params, obs_mb, acts_mb)
         ratio = jp.exp(logp - old_logprobs_mb)

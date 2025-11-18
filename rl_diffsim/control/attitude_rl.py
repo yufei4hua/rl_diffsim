@@ -20,7 +20,6 @@ import torch
 os.environ["SCIPY_ARRAY_API"] = "1"
 from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
-from scipy.interpolate import CubicSpline
 
 from rl_diffsim.control.controller import Controller
 from rl_diffsim.ppo.train_rl_torch import Agent

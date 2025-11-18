@@ -401,7 +401,7 @@ class ActionTransform(VectorActionWrapper):
     
     @staticmethod
     @jax.jit
-    def _action_rot2rpy(rot_mat, action_rot, action_scale) -> Array:
+    def _action_rot2rpy(rot_mat: Array, action_rot: Array, action_scale: Array) -> Array:
         """Convert rotation vector action to rpy commands."""
         rpy = (R.from_matrix(rot_mat.reshape(-1, 3, 3)) * R.from_rotvec(jp.clip(action_rot, -1.0, 1.0) * action_scale)).as_euler("xyz")
         return rpy

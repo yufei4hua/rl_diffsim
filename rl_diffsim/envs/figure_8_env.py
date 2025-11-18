@@ -7,7 +7,6 @@ import jax.numpy as jp
 from crazyflow.envs.drone_env import DroneEnv
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
-from crazyflow.sim.visualize import draw_line, draw_points
 from crazyflow.utils import leaf_replace
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
@@ -47,6 +46,7 @@ class FigureEightEnv(DroneEnv):
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
             device: Device to use for the simulation.
+            reset_rotor: Whether to reset rotor speeds on environment reset.
         """
         # Override reset randomization function
         self._reset_randomization = self.build_reset_randomization_fn(physics if reset_rotor else "no_reset_rotor")

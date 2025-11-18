@@ -85,6 +85,7 @@ class FigureEightJittableEnv(struct.PyTreeNode):
             n_samples: Number of next trajectory points to sample for observations.
             trajectory_time: Total time for completing the figure-eight trajectory in seconds.
             samples_dt: Time between trajectory sample points in seconds.
+            reset_rotor: Whether to reset rotor speeds on environment reset.
 
         Returns:
             An instance of FigureEightJittableEnv with jittable functions and data.

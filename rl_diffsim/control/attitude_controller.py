@@ -15,10 +15,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from drone_models.core import load_params
+from lsy_drone_racing.control import Controller
 from scipy.interpolate import CubicSpline
 from scipy.spatial.transform import Rotation as R
-
-from lsy_drone_racing.control import Controller
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray

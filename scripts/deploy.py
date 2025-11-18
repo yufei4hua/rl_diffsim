@@ -8,7 +8,6 @@ python deploy.py <path/to/controller.py> <path/to/config.toml>
 
 from __future__ import annotations
 
-import datetime
 import logging
 import multiprocessing as mp
 import os
@@ -22,7 +21,6 @@ import cflib
 import numpy as np
 import rclpy
 from cflib.crazyflie import Crazyflie, Localization
-from cflib.crazyflie.log import LogConfig
 from cflib.crtp import init_drivers
 from cflib.crtp.crtpstack import CRTPPacket, CRTPPort
 from cflib.utils.power_switch import PowerSwitch

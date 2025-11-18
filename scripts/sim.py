@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import fire
-import gymnasium
 import jax.numpy as jp
 import numpy as np
 from gymnasium.wrappers.vector.jax_to_numpy import JaxToNumpy

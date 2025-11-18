@@ -36,7 +36,6 @@ from crazyflow.sim.sim import use_box_collision
 # from crazyflow.sim.symbolic import symbolic_attitude
 from flax.struct import dataclass
 from gymnasium import spaces
-
 from lsy_drone_racing.envs.randomize import (
     randomize_drone_inertia_fn,
     randomize_drone_mass_fn,

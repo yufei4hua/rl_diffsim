@@ -35,11 +35,13 @@ class FigureEightJittableEnv(struct.PyTreeNode):
     num_envs: int = struct.field(pytree_node=False)
     max_episode_time: float = struct.field(pytree_node=False)
     physics: Physics = struct.field(pytree_node=False)
+    drone_model: str = struct.field(pytree_node=False)
+    freq: int = struct.field(pytree_node=False)
+    device: str = struct.field(pytree_node=False)
     single_action_space: spaces.Box = struct.field(pytree_node=False)
     action_space: spaces.Box = struct.field(pytree_node=False)
     single_observation_space: spaces.Dict = struct.field(pytree_node=False)
     observation_space: spaces.Dict = struct.field(pytree_node=False)
-    freq: int = struct.field(pytree_node=False)
     n_substeps: int = struct.field(pytree_node=False)
     # Immutable figure-eight parameters
     trajectories: Array = struct.field(pytree_node=False)
@@ -247,11 +249,13 @@ class FigureEightJittableEnv(struct.PyTreeNode):
             num_envs=num_envs,
             max_episode_time=max_episode_time,
             physics=physics,
+            freq=freq,
+            device=device,
+            drone_model=drone_model,
             single_action_space=single_action_space,
             action_space=action_space,
             single_observation_space=single_observation_space,
             observation_space=observation_space,
-            freq=freq,
             n_substeps=n_substeps,
             trajectories=trajectories,
             data=sim.data,

@@ -1,12 +1,14 @@
 """Jittable wrappers for struct.PyTreeNode-style environments."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
+from crazyflow.sim import Sim
 from gymnasium import spaces
 from gymnasium.spaces import flatten_space
 from gymnasium.vector.utils import batch_space
@@ -282,6 +284,201 @@ class FlattenJaxObservationJittable(JittableWrapper):
             step=jax.jit(_step),
             reset=jax.jit(_reset),
         )
+    
+@struct.dataclass
+class RecordDataJittable(JittableWrapper):
+    """Jittable wrapper that records debugging data during non-jitted runs.
+
+    The jitted `step`/`reset` do NOT perform recording (they are pure and
+    suitable for jitted rollouts). Use `record_step()` (a regular Python
+    method) when you want to run the environment and capture debug traces to
+    Python lists for later analysis. `calc_rmse` and `plot_eval` operate on
+    those collected lists and are intentionally non-jitted.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    _record_act: Array = struct.field(pytree_node=True)
+    _record_pos: Array = struct.field(pytree_node=True)
+    _record_goal: Array = struct.field(pytree_node=True)
+    _record_rpy: Array = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode) -> "RecordDataJittable":
+        """Create a RecordData wrapper around `base`.
+
+        The created wrapper exposes jitted `step`/`reset` for use in compiled
+        rollouts and returns a wrapper with initialized (empty) record buffers.
+        """
+        max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
+        num_envs = int(base.num_envs)
+        act_dim = int(base.action_space.shape[-1])
+        pos_dim = 3
+
+        # initialize buffers # TODO: this takes a lot of memory
+        empty_act = jp.zeros((max_T, num_envs, act_dim), dtype=jp.float32)
+        empty_pos = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
+        empty_goal = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
+        empty_rpy = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
+
+        def _reset(env: "RecordDataJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["RecordDataJittable", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env,
+                              _record_act=empty_act,
+                              _record_pos=empty_pos,
+                              _record_goal=empty_goal,
+                              _record_rpy=empty_rpy)
+            return env, (obs, info)
+
+        def _step(env: "RecordDataJittable", action: Array) -> tuple["RecordDataJittable", tuple[Any, ...]]:
+            # step the wrapped environment
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+
+            # extract host-visible sim arrays from the advanced base_env
+            raw = base_env.unwrapped
+
+            act = action  # shape: (num_envs, act_dim)
+            pos = raw.data.states.pos[:, 0, :]
+            goal = raw.trajectories[jp.arange(raw.steps.shape[0]), raw.steps.squeeze(1)]
+            rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
+
+            # record data
+            new_act = env._record_act.at[raw.steps, ...].set(act)
+            new_pos = env._record_pos.at[raw.steps, ...].set(pos)
+            new_goal = env._record_goal.at[raw.steps, ...].set(goal)
+            new_rpy = env._record_rpy.at[raw.steps, ...].set(rpy)
+
+            env = env.replace(base=base_env,
+                              _record_act=new_act,
+                              _record_pos=new_pos,
+                              _record_goal=new_goal,
+                              _record_rpy=new_rpy)
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(base=base,
+                   _record_act=empty_act,
+                   _record_pos=empty_pos,
+                   _record_goal=empty_goal,
+                   _record_rpy=empty_rpy,
+                   step=jax.jit(_step),
+                   reset=jax.jit(_reset))
+
+    def calc_rmse(self) -> float:
+        """Compute RMSE between recorded position and goal (return in meters)."""
+        pos = np.array(self._record_pos)     # shape: (T, num_envs, 3)
+        goal = np.array(self._record_goal)   # shape: (T, num_envs, 3)
+        pos_err = np.linalg.norm(pos - goal, axis=-1)  # shape: (T, num_envs)
+        rmse = np.sqrt(np.mean(pos_err ** 2))
+        return rmse
+
+    def plot_eval(self, save_path: str = "eval_plot.png") -> tuple[plt.Figure, list[plt.Axes], float]:
+        """Plot recorded traces and save to `save_path`."""
+        import matplotlib
+        matplotlib.use("Agg")  # render to raster images
+        import matplotlib.pyplot as plt
+        actions = np.array(self._record_act)
+        pos = np.array(self._record_pos)
+        goal = np.array(self._record_goal)
+        rpy = np.array(self._record_rpy)
+
+        fig, axes = plt.subplots(3, 4, figsize=(18, 12))
+        axes = axes.flatten()
+
+        # Actions
+        action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        for i in range(4):
+            axes[i].plot(actions[:, 0, i])
+            axes[i].set_title(f"{action_labels[i]} Command")
+            axes[i].set_xlabel("Time Step")
+            axes[i].set_ylabel("Action Value")
+            axes[i].grid(True)
+
+        # Position plots and goals
+        for i, label in enumerate(["X Position", "Y Position", "Z Position"]):
+            axes[4 + i].plot(pos[:, 0, i])
+            axes[4 + i].plot(goal[:, 0, i], linestyle="--")
+            axes[4 + i].set_title(label)
+            axes[4 + i].set_xlabel("Time Step")
+            axes[4 + i].set_ylabel("Position (m)")
+            axes[4 + i].grid(True)
+            axes[4 + i].legend(["Position", "Goal"])
+
+        # Position error
+        pos_err = np.linalg.norm(pos[:, 0] - goal[:, 0], axis=1)
+        axes[7].plot(pos_err)
+        axes[7].set_title("Position Error")
+        axes[7].set_xlabel("Time Step")
+        axes[7].set_ylabel("Error (m)")
+        axes[7].grid(True)
+
+        # Angles
+        rpy_labels = ["Roll", "Pitch", "Yaw"]
+        for i in range(3):
+            axes[8 + i].plot(rpy[:, 0, i])
+            axes[8 + i].set_title(f"{rpy_labels[i]} Angle")
+            axes[8 + i].set_xlabel("Time Step")
+            axes[8 + i].set_ylabel("Angle (rad)")
+            axes[8 + i].grid(True)
+
+        # compute RMSE for position
+        rmse_pos = np.sqrt(np.mean(pos_err**2))
+        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos*1000:.3f} mm", fontsize=14)
+        axes[11].axis("off")
+
+        plt.tight_layout()
+        plt.savefig(Path(__file__).parent / save_path)
+
+        return fig, axes, rmse_pos
+    
+@struct.dataclass
+class RenderSimJittable(JittableWrapper):
+    """Wrapper that keeps jitted step/reset, but adds a non-jittable render() via an external Sim."""
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    sim: Sim = struct.field(pytree_node=False)
+    world: int = struct.field(pytree_node=False)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode, world: int = 0) -> "RenderSimJittable":
+        """Wrap a jittable env with an external Sim for rendering."""
+
+        def _reset(env: "RenderSimJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["RenderSimJittable", tuple[Array, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def _step(env: "RenderSimJittable", action: Array) -> tuple["RenderSimJittable", tuple[Array, Any]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            env = env.replace(base=base_env)
+            return env, (obs, reward, terminated, truncated, info)
+        
+        sim = Sim(
+            n_worlds=base.unwrapped.num_envs, 
+            n_drones=1, 
+            drone_model=base.unwrapped.drone_model, 
+            device=base.unwrapped.device, 
+            physics=base.unwrapped.physics
+        )
+
+        return cls(
+            base=base,
+            sim=sim,
+            world=world,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
+    def render(self, env: struct.PyTreeNode, mode: str = "human"):
+        """Sync current data into sim and call its render function."""
+        data = env.unwrapped.data
+        self.sim.data = data
+        self.sim.render(world=self.world)
 
 if __name__ == "__main__":
     import time  # noqa: I001
@@ -293,7 +490,7 @@ if __name__ == "__main__":
         max_episode_time=10.0,
         physics="so_rpy_rotor_drag",
         drone_model="cf21B_500",
-        freq=500,
+        freq=50,
         device="gpu",
         n_samples=10,
         trajectory_time=10.0,
@@ -305,6 +502,8 @@ if __name__ == "__main__":
     env = AngleRewardJittable.create(env)
     env = ActionPenaltyJittable.create(env)
     env = FlattenJaxObservationJittable.create(env)
+    env = RecordDataJittable.create(env)
+    env = RenderSimJittable.create(env)
 
     # Reset the environment
     env, (obs, info) = env.reset(env, seed=42)
@@ -313,7 +512,7 @@ if __name__ == "__main__":
 
     def step_once(env: FigureEightJittableEnv, _) -> tuple[FigureEightJittableEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
-        base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32) # fixed action
+        base_action = jp.array([0.0, 0.0, 0.0, 0.1], dtype=jp.float32) # fixed action
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
 
         env, (next_obs, reward, terminated, truncated, info) = env.step(env, action)
@@ -347,6 +546,15 @@ if __name__ == "__main__":
     env, (pos_traj, vel_traj) = rollout_jit(env, 8)
     end_time = time.time()
     print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
+
+    # test rendering & data logging
+    env, (obs, info) = env.reset(env)
+    for step in range(500):
+        base_action = jp.array([0.2, 0.0, 0.0, 0.0], dtype=jp.float32) # fixed action
+        action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
+        env, _ = env.step(env, action)
+        env.render(env)
+    env.base.plot_eval(save_path="eval_plot_test.png")
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)

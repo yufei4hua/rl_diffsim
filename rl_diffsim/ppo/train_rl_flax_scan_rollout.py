@@ -39,8 +39,6 @@ class Args:
     """Class to store configurations."""
     seed: int = 42
     """seed of the experiment"""
-    cuda: bool = True
-    """if toggled, cuda will be enabled by default"""
     jax_device: str = "gpu"
     """environment device"""
     wandb_project_name: str = "rl-ppo-f8"

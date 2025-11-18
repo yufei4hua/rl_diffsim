@@ -480,6 +480,10 @@ class RenderSimJittable(JittableWrapper):
         self.sim.data = data
         self.sim.render(world=self.world)
 
+    def close(self):
+        """Close the underlying sim."""
+        self.sim.close()
+
 if __name__ == "__main__":
     import time  # noqa: I001
     from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv

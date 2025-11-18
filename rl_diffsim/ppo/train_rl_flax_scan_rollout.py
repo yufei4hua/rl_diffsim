@@ -17,19 +17,14 @@ from jax import Array
 from ppo_agent import Agent
 
 import wandb
-from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
-from rl_diffsim.ppo.wrappers import (
-    ActionPenalty,
-    AngleReward,
-    FlattenJaxObservation,
-    RecordData,
-)
 from rl_diffsim.ppo.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
+    RecordDataJittable,
+    RenderSimJittable,
 )
 
 
@@ -139,34 +134,6 @@ def make_jitted_envs(
         d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
     )
     env = FlattenJaxObservationJittable.create(env)
-    return env
-
-def make_envs(
-        num_envs: int = None,
-        jax_device: str = "cpu",
-        coefs: dict = {},
-        reset_rotor: bool = False,
-    ) -> FigureEightEnv:
-    """Make environments for training RL policy."""
-    env: FigureEightEnv = FigureEightEnv(
-        n_samples=10,
-        num_envs=num_envs,
-        freq=50,
-        drone_model="cf21B_500",
-        physics="so_rpy_rotor_drag",
-        device=jax_device,
-        reset_rotor=reset_rotor,
-    )
-    
-    env = NormalizeActions(env)
-    env = AngleReward(env, rpy_coef=coefs.get("rpy_coef", 0.04))
-    env = ActionPenalty(
-        env,
-        act_coef=coefs.get("act_coef", 0.04),
-        d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
-        d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
-    )
-    env = FlattenJaxObservation(env)
     return env
 
 # region Utils
@@ -363,6 +330,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         "act_coef": args.act_coef,
     }
     envs = make_jitted_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True)
+    envs = RenderSimJittable.create(envs)
 
     # setup annealing learning rate
     train_steps = args.num_iterations * args.update_epochs * args.num_minibatches
@@ -403,6 +371,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             sum_rewards=sum_rewards,
             key=key
         )
+        envs.render(envs)
         print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
         # 2. compute GAE
         start_gae_time = time.time()
@@ -436,6 +405,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             import pickle
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
+    envs.close()
 
 
 # region Evaluate
@@ -452,8 +422,9 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
         "d_act_th_coef": args.d_act_th_coef,
         "act_coef": args.act_coef,
     }
-    eval_env = make_envs(num_envs=1, coefs=r_coefs)
-    eval_env = RecordData(eval_env)
+    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
+    eval_env = RecordDataJittable.create(eval_env)
+    eval_env = RenderSimJittable.create(eval_env)
 
     # create Agent & load params
     agent = Agent.create(
@@ -472,19 +443,22 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 
     episode_rewards = []
     episode_lengths = []
-    ep_seed = args.seed + 1
+    ep_seed = args.seed
 
     for episode in range(n_eval):
-        obs, _ = eval_env.reset(seed=(ep_seed := ep_seed + 1))
+        # jitted env reset returns (env, (obs, info))
+        eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
         done = False
         episode_reward = 0.0
         steps = 0
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
-            # step env (numpy interface)
-            obs, reward, terminated, truncated, info = eval_env.step(action)
-            eval_env.render()
-            done = bool(terminated | truncated)
+            # step env using jittable API: env, (obs, reward, terminated, truncated, info)
+            eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
+            # render using the RenderSimJittable API
+            eval_env.render(eval_env)
+            done = (terminated | truncated)
+            # reward is a jax Array shaped (1,) — convert to float
             episode_reward += float(np.asarray(reward).item())
             steps += 1
 
@@ -494,12 +468,13 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 
     # plot figures, record RMSE if available
     try:
-        fig, _, _ = eval_env.plot_eval()
-        rmse_pos = eval_env.calc_rmse()
+        fig, _, _ = eval_env.base.plot_eval()
+        rmse_pos = eval_env.base.calc_rmse()
     except Exception:
         fig, rmse_pos = None, None
 
     eval_env.close()
+
     return fig, rmse_pos, episode_rewards, episode_lengths
 
 
@@ -521,7 +496,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
         fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path)
-        if wandb_enabled:
+        if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),
                 "eval/mean_steps": np.mean(episode_lengths),

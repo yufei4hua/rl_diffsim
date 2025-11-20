@@ -1,4 +1,5 @@
 """Sweep it!"""
+
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,7 @@ def train():
         # score -= 10 * rmse_pos
         run.log({"score": score})
 
+
 # 2: Define the search space
 sweep_configuration = {
     "method": "random",  # "random", "bayes", "grid"
@@ -41,6 +43,8 @@ sweep_configuration = {
 }
 
 # 3: Start the sweep
-sweep_id = wandb.sweep(sweep=sweep_configuration, project="ADR-PPO-sweep-racing", entity="fresssack")
+sweep_id = wandb.sweep(
+    sweep=sweep_configuration, project="ADR-PPO-sweep-racing", entity="fresssack"
+)
 
 wandb.agent(sweep_id, function=train, count=50)

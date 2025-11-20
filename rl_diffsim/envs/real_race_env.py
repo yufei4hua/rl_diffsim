@@ -33,9 +33,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-
-
-
 # region CoreEnv
 class RealDroneCoreEnv:
     """Deployable version of the (multi-agent) drone environments.
@@ -96,7 +93,7 @@ class RealDroneCoreEnv:
     def _reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:
         """Reset the environment and return the initial observation and info."""
         options = {} if options is None else options
-        
+
         self._reset_drone()
 
         if self.control_mode == "attitude":
@@ -128,12 +125,7 @@ class RealDroneCoreEnv:
         drone_quat = np.stack([self._ros_connector.quat[drone] for drone in self.drone_names])
         drone_vel = np.stack([self._ros_connector.vel[drone] for drone in self.drone_names])
         drone_ang_vel = np.stack([self._ros_connector.ang_vel[drone] for drone in self.drone_names])
-        obs = {
-            "pos": drone_pos,
-            "quat": drone_quat,
-            "vel": drone_vel,
-            "ang_vel": drone_ang_vel,
-        }
+        obs = {"pos": drone_pos, "quat": drone_quat, "vel": drone_vel, "ang_vel": drone_ang_vel}
         return obs
 
     def reward(self) -> float:
@@ -152,12 +144,9 @@ class RealDroneCoreEnv:
         """Check if the episode is terminated."""
         terminated = np.zeros(self.n_drones, dtype=bool)
         terminated[self.rank] |= not self._drone_healthy.is_set()
-        
+
         drone_pos = np.stack([self._ros_connector.pos[drone] for drone in self.drone_names])
-        terminated |= np.any(
-            (self.pos_limit_low > drone_pos)
-            | (drone_pos > self.pos_limit_high)
-        )
+        terminated |= np.any((self.pos_limit_low > drone_pos) | (drone_pos > self.pos_limit_high))
 
         return terminated
 
@@ -330,7 +319,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
     physical hardware. It handles communication with the drone through the cflib library and tracks
     the drone's position using a motion capture system via ROS2.
 
-    The environment provides basic drone control functionality with support for both state-based 
+    The environment provides basic drone control functionality with support for both state-based
     and attitude-based control modes.
 
     Features:

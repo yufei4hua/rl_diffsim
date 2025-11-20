@@ -31,7 +31,9 @@ if TYPE_CHECKING:
 class AttitudeRL(Controller):
     """Example of a controller using the collective thrust and attitude interface."""
 
-    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None):
+    def __init__(
+        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
+    ):
         """Initialize the attitude controller.
 
         Args:
@@ -53,7 +55,9 @@ class AttitudeRL(Controller):
         self.n_samples = 10
         self.samples_dt = 0.1
         self.trajectory_time = 10.0
-        self.sample_offsets = np.array(np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
+        self.sample_offsets = np.array(
+            np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
+        )
         self._tick = 0
 
         # # Race trajectory
@@ -92,11 +96,10 @@ class AttitudeRL(Controller):
         model_path = Path(__file__).parents[2] / "saves/ppo_model.ckpt"
         self.agent.load_state_dict(torch.load(model_path))
         self.last_action = np.array([0.0, 0.0, 0.0, self.drone_mass * 9.81], dtype=np.float32)
-        
+
         self._finished = False
 
         self.sim = sim  # For visualization
-
 
     def compute_control(
         self, obs: dict[str, NDArray[np.floating]], info: dict | None = None
@@ -125,12 +128,10 @@ class AttitudeRL(Controller):
         act = self._scale_actions(act.squeeze(0).numpy()).astype(np.float32)
 
         self._render()
-        
+
         return act
-    
-    def _obs_rl(
-            self, obs: dict[str, NDArray[np.floating]]
-        ) -> NDArray[np.floating]:
+
+    def _obs_rl(self, obs: dict[str, NDArray[np.floating]]) -> NDArray[np.floating]:
         """Extract the relevant parts of the observation for the RL policy."""
         obs_rl_key = ["pos", "quat", "vel", "ang_vel"]
         obs_rl = {k: obs[k] for k in obs_rl_key}
@@ -139,19 +140,32 @@ class AttitudeRL(Controller):
         obs_rl["local_samples"] = dpos.reshape(-1)  # (n_samples*3,)
         obs_rl["last_action"] = self.last_action  # (4,)
         return np.concatenate([v for v in obs_rl.values()], axis=-1).astype(np.float32)
-    
+
     def _scale_actions(self, actions: NDArray) -> NDArray:
         """Rescale and clip actions from [-1, 1] to [action_sim_low, action_sim_high]."""
-        scale = np.array([np.pi/2, np.pi/2, np.pi/2, (self.thrust_max - self.thrust_min) / 2.0], dtype=np.float32)
-        mean = np.array([0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32)
+        scale = np.array(
+            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0],
+            dtype=np.float32,
+        )
+        mean = np.array(
+            [0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32
+        )
         return np.clip(actions, -1.0, 1.0) * scale + mean
-    
+
     def _render(self):
         """Render the trajectory and the next waypoints."""
         idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
         next_trajectory = self.trajectory[idx]
-        draw_line(self.sim, self.trajectory[0:-1:2, :], rgba=np.array([1,1,1,0.4]), start_size=2.0, end_size=2.0)
-        draw_line(self.sim, next_trajectory, rgba=np.array([1,0,0,1]), start_size=3.0, end_size=3.0)
+        draw_line(
+            self.sim,
+            self.trajectory[0:-1:2, :],
+            rgba=np.array([1, 1, 1, 0.4]),
+            start_size=2.0,
+            end_size=2.0,
+        )
+        draw_line(
+            self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
+        )
         draw_points(self.sim, next_trajectory, rgba=np.array([1.0, 0, 0, 1]), size=0.01)
 
     def step_callback(

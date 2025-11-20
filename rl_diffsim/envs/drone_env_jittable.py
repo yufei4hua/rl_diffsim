@@ -1,4 +1,5 @@
 """Jittable Drone Environment Implementation."""
+
 from typing import Callable, Literal
 
 import flax.struct as struct
@@ -18,7 +19,7 @@ from jax import Array
 class DroneJittableEnv(struct.PyTreeNode):
     """Jittable Drone Environment.
 
-    This class defines a subclass of PyTreeNode that contains environment data and jittable functions, 
+    This class defines a subclass of PyTreeNode that contains environment data and jittable functions,
     allowing for efficient execution with JAX's JIT compilation. Pass env as an argument to jitted functions.
 
     Attributes:
@@ -31,6 +32,7 @@ class DroneJittableEnv(struct.PyTreeNode):
         obs_fn: Jittable observation extraction function.
         data: Simulation data structure.
     """
+
     # Immutable environment parameters
     num_envs: int = struct.field(pytree_node=False)
     max_episode_time: float = struct.field(pytree_node=False)
@@ -60,7 +62,8 @@ class DroneJittableEnv(struct.PyTreeNode):
         cls,
         num_envs: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.so_rpy_rotor_drag,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"]
+        | Physics = Physics.so_rpy_rotor_drag,
         drone_model: str = "cf21B_500",
         freq: int = 500,
         device: str = "cpu",
@@ -86,6 +89,7 @@ class DroneJittableEnv(struct.PyTreeNode):
         sim = Sim(
             n_worlds=num_envs, n_drones=1, drone_model=drone_model, device=device, physics=physics
         )
+
         def _reset_randomization(data: SimData, mask: Array) -> SimData:
             """Randomize the initial position and velocity of the drones."""
             # Sample initial position
@@ -100,6 +104,7 @@ class DroneJittableEnv(struct.PyTreeNode):
             # Setting initial ryp_rate when using physics.sys_id will not have an impact, so we skip it
             data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel))
             return data
+
         if reset_randomization is None:
             reset_randomization = _reset_randomization
         sim.reset_pipeline += (reset_randomization,)
@@ -142,10 +147,7 @@ class DroneJittableEnv(struct.PyTreeNode):
                 data = data.replace(core=data.core.replace(rng_key=rng_key))
             data = sim._reset(data, sim.default_data, None)
             _marked_for_reset = env._marked_for_reset.at[...].set(False)
-            return env.replace(
-                data=data, 
-                _marked_for_reset=_marked_for_reset
-            ), (_obs(data), {})
+            return env.replace(data=data, _marked_for_reset=_marked_for_reset), (_obs(data), {})
 
         def _reward(data: SimData) -> Array:
             return 0.0 * jp.ones((num_envs,), dtype=jp.float32, device=jax_device)
@@ -159,7 +161,9 @@ class DroneJittableEnv(struct.PyTreeNode):
         def _done(terminated: Array, truncated: Array) -> Array:
             return terminated | truncated
 
-        def _step(env: "DroneJittableEnv", action: Array) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
+        def _step(
+            env: "DroneJittableEnv", action: Array
+        ) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
             low, high = action_space.low, action_space.high
@@ -173,8 +177,11 @@ class DroneJittableEnv(struct.PyTreeNode):
             data = sim._step(data, n_substeps)
             # 3. handle autoreset & update mask
             sim._reset(data, sim.default_data, _marked_for_reset)
-            sim_time = (data.core.steps / data.core.freq)
-            terminated, truncated = _terminated(data.states.pos), _truncated(sim_time[..., 0], max_episode_time)
+            sim_time = data.core.steps / data.core.freq
+            terminated, truncated = (
+                _terminated(data.states.pos),
+                _truncated(sim_time[..., 0], max_episode_time),
+            )
             _marked_for_reset = _done(terminated, truncated)
             # 4. construct obs & rewards
             steps = data.core.steps // (sim.freq // freq) - 1
@@ -182,11 +189,13 @@ class DroneJittableEnv(struct.PyTreeNode):
             # goal = trajectories[jp.arange(trajectories.shape[0])[:, None], steps][:, 0, :]
             # reward = _reward(terminated, pos, goal)
 
-            return env.replace(
-                data=data,
-                steps=steps,
-                _marked_for_reset=_marked_for_reset,
-            ), (_obs(data), _reward(data), terminated, truncated, {})
+            return env.replace(data=data, steps=steps, _marked_for_reset=_marked_for_reset), (
+                _obs(data),
+                _reward(data),
+                terminated,
+                truncated,
+                {},
+            )
 
         # Initialize reset mask and step count
         steps = jp.zeros((num_envs, 1), dtype=jp.int32, device=jax_device)
@@ -212,9 +221,11 @@ class DroneJittableEnv(struct.PyTreeNode):
             terminated=jax.jit(_terminated),
             truncated=jax.jit(_truncated),
         )
-    
+
+
 if __name__ == "__main__":
     import time
+
     """Test the jittable drone environment implementation."""
     # Create the jittable environment
     env = DroneJittableEnv.create(
@@ -236,16 +247,16 @@ if __name__ == "__main__":
 
         env, (next_obs, reward, terminated, truncated, info) = env.step(env, action)
 
-        pos = env.data.states.pos[:, 0, :]   # (num_envs, 3)
-        vel = env.data.states.vel[:, 0, :]   # (num_envs, 3)
+        pos = env.data.states.pos[:, 0, :]  # (num_envs, 3)
+        vel = env.data.states.vel[:, 0, :]  # (num_envs, 3)
 
         return env, (pos, vel)
 
-    def rollout(env: DroneJittableEnv, num_steps: int) -> tuple[DroneJittableEnv, tuple[Array, Array]]:
+    def rollout(
+        env: DroneJittableEnv, num_steps: int
+    ) -> tuple[DroneJittableEnv, tuple[Array, Array]]:
         """Rollout for multiple steps using lax.scan."""
-        env, (pos_traj, vel_traj) = jax.lax.scan(
-            step_once, env, xs=None, length=num_steps
-        )
+        env, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
         return env, (pos_traj, vel_traj)
 
     rollout_jit = jax.jit(rollout, static_argnames=("num_steps",))

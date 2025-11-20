@@ -1,5 +1,5 @@
-
 """Drone environment for following a random trajectory."""
+
 from typing import Callable, Literal
 
 import jax
@@ -15,11 +15,12 @@ from jax import Array
 
 class FigureEightEnv(DroneEnv):
     """Drone environment for following a random trajectory.
-    
+
     This environment is used to follow a random trajectory. The observations contain the
     relative position errors to the next `n_samples` points that are distanced by `samples_dt`. The
     reward is based on the distance to the next trajectory point.
     """
+
     def __init__(
         self,
         n_samples: int = 10,
@@ -28,7 +29,8 @@ class FigureEightEnv(DroneEnv):
         *,
         num_envs: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.first_principles,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"]
+        | Physics = Physics.first_principles,
         drone_model: str = "cf21B_500",
         freq: int = 500,
         device: str = "cpu",
@@ -49,7 +51,9 @@ class FigureEightEnv(DroneEnv):
             reset_rotor: Whether to reset rotor speeds on environment reset.
         """
         # Override reset randomization function
-        self._reset_randomization = self.build_reset_randomization_fn(physics if reset_rotor else "no_reset_rotor")
+        self._reset_randomization = self.build_reset_randomization_fn(
+            physics if reset_rotor else "no_reset_rotor"
+        )
 
         super().__init__(
             num_envs=num_envs,
@@ -61,7 +65,7 @@ class FigureEightEnv(DroneEnv):
         )
         if trajectory_time < self.max_episode_time:
             raise ValueError("Trajectory time must be greater than max episode time")
-        
+
         # Define trajectory sampling parameters
         self.num_waypoints = 10
         self.n_samples = n_samples
@@ -106,7 +110,7 @@ class FigureEightEnv(DroneEnv):
         super().reset(seed=seed)
         if seed is not None:
             self.sim.seed(seed)
-        self._reset(options=options) # call jax reset function
+        self._reset(options=options)  # call jax reset function
         self._marked_for_reset = self._marked_for_reset.at[...].set(False)
         return self.obs(), {}
 
@@ -122,12 +126,16 @@ class FigureEightEnv(DroneEnv):
     def obs(self) -> dict[str, Array]:
         """Observations."""
         obs = super().obs()
-        obs["local_samples"] = self._aux_obs(self.trajectories, self.steps, self.sim.data.states.pos, self.sample_offsets)
+        obs["local_samples"] = self._aux_obs(
+            self.trajectories, self.steps, self.sim.data.states.pos, self.sample_offsets
+        )
         return obs
-    
+
     @staticmethod
     @jax.jit
-    def _aux_obs(trajectories: Array, steps: Array, pos: Array, sample_offsets: Array) -> dict[str, Array]:
+    def _aux_obs(
+        trajectories: Array, steps: Array, pos: Array, sample_offsets: Array
+    ) -> dict[str, Array]:
         """Static method version of obs for jitting."""
         idx = jp.clip(steps + sample_offsets[None, ...], 0, trajectories.shape[1] - 1)
         dpos = trajectories[jp.arange(trajectories.shape[0])[:, None], idx] - pos
@@ -137,9 +145,11 @@ class FigureEightEnv(DroneEnv):
     def reward(self) -> Array:
         """Rewards."""
         pos = self.sim.data.states.pos[:, 0, :]
-        goal = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], self.steps][:, 0, :] # (num_envs, 3)
+        goal = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], self.steps][
+            :, 0, :
+        ]  # (num_envs, 3)
         return self._reward(self.terminated(), pos, goal)
-    
+
     @staticmethod
     @jax.jit
     def _reward(terminated: Array, pos: Array, goal: Array) -> Array:
@@ -153,28 +163,36 @@ class FigureEightEnv(DroneEnv):
     def steps(self) -> Array:
         """The current step in the trajectory."""
         return self.sim.data.core.steps // (self.sim.freq // self.freq) - 1
-    
+
     @staticmethod
     @jax.jit
     def _terminated(pos: Array) -> Array:
         lower_bounds = jp.array([-4.0, -4.0, -0.0])
-        upper_bounds = jp.array([ 4.0,  4.0, 4.0])
+        upper_bounds = jp.array([4.0, 4.0, 4.0])
         terminate = jp.any((pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1)
         return terminate
 
     def build_reset_randomization_fn(self, physics: str) -> Callable[[SimData, Array], SimData]:
         """Reset randomization."""
+
         # Spin up rotors to help takeoff
         def _reset_randomization_so_rpy(data: SimData, mask: Array) -> SimData:
-            rotor_vel = 0.05 * jp.ones((data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1]))
+            rotor_vel = 0.05 * jp.ones(
+                (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
+            )
             data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
             return data
+
         def _reset_randomization_first_principles(data: SimData, mask: Array) -> SimData:
-            rotor_vel = 10000.0 * jp.ones((data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1]))
+            rotor_vel = 10000.0 * jp.ones(
+                (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
+            )
             data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
             return data
+
         def _reset_randomization_no_reset_rotor(data: SimData, mask: Array) -> SimData:
             return data
+
         match physics:
             case "first_principles":
                 return _reset_randomization_first_principles

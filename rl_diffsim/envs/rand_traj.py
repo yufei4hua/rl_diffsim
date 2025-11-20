@@ -1,5 +1,5 @@
-
 """Drone environment for following a random trajectory."""
+
 from typing import Callable, Literal
 
 import jax
@@ -16,11 +16,12 @@ from jax import Array
 
 class RandTrajEnv(DroneEnv):
     """Drone environment for following a random trajectory.
-    
+
     This environment is used to follow a random trajectory. The observations contain the
     relative position errors to the next `n_samples` points that are distanced by `samples_dt`. The
     reward is based on the distance to the next trajectory point.
     """
+
     def __init__(
         self,
         n_samples: int = 10,
@@ -29,7 +30,8 @@ class RandTrajEnv(DroneEnv):
         *,
         num_envs: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.first_principles,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"]
+        | Physics = Physics.first_principles,
         drone_model: str = "cf21B_500",
         freq: int = 500,
         device: str = "cpu",
@@ -50,7 +52,9 @@ class RandTrajEnv(DroneEnv):
             reset_rotor: Whether to reset rotor speeds on environment reset.
         """
         # Override reset randomization function
-        self._reset_randomization = self.build_reset_randomization_fn(physics if reset_rotor else "no_reset_rotor")
+        self._reset_randomization = self.build_reset_randomization_fn(
+            physics if reset_rotor else "no_reset_rotor"
+        )
 
         super().__init__(
             num_envs=num_envs,
@@ -62,7 +66,7 @@ class RandTrajEnv(DroneEnv):
         )
         if trajectory_time < self.max_episode_time:
             raise ValueError("Trajectory time must be greater than max episode time")
-        
+
         # Define trajectory sampling parameters
         self.num_waypoints = 10
         self.n_samples = n_samples
@@ -128,36 +132,55 @@ class RandTrajEnv(DroneEnv):
         super().reset(seed=seed)
         if seed is not None:
             self.sim.seed(seed)
-        self._reset(options=options) # call jax reset function
+        self._reset(options=options)  # call jax reset function
         self._marked_for_reset = self._marked_for_reset.at[...].set(False)
         return self.obs(), {}
 
     def render(self):
         """Render."""
-        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
+        idx = jp.clip(
+            self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
+        )
         next_trajectory = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
-        draw_line(self.sim, self.trajectories[0, 0:-1:2, :], rgba=jp.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0)
-        draw_line(self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
+        draw_line(
+            self.sim,
+            self.trajectories[0, 0:-1:2, :],
+            rgba=jp.array([1, 1, 1, 0.4]),
+            start_size=2.0,
+            end_size=2.0,
+        )
+        draw_line(
+            self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
+        )
         draw_points(self.sim, next_trajectory[0], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.render()
 
     def obs(self) -> dict[str, Array]:
         """Observations."""
         obs = super().obs()
-        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
-        dpos = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx] - self.sim.data.states.pos
+        idx = jp.clip(
+            self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
+        )
+        dpos = (
+            self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
+            - self.sim.data.states.pos
+        )
         obs["local_samples"] = dpos.reshape(-1, 3 * self.n_samples)
         return obs
 
     def reward(self) -> Array:
         """Rewards."""
         obs = self.obs()
-        pos = obs["pos"] # (num_envs, 3)
-        goal = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], self.steps][:, 0, :] # (num_envs, 3)
+        pos = obs["pos"]  # (num_envs, 3)
+        goal = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], self.steps][
+            :, 0, :
+        ]  # (num_envs, 3)
         # distance to next trajectory point
         norm_distance = jp.linalg.norm(pos - goal, axis=-1)
-        reward = jp.exp(-2.0 * norm_distance) # encourage flying close to goal
-        reward = jp.where(self.terminated(), -1.0, reward) # penalize drones that crash into the ground
+        reward = jp.exp(-2.0 * norm_distance)  # encourage flying close to goal
+        reward = jp.where(
+            self.terminated(), -1.0, reward
+        )  # penalize drones that crash into the ground
         return reward
 
     def apply_action(self, action: Array):
@@ -179,28 +202,36 @@ class RandTrajEnv(DroneEnv):
     def steps(self) -> Array:
         """The current step in the trajectory."""
         return self.sim.data.core.steps // (self.sim.freq // self.freq) - 1
-    
+
     @staticmethod
     @jax.jit
     def _terminated(pos: Array) -> Array:
         lower_bounds = jp.array([-4.0, -4.0, -0.0])
-        upper_bounds = jp.array([ 4.0,  4.0, 4.0])
+        upper_bounds = jp.array([4.0, 4.0, 4.0])
         terminate = jp.any((pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1)
         return terminate
 
     def build_reset_randomization_fn(self, physics: str) -> Callable[[SimData, Array], SimData]:
         """Reset randomization."""
+
         # Spin up rotors to help takeoff
         def _reset_randomization_so_rpy(data: SimData, mask: Array) -> SimData:
-            rotor_vel = 0.05 * jp.ones((data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1]))
+            rotor_vel = 0.05 * jp.ones(
+                (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
+            )
             data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
             return data
+
         def _reset_randomization_first_principles(data: SimData, mask: Array) -> SimData:
-            rotor_vel = 10000.0 * jp.ones((data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1]))
+            rotor_vel = 10000.0 * jp.ones(
+                (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
+            )
             data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
             return data
+
         def _reset_randomization_no_reset_rotor(data: SimData, mask: Array) -> SimData:
             return data
+
         match physics:
             case "first_principles":
                 return _reset_randomization_first_principles

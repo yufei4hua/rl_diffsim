@@ -1,4 +1,5 @@
 """Jittable wrappers for struct.PyTreeNode-style environments."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,6 +24,7 @@ class JittableWrapper(struct.PyTreeNode):
     Subclasses are expected to provide jitted `step` and `reset` callables and may override
     any of the spaces by providing instance attributes (e.g. `single_observation_space`).
     """
+
     base: struct.PyTreeNode = struct.field(pytree_node=True)
 
     @property
@@ -97,28 +99,29 @@ class NormalizeActionsJittable(JittableWrapper):
         scale = (action_sim_high - action_sim_low) / 2.0
         mean = (action_sim_high + action_sim_low) / 2.0
 
-        def _reset(env: "NormalizeActionsJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["NormalizeActionsJittable", tuple[Any, Any]]:
+        def _reset(
+            env: "NormalizeActionsJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["NormalizeActionsJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env)
             return env, (obs, info)
 
-        def _step(env: "NormalizeActionsJittable", actions: Array) -> tuple["NormalizeActionsJittable", tuple[Any, ...]]:
+        def _step(
+            env: "NormalizeActionsJittable", actions: Array
+        ) -> tuple["NormalizeActionsJittable", tuple[Any, ...]]:
             # actions are expected in [-1, 1]; clip and rescale to simulator range
             action = jp.clip(actions, -1.0, 1.0) * scale + mean
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
             env = env.replace(base=base_env)
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(
-            base=base,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
-        )
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
 @struct.dataclass
 class AngleRewardJittable(JittableWrapper):
     """Jittable wrapper to penalize orientation in the reward."""
+
     base: struct.PyTreeNode = struct.field(pytree_node=True)
 
     step: Callable = struct.field(pytree_node=False)
@@ -136,7 +139,9 @@ class AngleRewardJittable(JittableWrapper):
             AngleRewardJittable: A configured wrapper with jitted step/reset.
         """
 
-        def _reset(env: "AngleRewardJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["AngleRewardJittable", tuple[Any, Any]]:
+        def _reset(
+            env: "AngleRewardJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["AngleRewardJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env)
             return env, (obs, info)
@@ -148,19 +153,19 @@ class AngleRewardJittable(JittableWrapper):
             rewards -= rpy_coef * rpy_norm
             return rewards
 
-        def _step(env: "AngleRewardJittable", actions: Array) -> tuple["AngleRewardJittable", tuple[Any, ...]]:
+        def _step(
+            env: "AngleRewardJittable", actions: Array
+        ) -> tuple["AngleRewardJittable", tuple[Any, ...]]:
             actions = actions.at[..., 2].set(0.0)
-            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(env.base, actions)
+            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
+                env.base, actions
+            )
             rewards = _rewards(rewards, obs)
 
             env = env.replace(base=base_env)
             return env, (obs, rewards, terminations, truncations, infos)
 
-        return cls(
-            base=base,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
-        )
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
 @struct.dataclass
@@ -207,13 +212,18 @@ class ActionPenaltyJittable(JittableWrapper):
         act_dim = base.action_space.shape[-1]
         # last_action is part of the observation dict (computed in property)
         last_action = jp.zeros((num_envs, act_dim), dtype=jp.float32)
-        def _reset(env: "ActionPenaltyJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["ActionPenaltyJittable", tuple[Any, Any]]:
+
+        def _reset(
+            env: "ActionPenaltyJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["ActionPenaltyJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env, last_action=jp.zeros_like(env.last_action))
             obs["last_action"] = env.last_action
             return env, (obs, info)
 
-        def _step(env: "ActionPenaltyJittable", action: Array) -> tuple["ActionPenaltyJittable", tuple[Any, ...]]:
+        def _step(
+            env: "ActionPenaltyJittable", action: Array
+        ) -> tuple["ActionPenaltyJittable", tuple[Any, ...]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
             # penalty on actions
@@ -230,16 +240,13 @@ class ActionPenaltyJittable(JittableWrapper):
             obs["last_action"] = env.last_action
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(
-            base=base,
-            last_action=last_action,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
-        )
+        return cls(base=base, last_action=last_action, step=jax.jit(_step), reset=jax.jit(_reset))
+
 
 @struct.dataclass
 class FlattenJaxObservationJittable(JittableWrapper):
     """Jittable wrapper to flatten dict observations into a single array."""
+
     base: Any = struct.field(pytree_node=True)
 
     @property
@@ -267,24 +274,32 @@ class FlattenJaxObservationJittable(JittableWrapper):
         """
 
         def flatten_obs(observations: dict[str, Array]) -> Array:
-            return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1)
-        def _reset(env: "FlattenJaxObservationJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["FlattenJaxObservationJittable", tuple[Array, Any]]:
+            return jp.concatenate(
+                [jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1
+            )
+
+        def _reset(
+            env: "FlattenJaxObservationJittable",
+            *,
+            seed: int | None = None,
+            options: dict | None = None,
+        ) -> tuple["FlattenJaxObservationJittable", tuple[Array, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             flat_obs = flatten_obs(obs)
             env = env.replace(base=base_env)
             return env, (flat_obs, info)
-        def _step(env: "FlattenJaxObservationJittable", action: Array) -> tuple["FlattenJaxObservationJittable", tuple[Array, Any]]:
+
+        def _step(
+            env: "FlattenJaxObservationJittable", action: Array
+        ) -> tuple["FlattenJaxObservationJittable", tuple[Array, Any]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
             flat_obs = flatten_obs(obs)
             env = env.replace(base=base_env)
             return env, (flat_obs, reward, terminated, truncated, info)
 
-        return cls(
-            base=base,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
-        )
-    
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
+
 @struct.dataclass
 class RecordDataJittable(JittableWrapper):
     """Jittable wrapper that records debugging data during non-jitted runs.
@@ -324,16 +339,22 @@ class RecordDataJittable(JittableWrapper):
         empty_goal = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
         empty_rpy = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
 
-        def _reset(env: "RecordDataJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["RecordDataJittable", tuple[Any, Any]]:
+        def _reset(
+            env: "RecordDataJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["RecordDataJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
-            env = env.replace(base=base_env,
-                              _record_act=empty_act,
-                              _record_pos=empty_pos,
-                              _record_goal=empty_goal,
-                              _record_rpy=empty_rpy)
+            env = env.replace(
+                base=base_env,
+                _record_act=empty_act,
+                _record_pos=empty_pos,
+                _record_goal=empty_goal,
+                _record_rpy=empty_rpy,
+            )
             return env, (obs, info)
 
-        def _step(env: "RecordDataJittable", action: Array) -> tuple["RecordDataJittable", tuple[Any, ...]]:
+        def _step(
+            env: "RecordDataJittable", action: Array
+        ) -> tuple["RecordDataJittable", tuple[Any, ...]]:
             # step the wrapped environment
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
@@ -351,34 +372,40 @@ class RecordDataJittable(JittableWrapper):
             new_goal = env._record_goal.at[raw.steps, ...].set(goal)
             new_rpy = env._record_rpy.at[raw.steps, ...].set(rpy)
 
-            env = env.replace(base=base_env,
-                              _record_act=new_act,
-                              _record_pos=new_pos,
-                              _record_goal=new_goal,
-                              _record_rpy=new_rpy)
+            env = env.replace(
+                base=base_env,
+                _record_act=new_act,
+                _record_pos=new_pos,
+                _record_goal=new_goal,
+                _record_rpy=new_rpy,
+            )
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(base=base,
-                   _record_act=empty_act,
-                   _record_pos=empty_pos,
-                   _record_goal=empty_goal,
-                   _record_rpy=empty_rpy,
-                   step=jax.jit(_step),
-                   reset=jax.jit(_reset))
+        return cls(
+            base=base,
+            _record_act=empty_act,
+            _record_pos=empty_pos,
+            _record_goal=empty_goal,
+            _record_rpy=empty_rpy,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
 
     def calc_rmse(self) -> float:
         """Compute RMSE between recorded position and goal (return in meters)."""
-        pos = np.array(self._record_pos)     # shape: (T, num_envs, 3)
-        goal = np.array(self._record_goal)   # shape: (T, num_envs, 3)
+        pos = np.array(self._record_pos)  # shape: (T, num_envs, 3)
+        goal = np.array(self._record_goal)  # shape: (T, num_envs, 3)
         pos_err = np.linalg.norm(pos - goal, axis=-1)  # shape: (T, num_envs)
-        rmse = np.sqrt(np.mean(pos_err ** 2))
+        rmse = np.sqrt(np.mean(pos_err**2))
         return rmse
 
     def plot_eval(self, save_path: str = "eval_plot.png"):
         """Plot recorded traces and save to `save_path`."""
         import matplotlib
+
         matplotlib.use("Agg")  # render to raster images
         import matplotlib.pyplot as plt
+
         actions = np.array(self._record_act)
         pos = np.array(self._record_pos)
         goal = np.array(self._record_goal)
@@ -425,15 +452,17 @@ class RecordDataJittable(JittableWrapper):
 
         # compute RMSE for position
         rmse_pos = np.sqrt(np.mean(pos_err**2))
-        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos*1000:.3f} mm", fontsize=14)
+        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos * 1000:.3f} mm", fontsize=14)
         axes[11].axis("off")
 
         plt.tight_layout()
         plt.savefig(Path(__file__).parent / save_path)
-    
+
+
 @struct.dataclass
 class RenderSimJittable(JittableWrapper):
     """Wrapper that keeps jitted step/reset, but adds a non-jittable render() via an external Sim."""
+
     base: struct.PyTreeNode = struct.field(pytree_node=True)
 
     sim: Sim = struct.field(pytree_node=False)
@@ -446,31 +475,29 @@ class RenderSimJittable(JittableWrapper):
     def create(cls, base: struct.PyTreeNode, world: int = 0) -> "RenderSimJittable":
         """Wrap a jittable env with an external Sim for rendering."""
 
-        def _reset(env: "RenderSimJittable", *, seed: int | None = None, options: dict | None = None) -> tuple["RenderSimJittable", tuple[Array, Any]]:
+        def _reset(
+            env: "RenderSimJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["RenderSimJittable", tuple[Array, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env)
             return env, (obs, info)
 
-        def _step(env: "RenderSimJittable", action: Array) -> tuple["RenderSimJittable", tuple[Array, Any]]:
+        def _step(
+            env: "RenderSimJittable", action: Array
+        ) -> tuple["RenderSimJittable", tuple[Array, Any]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
             env = env.replace(base=base_env)
             return env, (obs, reward, terminated, truncated, info)
-        
+
         sim = Sim(
-            n_worlds=base.unwrapped.num_envs, 
-            n_drones=1, 
-            drone_model=base.unwrapped.drone_model, 
-            device=base.unwrapped.device, 
-            physics=base.unwrapped.physics
+            n_worlds=base.unwrapped.num_envs,
+            n_drones=1,
+            drone_model=base.unwrapped.drone_model,
+            device=base.unwrapped.device,
+            physics=base.unwrapped.physics,
         )
 
-        return cls(
-            base=base,
-            sim=sim,
-            world=world,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
-        )
+        return cls(base=base, sim=sim, world=world, step=jax.jit(_step), reset=jax.jit(_reset))
 
     def render(self, env: struct.PyTreeNode):
         """Sync current data into sim and call its render function."""
@@ -481,9 +508,11 @@ class RenderSimJittable(JittableWrapper):
         """Close the underlying sim."""
         self.sim.close()
 
+
 if __name__ == "__main__":
     import time  # noqa: I001
     from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
+
     """Test the jittable wrappers implementation."""
     # Create the jittable environment
     env = FigureEightJittableEnv.create(
@@ -511,23 +540,25 @@ if __name__ == "__main__":
     print("Trajectories:", env.unwrapped.trajectories.shape)
     print("Initial Obs:", obs.shape)
 
-    def step_once(env: FigureEightJittableEnv, _) -> tuple[FigureEightJittableEnv, tuple[Array, Array]]:
+    def step_once(
+        env: FigureEightJittableEnv, _
+    ) -> tuple[FigureEightJittableEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
-        base_action = jp.array([0.0, 0.0, 0.0, 0.1], dtype=jp.float32) # fixed action
+        base_action = jp.array([0.0, 0.0, 0.0, 0.1], dtype=jp.float32)  # fixed action
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
 
         env, (next_obs, reward, terminated, truncated, info) = env.step(env, action)
 
-        pos = env.unwrapped.data.states.pos[:, 0, :]   # (num_envs, 3)
-        vel = env.unwrapped.data.states.vel[:, 0, :]   # (num_envs, 3)
+        pos = env.unwrapped.data.states.pos[:, 0, :]  # (num_envs, 3)
+        vel = env.unwrapped.data.states.vel[:, 0, :]  # (num_envs, 3)
 
         return env, (pos, vel)
 
-    def rollout(env: FigureEightJittableEnv, num_steps: int) -> tuple[FigureEightJittableEnv, tuple[Array, Array]]:
+    def rollout(
+        env: FigureEightJittableEnv, num_steps: int
+    ) -> tuple[FigureEightJittableEnv, tuple[Array, Array]]:
         """Rollout for multiple steps using lax.scan."""
-        env, (pos_traj, vel_traj) = jax.lax.scan(
-            step_once, env, xs=None, length=num_steps
-        )
+        env, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
         return env, (pos_traj, vel_traj)
 
     rollout_jit = jax.jit(rollout, static_argnames=("num_steps",))
@@ -551,7 +582,7 @@ if __name__ == "__main__":
     # test rendering & data logging
     env, (obs, info) = env.reset(env)
     for step in range(500):
-        base_action = jp.array([0.2, 0.0, 0.0, 0.0], dtype=jp.float32) # fixed action
+        base_action = jp.array([0.2, 0.0, 0.0, 0.0], dtype=jp.float32)  # fixed action
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
         env, _ = env.step(env, action)
         env.render(env)

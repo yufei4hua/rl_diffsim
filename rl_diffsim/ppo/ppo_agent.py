@@ -1,4 +1,4 @@
-""""PPO agent implementation using Flax."""
+""" "PPO agent implementation using Flax."""
 
 from typing import Callable
 
@@ -14,6 +14,7 @@ from jax import Array
 
 class ActorNet(nn.Module):
     """Class defining the actor-critic model."""
+
     hidden_size: int = 64
     act_dim: int = 4
 
@@ -30,16 +31,16 @@ class ActorNet(nn.Module):
         mean = nn.tanh(mean)
         # Actor logstd
         actor_logstd = self.param(
-            "actor_logstd",
-            lambda rng, shape: jp.zeros(shape, dtype=jp.float32),
-            (1, self.act_dim),
+            "actor_logstd", lambda rng, shape: jp.zeros(shape, dtype=jp.float32), (1, self.act_dim)
         )
         logstd = jp.broadcast_to(actor_logstd, (mean.shape[0], self.act_dim))
 
         return mean, logstd
 
+
 class CriticNet(nn.Module):
     """Class defining the critic model."""
+
     hidden_size: int = 64
 
     @nn.compact
@@ -53,8 +54,10 @@ class CriticNet(nn.Module):
         value = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=zeros)(x)
         return value.squeeze(-1)
 
+
 class Agent(struct.PyTreeNode):
     """PPO agent class with actor and critic networks."""
+
     actor_states: train_state.TrainState = struct.field(pytree_node=True)
     critic_states: train_state.TrainState = struct.field(pytree_node=True)
     get_action_mean: Callable = struct.field(pytree_node=False)
@@ -64,14 +67,14 @@ class Agent(struct.PyTreeNode):
 
     @classmethod
     def create(
-            cls,
-            key: jax.random.PRNGKey,
-            obs_dim: int,
-            act_dim: int,
-            hidden_size: int = 64,
-            actor_lr: float | optax.Schedule = 3e-4,
-            critic_lr: float | optax.Schedule = 1e-3,
-        ) -> dict:
+        cls,
+        key: jax.random.PRNGKey,
+        obs_dim: int,
+        act_dim: int,
+        hidden_size: int = 64,
+        actor_lr: float | optax.Schedule = 3e-4,
+        critic_lr: float | optax.Schedule = 1e-3,
+    ) -> dict:
         """Initialize the PPO agent's actor and critic networks."""
         actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
         critic = CriticNet(hidden_size=hidden_size)
@@ -82,16 +85,12 @@ class Agent(struct.PyTreeNode):
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
         critic_tx = optax.adamw(learning_rate=critic_lr, eps=1e-5)
         actor_states = train_state.TrainState.create(
-            apply_fn=actor.apply,
-            params=actor_params,
-            tx=actor_tx,
+            apply_fn=actor.apply, params=actor_params, tx=actor_tx
         )
         critic_states = train_state.TrainState.create(
-            apply_fn=critic.apply,
-            params=critic_params,
-            tx=critic_tx,
+            apply_fn=critic.apply, params=critic_params, tx=critic_tx
         )
-        
+
         # Build jittable actor and critic inference functions
         def _get_action_sample(params: dict, obs: Array, key: Array) -> tuple[Array, Array]:
             """Get stochastic action sample for collecting rollout."""
@@ -100,16 +99,18 @@ class Agent(struct.PyTreeNode):
             new_key, sub = jax.random.split(key)
             eps = jax.random.normal(sub, mean.shape, dtype=mean.dtype)
             action = mean + std * eps
-            logp = -0.5 * (eps ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
+            logp = -0.5 * (eps**2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
             logp = jp.sum(logp, axis=-1)
             entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
-            return (action, logp, entropy), new_key 
+            return (action, logp, entropy), new_key
 
         def _get_action_logprob(params: dict, obs: Array, action: Array) -> tuple[Array, Array]:
             """Get log probability and entropy of given action for training."""
             mean, logstd = actor.apply(params, obs)
             std = jp.exp(logstd)
-            logp = -0.5 * (((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
+            logp = -0.5 * (
+                ((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi)
+            )
             logp = jp.sum(logp, axis=-1)
             entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
             return logp, entropy
@@ -121,7 +122,7 @@ class Agent(struct.PyTreeNode):
 
         def _get_value(params: dict, obs: Array) -> Array:
             return jp.squeeze(critic.apply(params, obs))
-        
+
         return cls(
             actor_states=actor_states,
             critic_states=critic_states,
@@ -149,22 +150,14 @@ if __name__ == "__main__":
 
     # rollout - sample actions
     key = jax.random.PRNGKey(1)
-    (action, logp, entropy), key = agent.get_action_sample(
-        agent.actor_states.params,
-        obs,
-        key,
-    )
+    (action, logp, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
     value = agent.get_value(agent.critic_states.params, obs)
     print("Rollout:")
     print(action, logp, entropy, value)
 
     # optimization - get log probabilities
     chosen_action = action
-    logp, entropy = agent.get_action_logprob(
-        agent.actor_states.params,
-        obs,
-        chosen_action,
-    )
+    logp, entropy = agent.get_action_logprob(agent.actor_states.params, obs, chosen_action)
     value = agent.get_value(agent.critic_states.params, obs)
     print("Optimization:")
     print(chosen_action, logp, entropy, value)

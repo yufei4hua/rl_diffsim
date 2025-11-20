@@ -1,4 +1,5 @@
 """Wrappers for PPO training."""
+
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +131,7 @@ class ActionPenalty(VectorObservationWrapper):
 
 class FlattenJaxObservation(VectorObservationWrapper):
     """Wrapper to flatten the observations."""
+
     def __init__(self, env: VectorEnv):
         """Init."""
         super().__init__(env)
@@ -139,8 +141,12 @@ class FlattenJaxObservation(VectorObservationWrapper):
 
     def observations(self, observations: dict) -> dict:
         """Flatten observations."""
-        return jp.concatenate([jp.reshape(observations[k], (observations[k].shape[0], -1)) for k in self._obs_keys], axis=-1)
-    
+        return jp.concatenate(
+            [jp.reshape(observations[k], (observations[k].shape[0], -1)) for k in self._obs_keys],
+            axis=-1,
+        )
+
+
 class ObsNoise(VectorObservationWrapper):
     """Simple wrapper to add noise to the observations."""
 
@@ -155,17 +161,18 @@ class ObsNoise(VectorObservationWrapper):
         self.prng_key, key = jax.random.split(self.prng_key)
         noise = jax.random.normal(key, shape=observation.shape) * self.noise_std
         return observation + noise
-    
+
+
 class RecordData(VectorWrapper):
     """Wrapper to record usefull data for debugging."""
 
     def __init__(self, env: VectorEnv):
         """Init."""
         super().__init__(env)
-        self._record_act  = []
-        self._record_pos  = []
+        self._record_act = []
+        self._record_pos = []
         self._record_goal = []
-        self._record_rpy  = []
+        self._record_rpy = []
 
     def step(self, actions: Any) -> tuple[Any, Any, Any, Any, Any]:
         """Step and record data."""
@@ -174,9 +181,11 @@ class RecordData(VectorWrapper):
 
         act = np.asarray(actions)
         self._record_act.append(act.copy())
-        pos = np.asarray(raw_env.sim.data.states.pos[:, 0, :])   # shape: (n_worlds, 3)
+        pos = np.asarray(raw_env.sim.data.states.pos[:, 0, :])  # shape: (n_worlds, 3)
         self._record_pos.append(pos.copy())
-        goal = np.asarray(raw_env.trajectories[np.arange(raw_env.steps.shape[0]), raw_env.steps.squeeze(1)])
+        goal = np.asarray(
+            raw_env.trajectories[np.arange(raw_env.steps.shape[0]), raw_env.steps.squeeze(1)]
+        )
         self._record_goal.append(goal.copy())
         rpy = np.asarray(R.from_quat(raw_env.sim.data.states.quat[:, 0, :]).as_euler("xyz"))
         self._record_rpy.append(rpy.copy())
@@ -186,14 +195,16 @@ class RecordData(VectorWrapper):
     def calc_rmse(self) -> float:
         """Compute RMSE between position and goal over the recorded data."""
         # compute rmse for all worlds
-        pos = np.array(self._record_pos)     # shape: (T, num_envs, 3)
-        goal = np.array(self._record_goal)   # shape: (T, num_envs, 3)
+        pos = np.array(self._record_pos)  # shape: (T, num_envs, 3)
+        goal = np.array(self._record_goal)  # shape: (T, num_envs, 3)
         pos_err = np.linalg.norm(pos - goal, axis=-1)  # shape: (T, num_envs)
-        rmse = np.sqrt(np.mean(pos_err ** 2))*1000 # mm
+        rmse = np.sqrt(np.mean(pos_err**2)) * 1000  # mm
 
         return rmse
 
-    def plot_eval(self, save_path: str = "eval_plot.png") -> tuple[plt.Figure, list[plt.Axes], float]:
+    def plot_eval(
+        self, save_path: str = "eval_plot.png"
+    ) -> tuple[plt.Figure, list[plt.Axes], float]:
         """Plot the recorded data and save to file."""
         actions = np.array(self._record_act)
         pos = np.array(self._record_pos)
@@ -243,21 +254,23 @@ class RecordData(VectorWrapper):
 
         # compute RMSE for position
         rmse_pos = np.sqrt(np.mean(pos_err**2))
-        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos*1000:.3f} mm", fontsize=14)
+        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos * 1000:.3f} mm", fontsize=14)
         axes[11].axis("off")
 
         plt.tight_layout()
         plt.savefig(Path(__file__).parent / save_path)
 
         return fig, axes, rmse_pos
-    
+
+
 class DroneRacingWrapper(VectorWrapper):
     """Wrapper for training policy in Drone Racing Environment.
-    
+
     This wrapper should be applied before FlattenJaxObservation.
     """
+
     def __init__(
-        self, 
+        self,
         env: VectorEnv,
         n_samples: int = 10,
         samples_dt: float = 0.1,
@@ -289,67 +302,101 @@ class DroneRacingWrapper(VectorWrapper):
             ]
         )
         # waypoints += np.array([0.0, 0.0, 2.0])
-        self.des_completion_time = des_completion_time # sec
-        ts = np.linspace(0, self.des_completion_time, int(self.env.unwrapped.freq * self.des_completion_time))
-        spline = CubicSpline(np.linspace(0, self.des_completion_time, waypoints.shape[0]), waypoints)
+        self.des_completion_time = des_completion_time  # sec
+        ts = np.linspace(
+            0, self.des_completion_time, int(self.env.unwrapped.freq * self.des_completion_time)
+        )
+        spline = CubicSpline(
+            np.linspace(0, self.des_completion_time, waypoints.shape[0]), waypoints
+        )
         self.trajectory = spline(ts)  # (n_steps, 3)
 
         # Define trajectory sampling parameters
         self.n_samples = n_samples
         self.samples_dt = samples_dt
-        self.sample_offsets = np.array(np.arange(n_samples) * self.env.unwrapped.freq * samples_dt, dtype=int)
+        self.sample_offsets = np.array(
+            np.arange(n_samples) * self.env.unwrapped.freq * samples_dt, dtype=int
+        )
 
         # Update observation space
         spec = {k: v for k, v in self.single_observation_space.items()}
         spec["traj_samples"] = spaces.Box(-np.inf, np.inf, shape=(3 * self.n_samples,))
         self.single_observation_space = spaces.Dict(spec)
-        self.observation_space = batch_space(self.single_observation_space, self.env.unwrapped.sim.n_worlds)
+        self.observation_space = batch_space(
+            self.single_observation_space, self.env.unwrapped.sim.n_worlds
+        )
 
         # Update reset pipeline
         self.env.unwrapped.sim.reset_pipeline += (self._reset_randomization,)
         self.env.unwrapped.sim.build_reset_fn()
 
-    def reset(self, *, seed: int | list[int] | None = None, options: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    def reset(
+        self, *, seed: int | list[int] | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset all environment using seed and options."""
         obs, info = self.env.reset(seed=seed, options=options)
         return self.obs(obs), info
-    
+
     def step(self, actions: Array) -> tuple[Array, Array, Array, Array, dict]:
         """Step the environments."""
         observations, rewards, terminations, truncations, infos = self.env.step(actions)
-        return self.obs(observations), self.rewards(rewards, observations), terminations, truncations, infos
-    
+        return (
+            self.obs(observations),
+            self.rewards(rewards, observations),
+            terminations,
+            truncations,
+            infos,
+        )
+
     def render(self):
         """Render."""
-        idx = np.clip(self.steps[:, None] + self.sample_offsets[None, ...], 0, self.trajectory.shape[0] - 1)
+        idx = np.clip(
+            self.steps[:, None] + self.sample_offsets[None, ...], 0, self.trajectory.shape[0] - 1
+        )
         next_trajectory = self.trajectory[idx, ...]
-        draw_line(self.env.unwrapped.sim, self.trajectory[0:-1:2, :], rgba=np.array([1,1,1,0.4]), start_size=2.0, end_size=2.0)
-        draw_line(self.env.unwrapped.sim, next_trajectory[0], rgba=np.array([1,0,0,1]), start_size=3.0, end_size=3.0)
-        draw_points(self.env.unwrapped.sim, next_trajectory[0], rgba=np.array([1.0, 0, 0, 1]), size=0.01)
+        draw_line(
+            self.env.unwrapped.sim,
+            self.trajectory[0:-1:2, :],
+            rgba=np.array([1, 1, 1, 0.4]),
+            start_size=2.0,
+            end_size=2.0,
+        )
+        draw_line(
+            self.env.unwrapped.sim,
+            next_trajectory[0],
+            rgba=np.array([1, 0, 0, 1]),
+            start_size=3.0,
+            end_size=3.0,
+        )
+        draw_points(
+            self.env.unwrapped.sim, next_trajectory[0], rgba=np.array([1.0, 0, 0, 1]), size=0.01
+        )
         self.env.unwrapped.sim.render()
 
     def obs(self, observations: dict[str, Array]) -> dict[str, Array]:
         """Sample some waypoints as extra observations."""
-        idx = np.clip(self.steps[:, None] + self.sample_offsets[None, ...], 0, self.trajectory.shape[0] - 1)
+        idx = np.clip(
+            self.steps[:, None] + self.sample_offsets[None, ...], 0, self.trajectory.shape[0] - 1
+        )
         dpos = self.trajectory[idx, ...] - observations["pos"][:, None, :]
         observations["traj_samples"] = dpos.reshape(-1, 3 * self.n_samples)
         return observations
 
     def rewards(self, rewards: Array, observations: dict[str, Array]) -> Array:
         """Rewards for tracking the target trajectory."""
-        pos = observations["pos"] # (num_envs, 3)
-        goal = self.trajectory[self.steps] # (num_envs, 3)
+        pos = observations["pos"]  # (num_envs, 3)
+        goal = self.trajectory[self.steps]  # (num_envs, 3)
 
-        norm_distance = jp.linalg.norm(pos - goal, axis=-1) # distance to next trajectory point
-        rewards += 2.0*jp.exp(-2.0 * norm_distance) # encourage flying close to goal
+        norm_distance = jp.linalg.norm(pos - goal, axis=-1)  # distance to next trajectory point
+        rewards += 2.0 * jp.exp(-2.0 * norm_distance)  # encourage flying close to goal
         # rewards = jp.where(self.env.unwrapped.terminated().squeeze(), -1.0, rewards) # penalize drones that crash
         return rewards
-    
+
     @property
     def steps(self) -> Array:
         """The current step in the trajectory."""
         return self.env.unwrapped.data.steps
-    
+
     @staticmethod
     def _reset_randomization(data: SimData, mask: Array) -> SimData:
         """Randomize the initial position and velocity of the drones.
@@ -366,6 +413,7 @@ class DroneRacingWrapper(VectorWrapper):
         vel = jax.random.uniform(key=vel_key, shape=shape, minval=-0.5, maxval=0.5)
         data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel))
         return data
+
 
 class ActionTransform(VectorActionWrapper):
     """Wrapper to transform rotation vector to attitude commands."""
@@ -387,7 +435,7 @@ class ActionTransform(VectorActionWrapper):
 
     def actions(self, actions: Array) -> Array:
         """Transform rotation vector to attitude commands."""
-        rpy = jp.clip(actions[..., :3], -1.0, 1.0) * jp.pi/2
+        rpy = jp.clip(actions[..., :3], -1.0, 1.0) * jp.pi / 2
         # obs = super().unwrapped.obs()
         # rpy = self._action_rot2rpy(jp.array(obs["quat"]), actions[..., :3], self._action_scale)
         # rpy = (R.from_matrix(obs["quat"].reshape(-1,3,3)) * R.from_rotvec(jp.clip(actions[..., :3], -1.0, 1.0) * self._action_scale)).as_euler("xyz")
@@ -398,10 +446,13 @@ class ActionTransform(VectorActionWrapper):
         th = jp.clip(actions[..., -1], -1.0, 1.0) * self._scale + self._mean
         actions = actions.at[..., -1].set(th)
         return actions
-    
+
     @staticmethod
     @jax.jit
     def _action_rot2rpy(rot_mat: Array, action_rot: Array, action_scale: Array) -> Array:
         """Convert rotation vector action to rpy commands."""
-        rpy = (R.from_matrix(rot_mat.reshape(-1, 3, 3)) * R.from_rotvec(jp.clip(action_rot, -1.0, 1.0) * action_scale)).as_euler("xyz")
+        rpy = (
+            R.from_matrix(rot_mat.reshape(-1, 3, 3))
+            * R.from_rotvec(jp.clip(action_rot, -1.0, 1.0) * action_scale)
+        ).as_euler("xyz")
         return rpy

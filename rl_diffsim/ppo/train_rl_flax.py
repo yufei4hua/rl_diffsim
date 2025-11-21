@@ -260,8 +260,15 @@ def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> fl
 
     # loss function
     def loss_fn(
-        actor_params, critic_params, obs_mb, acts_mb, old_logprobs_mb, adv_mb, ret_mb, val_mb
-    ):  # noqa
+        actor_params: dict,
+        critic_params: dict,
+        obs_mb: Array,
+        acts_mb: Array,
+        old_logprobs_mb: Array,
+        adv_mb: Array,
+        ret_mb: Array,
+        val_mb: Array,
+    ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
         # ppo policy loss
         logp, entropy = agent.get_action_logprob(actor_params, obs_mb, acts_mb)
         ratio = jp.exp(logp - old_logprobs_mb)

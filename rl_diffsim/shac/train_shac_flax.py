@@ -14,7 +14,7 @@ import jax.numpy as jp
 import numpy as np
 import optax
 from jax import Array
-from ppo_agent import Agent
+from shac_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
@@ -207,41 +207,43 @@ def collect_rollout(
     return envs, data, next_obs, next_done, sum_rewards, key
 
 
-# region GAE
+# region TD-λ
 @functools.partial(jax.jit, static_argnames=("args",))
-def compute_gae(
+def compute_td_lambda(
     args: Args, agent: Agent, next_obs: Array, next_done: Array, data: RolloutData
 ) -> RolloutData:
-    """Compute GAE advantages and returns."""
+    """Compute TD-λ returns."""
     last_value = agent.get_value(agent.critic_states.params, next_obs)
+    # TODO: move all get_value to this function.
 
-    advantages = jp.zeros((args.num_envs,))
+    returns = jp.zeros((args.num_envs,))
     dones = jp.concatenate([data.dones, next_done[None, :]], axis=0)
     values = jp.concatenate([data.values, last_value[None, :]], axis=0)
 
-    def compute_gae_once(
+    def compute_td_lambda_once(
         carry: Array, inp: tuple[Array, Array, Array, Array]
     ) -> tuple[Array, Array]:
-        """Compute one step of GAE in scan."""
-        advantages = carry
-        nextdone, nextvalues, curvalues, reward = inp
+        """Compute one step of TD(lambda) in scan."""
+        returns = carry
+        nextdone, nextvalues, reward = inp
         nextnonterminal = 1.0 - nextdone
 
-        delta = reward + args.gamma * nextvalues * nextnonterminal - curvalues
-        advantages = delta + args.gamma * args.gae_lambda * nextnonterminal * advantages
-        return advantages, advantages
+        returns = (
+            reward
+            + args.gamma
+            * ((1.0 - args.gae_lambda) * nextvalues + args.gae_lambda * returns)
+            * nextnonterminal
+        )
+        return returns, returns
 
-    _, advantages = jax.lax.scan(
-        compute_gae_once,
-        advantages,
-        (dones[1:], values[1:], values[:-1], data.rewards),
-        reverse=True,
+    _, returns = jax.lax.scan(
+        compute_td_lambda_once, returns, (dones[1:], values[1:], data.rewards), reverse=True
     )
-    data = data.replace(advantages=advantages, returns=advantages + data.values)
+    data = data.replace(returns=returns)
     return data
 
 
-# region PG
+# region Update
 @functools.partial(jax.jit, static_argnames=("args",))
 def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> float:
     """Performs PPO updates. Returns losses."""
@@ -403,7 +405,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
         # 2. compute GAE
         start_gae_time = time.time()
-        data = compute_gae(args, agent, next_obs, next_done, data)
+        data = compute_td_lambda(args, agent, next_obs, next_done, data)
         print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
         # 3. update policy
         start_pg_time = time.time()

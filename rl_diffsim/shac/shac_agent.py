@@ -56,13 +56,12 @@ class CriticNet(nn.Module):
 
 
 class Agent(struct.PyTreeNode):
-    """PPO agent class with actor and critic networks."""
+    """SHAC agent class with actor and critic networks."""
 
     actor_states: train_state.TrainState = struct.field(pytree_node=True)
     critic_states: train_state.TrainState = struct.field(pytree_node=True)
     get_action_mean: Callable = struct.field(pytree_node=False)
     get_action_sample: Callable = struct.field(pytree_node=False)
-    get_action_logprob: Callable = struct.field(pytree_node=False)
     get_value: Callable = struct.field(pytree_node=False)
 
     @classmethod
@@ -75,7 +74,7 @@ class Agent(struct.PyTreeNode):
         actor_lr: float | optax.Schedule = 3e-4,
         critic_lr: float | optax.Schedule = 1e-3,
     ) -> dict:
-        """Initialize the PPO agent's actor and critic networks."""
+        """Initialize the SHAC agent's actor and critic networks."""
         actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
         critic = CriticNet(hidden_size=hidden_size)
         k1, k2 = jax.random.split(key)
@@ -104,16 +103,6 @@ class Agent(struct.PyTreeNode):
             entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
             return (action, logp, entropy), new_key
 
-        def _get_action_logprob(params: dict, obs: Array, action: Array) -> tuple[Array, Array]:
-            """Get log probability and entropy of given action for training."""
-            mean, logstd = actor.apply(params, obs)
-            std = jp.exp(logstd)
-            logp = -0.5 * (
-                ((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi)
-            )
-            logp = jp.sum(logp, axis=-1)
-            entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
-            return logp, entropy
 
         def _get_action_mean(params: dict, obs: Array) -> Array:
             """Get deterministic action (mean)."""
@@ -128,7 +117,6 @@ class Agent(struct.PyTreeNode):
             critic_states=critic_states,
             get_action_mean=jax.jit(_get_action_mean),
             get_action_sample=jax.jit(_get_action_sample),
-            get_action_logprob=jax.jit(_get_action_logprob),
             get_value=jax.jit(_get_value),
         )
 

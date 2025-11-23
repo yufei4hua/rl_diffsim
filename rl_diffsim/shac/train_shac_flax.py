@@ -43,17 +43,17 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 2_000_000
+    total_timesteps: int = 1_000_00
     """total timesteps of the experiments"""
-    num_envs: int = 1024
+    num_envs: int = 64
     """the number of parallel game environments"""
     num_steps: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 8
+    num_minibatches: int = 1
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 1.5e-3
+    actor_lr: float = 1.5e-2
     """the learning rate of the actor optimizer"""
     critic_lr: float = 1.5e-3
     """the learning rate of the critic optimizer"""
@@ -141,19 +141,18 @@ def make_jitted_envs(
 class RolloutData:
     """Class for storing rollout data."""
 
-    obs: Array
+    observations: Array
     actions: Array
-    logprobs: Array
     rewards: Array
     dones: Array
     values: Array
-    advantages: Array
     returns: Array
+    losses: Array
 
 
-# region Rollout
+# region Policy Update
 @functools.partial(jax.jit, static_argnames=("args",))
-def collect_rollout(
+def update_policy(
     envs: struct.PyTreeNode,
     args: Args,
     agent: Agent,
@@ -161,50 +160,90 @@ def collect_rollout(
     next_done: Array,
     sum_rewards: Array,
     key: Array,
-) -> tuple[RolloutData, Array, Array, Array, Array]:
-    """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
+) -> float:
+    """SHAC policy updates."""
 
-    # loop over args.num_steps
-    def step_once(carry: tuple, _) -> tuple[tuple, tuple]:
-        env, key, sum_rewards, obs, dones = carry
-        # 1. get action from policy
-        (action, logprob, entropy), key = agent.get_action_sample(
-            agent.actor_states.params, obs, key
+    def collect_rollout(
+        envs: struct.PyTreeNode,
+        actor_params: dict,
+        critic_params: dict,
+        next_obs: Array,
+        next_done: Array,
+        sum_rewards: Array,
+        key: Array,
+    ) -> tuple[RolloutData, Array, Array, Array, Array]:
+        """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
+        discounts = jp.ones((args.num_envs,))
+
+        # loop over args.num_steps
+        def step_once(carry: tuple, _) -> tuple[tuple, tuple]:
+            env, key, sum_rewards, discounts, obs, dones = carry
+            # 1. get action from policy
+            (action, logprob, entropy), key = agent.get_action_sample(actor_params, obs, key)
+            value = agent.get_value(critic_params, obs)
+
+            # 2. step environment & compute stepwise loss
+            env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
+            sum_rewards = sum_rewards + reward
+            sum_rewards = jp.where(dones, 0.0, sum_rewards)
+            loss = -discounts * jp.where(dones, value, reward)
+            next_dones = terminations | truncations
+            next_discounts = jp.where(dones, 1.0, discounts * args.gamma)
+
+            return (env, key, sum_rewards, next_discounts, next_obs, next_dones), RolloutData(
+                observations=obs,
+                actions=action,
+                rewards=reward,
+                dones=dones,
+                values=value,
+                returns=jp.zeros_like(reward),
+                losses=loss,
+            )
+
+        (envs, key, sum_rewards, next_discounts, next_obs, next_done), rollout_data = jax.lax.scan(
+            step_once,
+            (envs, key, sum_rewards, discounts, next_obs, next_done),
+            length=args.num_steps,
         )
-        value = agent.get_value(agent.critic_states.params, obs)
 
-        # 2. step environment
-        env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
-        sum_rewards = sum_rewards + reward
-        sum_rewards = jp.where(dones, 0.0, sum_rewards)
-        next_dones = terminations | truncations
+        return envs, rollout_data, next_discounts, next_obs, next_done, sum_rewards, key
 
-        return (env, key, sum_rewards, next_obs, next_dones), (
-            obs,
-            action,
-            logprob,
-            reward,
-            dones,
-            value,
+    def policy_loss_fn(
+        envs: struct.PyTreeNode,
+        actor_params: dict,
+        critic_params: dict,
+        next_obs: Array,
+        next_done: Array,
+        sum_rewards: Array,
+        key: Array,
+    ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
+        # shac policy loss
+        envs, data, next_discounts, next_obs, next_done, sum_rewards, key = collect_rollout(
+            envs, actor_params, critic_params, next_obs, next_done, sum_rewards, key
+        )
+        # compute loss as in SHAC paper Eq(5)
+        last_value = agent.get_value(critic_params, next_obs)  # (args.num_envs, )
+        losses = jp.sum(data.losses) - jp.sum(next_discounts * last_value)  # terminal value loss
+        return losses / (args.num_envs * args.num_steps), (
+            data,
+            next_obs,
+            next_done,
+            sum_rewards,
+            key,
         )
 
-    (envs, key, sum_rewards, next_obs, next_done), rollout_data = jax.lax.scan(
-        step_once, (envs, key, sum_rewards, next_obs, next_done), length=args.num_steps
+    policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
+    (p_loss, (data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
+        envs,
+        agent.actor_states.params,
+        agent.critic_states.params,
+        next_obs,
+        next_done,
+        sum_rewards,
+        key,
     )
-
-    # construct rollout data
-    obs_buf, actions_buf, logprobs_buf, rewards_buf, dones_buf, values_buf = rollout_data
-    data = RolloutData(
-        obs=obs_buf,
-        actions=actions_buf,
-        logprobs=logprobs_buf,
-        rewards=rewards_buf,
-        dones=dones_buf,
-        values=values_buf,
-        returns=jp.zeros_like(rewards_buf),
-        advantages=jp.zeros_like(rewards_buf),
-    )
-    return envs, data, next_obs, next_done, sum_rewards, key
+    agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
+    return (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards, key))
 
 
 # region TD-λ
@@ -243,42 +282,23 @@ def compute_td_lambda(
     return data
 
 
-# region Update
+# region Value Update
 @functools.partial(jax.jit, static_argnames=("args",))
-def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> float:
-    """Performs PPO updates. Returns losses."""
+def update_value(args: Args, agent: Agent, data: RolloutData, key: Array) -> float:
+    """SHAC value updates."""
 
-    # loss function
-    def loss_fn(
-        actor_params: dict,
-        critic_params: dict,
-        obs_mb: Array,
-        acts_mb: Array,
-        old_logprobs_mb: Array,
-        adv_mb: Array,
-        ret_mb: Array,
-        val_mb: Array,
+    def value_loss_fn(
+        critic_params: dict, obs_mb: Array, ret_mb: Array, val_mb: Array
     ) -> tuple[Array, tuple[Array, Array, Array, Array]]:
-        # ppo policy loss
-        logp, entropy = agent.get_action_logprob(actor_params, obs_mb, acts_mb)
-        ratio = jp.exp(logp - old_logprobs_mb)
-        pg_loss1 = -adv_mb * ratio
-        pg_loss2 = -adv_mb * jp.clip(ratio, 1.0 - args.clip_coef, 1.0 + args.clip_coef)
-        pg_loss = jp.mean(jp.maximum(pg_loss1, pg_loss2))
-        entropy_loss = -jp.mean(entropy)
-
-        # ppo value loss (clip by default)
+        # ppo manner value loss (clip by default)
         value = agent.get_value(critic_params, obs_mb).reshape(-1)
         v_unclipped = (value - ret_mb) ** 2
         v_clipped = val_mb + jp.clip(value - val_mb, -args.clip_coef, args.clip_coef)
         v_clipped_loss = (v_clipped - ret_mb) ** 2
         v_loss = 0.5 * jp.mean(jp.maximum(v_unclipped, v_clipped_loss))
+        return v_loss
 
-        loss = pg_loss + args.ent_coef * entropy_loss + args.vf_coef * v_loss
-        approx_kl = jp.mean((ratio - 1.0) - (logp - old_logprobs_mb))
-        return loss, (pg_loss, v_loss, entropy_loss, approx_kl)
-
-    grad_fn = jax.value_and_grad(loss_fn, argnums=(0, 1), has_aux=True)
+    value_grad_fn = jax.value_and_grad(value_loss_fn)
 
     # batch: loop over epochs
     def update_epoch(
@@ -298,40 +318,31 @@ def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> fl
         # minibatch: scan minibatches
         def update_minibatch(carry: Agent, minibatch: int) -> Agent:
             agent = carry
-            (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), (g_actor, g_critic) = grad_fn(
-                agent.actor_states.params,
+            v_loss, g_critic = value_grad_fn(
                 agent.critic_states.params,
-                minibatch.obs,
-                minibatch.actions,
-                minibatch.logprobs,
-                minibatch.advantages,
+                minibatch.observations,
                 minibatch.returns,
                 minibatch.values,
             )
             return agent.replace(
-                actor_states=agent.actor_states.apply_gradients(grads=g_actor),
-                critic_states=agent.critic_states.apply_gradients(grads=g_critic),
-            ), (pg_loss, v_loss, entropy_loss, approx_kl)
+                critic_states=agent.critic_states.apply_gradients(grads=g_critic)
+            ), v_loss
 
-        agent, (pg_loss, v_loss, entropy_loss, approx_kl) = jax.lax.scan(
-            update_minibatch, agent, minibatches
-        )
+        agent, v_loss = jax.lax.scan(update_minibatch, agent, minibatches)
 
-        return (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl)
+        return (agent, key), v_loss
 
-    (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl) = jax.lax.scan(
-        update_epoch, (agent, key), (), length=args.update_epochs
-    )
+    (agent, key), v_loss = jax.lax.scan(update_epoch, (agent, key), (), length=args.update_epochs)
 
     y_pred = data.values.reshape(-1)
     y_true = data.returns.reshape(-1)
     var_y = jp.var(y_true)
     explained_var = jp.where(var_y == 0, jp.nan, 1.0 - jp.var(y_true - y_pred) / var_y)
-    return (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var)
+    return (agent, key), (v_loss, explained_var)
 
 
 # region Train
-def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> None:
+def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> None:
     """Train.
 
     JAX/Flax training: collect rollouts using the numpy env API, compute GAE in JAX,
@@ -356,7 +367,6 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     envs = make_jitted_envs(
         num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
     )
-    # envs = RenderSimJittable.create(envs)
 
     # setup annealing learning rate
     train_steps = args.num_iterations * args.update_epochs * args.num_minibatches
@@ -391,8 +401,8 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iter {iteration}/{args.num_iterations}", end=": ")
         start_time = time.time()
-        # 1. collect rollouts
-        envs, data, next_obs, next_done, sum_rewards, key = collect_rollout(
+        # 1. rollout and policy update
+        (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards, key)) = update_policy(
             envs=envs,
             args=args,
             agent=agent,
@@ -401,21 +411,19 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             sum_rewards=sum_rewards,
             key=key,
         )
-        # envs.render(envs)
-        print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
-        # 2. compute GAE
+        print(f"Policy {time.time() - start_time:.5f} s", end=", ")
+        # 2. compute TD-λ
         start_gae_time = time.time()
         data = compute_td_lambda(args, agent, next_obs, next_done, data)
-        print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
-        # 3. update policy
-        start_pg_time = time.time()
-        (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var) = update_policy(
+        print(f"TD-λ {time.time() - start_gae_time:.5f} s", end=", ")
+        # 3. value update
+        start_value_time = time.time()
+        (agent, key), (v_loss, explained_var) = update_value(
             args, agent, data, key
         )
-        print(f"PG {time.time() - start_pg_time:.5f} s", end=", ")
-        # 4. logging
+        print(f"Value {time.time() - start_value_time:.5f} s", end=", ")
         print(f"total {time.time() - start_time:.5f} s")
-
+        # 4. logging
         if wandb_enabled:
             wandb.log(
                 {"train/reward": jp.mean(sum_rewards[next_done])},
@@ -423,10 +431,8 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             )
             wandb.log(
                 {
-                    "losses/pg_loss": jp.mean(pg_loss),
+                    "losses/p_loss": jp.mean(p_loss),
                     "losses/v_loss": jp.mean(v_loss),
-                    "losses/entropy": -jp.mean(entropy_loss),
-                    "losses/approx_kl": jp.mean(approx_kl),
                     "losses/explained_variance": jp.mean(explained_var),
                     "charts/SPS": int(global_step / (time.time() - train_start_time)),
                 },
@@ -448,7 +454,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
 
 # region Evaluate
-def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, float, list, list]:
+def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
@@ -532,10 +538,10 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training
-        train_ppo(args, model_path, jax_device, wandb_enabled)
+        train_shac(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(args, n_eval, model_path)
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

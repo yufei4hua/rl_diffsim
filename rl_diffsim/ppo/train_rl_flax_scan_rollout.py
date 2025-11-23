@@ -45,11 +45,11 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 2_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024
+    num_envs: int = 1024 * 2
     """the number of parallel game environments"""
     num_steps: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 8
+    num_minibatches: int = 8 * 2
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -141,7 +141,7 @@ def make_jitted_envs(
 class RolloutData:
     """Class for storing rollout data."""
 
-    obs: Array
+    observations: Array
     actions: Array
     logprobs: Array
     rewards: Array
@@ -161,7 +161,7 @@ def collect_rollout(
     next_done: Array,
     sum_rewards: Array,
     key: Array,
-) -> tuple[RolloutData, Array, Array, Array, Array]:
+) -> tuple[struct.PyTreeNode, RolloutData, Array, Array, Array, Array]:
     """Collect a rollout of length args.num_steps. Returns data dict and next obs/done/key."""
 
     # loop over args.num_steps
@@ -179,32 +179,22 @@ def collect_rollout(
         sum_rewards = jp.where(dones, 0.0, sum_rewards)
         next_dones = terminations | truncations
 
-        return (env, key, sum_rewards, next_obs, next_dones), (
-            obs,
-            action,
-            logprob,
-            reward,
-            dones,
-            value,
+        return (env, key, sum_rewards, next_obs, next_dones), RolloutData(
+            observations=obs,
+            actions=action,
+            logprobs=logprob,
+            rewards=reward,
+            dones=dones,
+            values=value,
+            advantages=jp.zeros_like(reward),
+            returns=jp.zeros_like(reward),
         )
 
     (envs, key, sum_rewards, next_obs, next_done), rollout_data = jax.lax.scan(
         step_once, (envs, key, sum_rewards, next_obs, next_done), length=args.num_steps
     )
 
-    # construct rollout data
-    obs_buf, actions_buf, logprobs_buf, rewards_buf, dones_buf, values_buf = rollout_data
-    data = RolloutData(
-        obs=obs_buf,
-        actions=actions_buf,
-        logprobs=logprobs_buf,
-        rewards=rewards_buf,
-        dones=dones_buf,
-        values=values_buf,
-        returns=jp.zeros_like(rewards_buf),
-        advantages=jp.zeros_like(rewards_buf),
-    )
-    return envs, data, next_obs, next_done, sum_rewards, key
+    return envs, rollout_data, next_obs, next_done, sum_rewards, key
 
 
 # region GAE
@@ -299,7 +289,7 @@ def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> fl
             (loss, (pg_loss, v_loss, entropy_loss, approx_kl)), (g_actor, g_critic) = grad_fn(
                 agent.actor_states.params,
                 agent.critic_states.params,
-                minibatch.obs,
+                minibatch.observations,
                 minibatch.actions,
                 minibatch.logprobs,
                 minibatch.advantages,

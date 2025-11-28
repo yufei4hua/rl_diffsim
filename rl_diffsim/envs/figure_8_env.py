@@ -4,9 +4,11 @@ from typing import Callable, Literal
 
 import jax
 import jax.numpy as jp
+import numpy as np
 from crazyflow.envs.drone_env import DroneEnv
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
+from crazyflow.sim.visualize import draw_line, draw_points
 from crazyflow.utils import leaf_replace
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
@@ -116,11 +118,13 @@ class FigureEightEnv(DroneEnv):
 
     def render(self):
         """Render."""
-        # idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
-        # next_trajectory = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
-        # draw_line(self.sim, self.trajectories[0, 0:-1:2, :], rgba=jp.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0)
-        # draw_line(self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
-        # draw_points(self.sim, next_trajectory[0], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
+        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
+        next_trajectory = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
+        trajectories = np.array(self.trajectories)
+        next_trajectory = np.array(next_trajectory)
+        draw_line(self.sim, trajectories[0, 0:-1:2, :], rgba=jp.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0)
+        draw_line(self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
+        draw_points(self.sim, next_trajectory[0], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.render()
 
     def obs(self) -> dict[str, Array]:

@@ -44,11 +44,11 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 2_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024 * 2
+    num_envs: int = 1024
     """the number of parallel game environments"""
     num_steps: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 8 * 2
+    num_minibatches: int = 8
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -492,12 +492,8 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
         episode_lengths.append(steps)
         print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    # plot figures, record RMSE if available
-    try:
-        fig, _, _ = eval_env.base.plot_eval(save_path="ppo_eval_plot.png")
-        rmse_pos = eval_env.base.calc_rmse()
-    except Exception:
-        fig, rmse_pos = None, None
+    fig = eval_env.plot_eval(save_path="ppo_eval_plot.png")
+    rmse_pos = eval_env.calc_rmse()
 
     eval_env.close()
 

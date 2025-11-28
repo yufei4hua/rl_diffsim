@@ -42,7 +42,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 2_000_000
     """total timesteps of the experiments"""
     num_envs: int = 64
     """the number of parallel game environments"""
@@ -514,12 +514,8 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
         episode_lengths.append(steps)
         print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    # plot figures, record RMSE if available
-    try:
-        fig, _, _ = eval_env.base.plot_eval(save_path="shac_eval_plot.png")
-        rmse_pos = eval_env.base.calc_rmse()
-    except Exception:
-        fig, rmse_pos = None, None
+    fig = eval_env.plot_eval(save_path="shac_eval_plot.png")
+    rmse_pos = eval_env.calc_rmse()
 
     eval_env.close()
 

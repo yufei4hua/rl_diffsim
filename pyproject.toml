@@ -49,6 +49,7 @@ rl = [
     "wandb",
     "flax",
     "optax",
+    "matplotlib",
 ]
 
 [tool.setuptools.packages]

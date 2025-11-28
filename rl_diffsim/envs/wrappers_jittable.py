@@ -481,6 +481,8 @@ class RecordDataJittable(JittableWrapper):
             Path(__file__).parents[2] / "saves" / save_path
         )  # TODO: nicer way to get root path
 
+        return fig
+
 
 # region Examples
 if __name__ == "__main__":

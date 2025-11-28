@@ -19,7 +19,7 @@ from torch.distributions.normal import Normal
 
 import wandb
 from rl_diffsim.envs.figure_8_env import FigureEightEnv
-from rl_diffsim.ppo.wrappers import ActionPenalty, AngleReward, FlattenJaxObservation, RecordData
+from rl_diffsim.envs.wrappers import ActionPenalty, AngleReward, FlattenJaxObservation, RecordData
 
 
 # region Arguments

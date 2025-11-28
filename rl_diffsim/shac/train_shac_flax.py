@@ -18,13 +18,12 @@ from shac_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
-from rl_diffsim.ppo.wrappers_jittable import (
+from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
-    RenderSimJittable,
 )
 
 
@@ -37,38 +36,34 @@ class Args:
     """seed of the experiment"""
     jax_device: str = "gpu"
     """environment device"""
-    wandb_project_name: str = "rl-ppo-f8"
+    wandb_project_name: str = "rl-shac-f8"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_00
+    total_timesteps: int = 1_400_000
     """total timesteps of the experiments"""
-    num_envs: int = 64
+    num_envs: int = 1024 // 2
     """the number of parallel game environments"""
-    num_steps: int = 8
+    num_steps: int = 8 * 2
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 1
+    num_minibatches: int = 8
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 1.5e-2
+    actor_lr: float = 1.5e-3
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 1.5e-3
+    critic_lr: float = 1.0e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.94
     """the discount factor gamma"""
     gae_lambda: float = 0.97
-    """the lambda for the general advantage estimation"""
-    update_epochs: int = 10
+    """the lambda for the TD-lambda calculation"""
+    update_epochs: int = 15
     """the K epochs to update the policy"""
-    norm_adv: bool = True
-    """Toggles advantages normalization"""
-    clip_coef: float = 0.26
+    clip_coef: float = 10.26
     """the surrogate clipping coefficient"""
-    clip_vloss: bool = True
-    """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
     ent_coef: float = 0.007
     """coefficient of the entropy"""
     vf_coef: float = 0.7
@@ -77,6 +72,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    hidden_size: int = 32
+    """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -225,6 +222,7 @@ def update_policy(
         last_value = agent.get_value(critic_params, next_obs)  # (args.num_envs, )
         losses = jp.sum(data.losses) - jp.sum(next_discounts * last_value)  # terminal value loss
         return losses / (args.num_envs * args.num_steps), (
+            envs,
             data,
             next_obs,
             next_done,
@@ -233,7 +231,7 @@ def update_policy(
         )
 
     policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
-    (p_loss, (data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
+    (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
         envs,
         agent.actor_states.params,
         agent.critic_states.params,
@@ -387,7 +385,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         key=init_key,
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
-        hidden_size=64,
+        hidden_size=args.hidden_size,
         actor_lr=actor_lr,
         critic_lr=critic_lr,
     )
@@ -411,6 +409,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             sum_rewards=sum_rewards,
             key=key,
         )
+        envs.render()
         print(f"Policy {time.time() - start_time:.5f} s", end=", ")
         # 2. compute TD-λ
         start_gae_time = time.time()
@@ -469,14 +468,13 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
     }
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
     eval_env = RecordDataJittable.create(eval_env)
-    eval_env = RenderSimJittable.create(eval_env)
 
     # create Agent & load params
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
-        hidden_size=64,
+        hidden_size=args.hidden_size,
     )
     with open(model_path, "rb") as f:
         import pickle
@@ -502,7 +500,7 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
             # step env using jittable API: env, (obs, reward, terminated, truncated, info)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             # render using the RenderSimJittable API
-            eval_env.render(eval_env)
+            eval_env.render()
             done = terminated | truncated
             # reward is a jax Array shaped (1,) — convert to float
             episode_reward += float(np.asarray(reward).item())
@@ -514,7 +512,7 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
 
     # plot figures, record RMSE if available
     try:
-        fig, _, _ = eval_env.base.plot_eval()
+        fig, _, _ = eval_env.base.plot_eval(save_path="shac_eval_plot.png")
         rmse_pos = eval_env.base.calc_rmse()
     except Exception:
         fig, rmse_pos = None, None
@@ -534,7 +532,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
       n_eval: number of evaluation episodes to run after training (or standalone)
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/ppo_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training

@@ -18,13 +18,12 @@ from ppo_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
-from rl_diffsim.ppo.wrappers_jittable import (
+from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
-    RenderSimJittable,
 )
 
 
@@ -451,7 +450,6 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     }
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
     eval_env = RecordDataJittable.create(eval_env)
-    eval_env = RenderSimJittable.create(eval_env)
 
     # create Agent & load params
     agent = Agent.create(
@@ -484,7 +482,7 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
             # step env using jittable API: env, (obs, reward, terminated, truncated, info)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             # render using the RenderSimJittable API
-            eval_env.render(eval_env)
+            eval_env.render()
             done = terminated | truncated
             # reward is a jax Array shaped (1,) — convert to float
             episode_reward += float(np.asarray(reward).item())
@@ -496,7 +494,7 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 
     # plot figures, record RMSE if available
     try:
-        fig, _, _ = eval_env.base.plot_eval()
+        fig, _, _ = eval_env.base.plot_eval(save_path="ppo_eval_plot.png")
         rmse_pos = eval_env.base.calc_rmse()
     except Exception:
         fig, rmse_pos = None, None

@@ -30,9 +30,9 @@ sim = [
     "gymnasium[array-api] >= 1.2.0",
     "ml-collections >= 1.0",
     "packaging >= 24.0",
-    "drone-models @ git+https://github.com/utiasDSL/drone-models.git@adr_ws25",
-    "drone-controllers @ git+https://github.com/utiasDSL/drone-controllers.git@adr_ws25",
-    "crazyflow @ git+https://github.com/utiasDSL/crazyflow.git@adr_ws25",
+    "drone-models @ git+https://github.com/utiasDSL/drone-models.git",
+    "drone-controllers @ git+https://github.com/utiasDSL/drone-controllers.git",
+    "crazyflow @ git+https://github.com/utiasDSL/crazyflow.git@dev",
     "jax >= 0.7",
     "warp-lang",
 ]
@@ -41,7 +41,7 @@ gpu = ["jax[cuda12]"]
 # option[deploy]: deploy to real drones
 deploy = [
     "cfclient",
-    "drone-estimators @ git+https://github.com/utiasDSL/drone-estimators.git@adr_ws25",
+    "drone-estimators @ git+https://github.com/utiasDSL/drone-estimators.git",
 ]
 # option[rl]: train rl policy
 rl = [
@@ -140,13 +140,13 @@ pytest = "*"
 
 # environments
 [tool.pixi.environments]
-default = { features = ["sim"], solve-group = "default" }
+default = { features = ["sim", "rl"], solve-group = "default" }
 deploy = { features = [
     "jazzy",
 ] } # for deploy we must install everything else with pip
 gpu = { features = ["sim", "gpu", "rl"], solve-group = "default" }
 tests = { features = ["sim", "rl", "tests"], solve-group = "default" }
-gpu-tests = { features = ["sim", "gpu", "tests"], solve-group = "default" }
+# gpu-tests = { features = ["sim", "gpu", "tests"], solve-group = "default" }
 
 [tool.pixi.dependencies]
 # TODO: Remove compilers once scipy 1.17 is released and drone-models have been updated.

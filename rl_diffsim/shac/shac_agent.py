@@ -103,7 +103,6 @@ class Agent(struct.PyTreeNode):
             entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
             return (action, logp, entropy), new_key
 
-
         def _get_action_mean(params: dict, obs: Array) -> Array:
             """Get deterministic action (mean)."""
             mean, logstd = actor.apply(params, obs)

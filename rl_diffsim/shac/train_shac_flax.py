@@ -137,9 +137,12 @@ class RolloutData:
     returns: Array
     losses: Array
 
+
 def global_max(pytree: dict) -> Array:
+    """Compute the global max abs value in a pytree."""
     leaf_max = [jp.max(jp.abs(x)) for x in jax.tree.leaves(pytree)]
     return jp.max(jp.stack(leaf_max))
+
 
 # region Policy Update
 @functools.partial(jax.jit, static_argnames=("args",))
@@ -257,7 +260,7 @@ def compute_td_lambda(
     """Compute TD-λ returns."""
     last_value = agent.get_value(agent.critic_states.params, next_obs)
 
-    returns = last_value.reshape(args.num_envs,)
+    returns = last_value.reshape(args.num_envs)
     dones = jp.concatenate([data.dones, next_done[None, :]], axis=0)
     values = jp.concatenate([data.values, last_value[None, :]], axis=0)
 
@@ -420,9 +423,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         print(f"TD-λ {time.time() - start_gae_time:.5f} s", end=", ")
         # 3. value update
         start_value_time = time.time()
-        (agent, key), (v_loss, explained_var) = update_value(
-            args, agent, data, key
-        )
+        (agent, key), (v_loss, explained_var) = update_value(args, agent, data, key)
         print(f"Value {time.time() - start_value_time:.5f} s", end=", ")
         print(f"total {time.time() - start_time:.5f} s")
         # 4. logging

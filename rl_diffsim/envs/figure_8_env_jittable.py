@@ -39,16 +39,26 @@ class FigureEightJittableEnv(DroneJittableEnv):
     # Immutable figure-eight parameters
     trajectories: Array = struct.field(pytree_node=False)
     sample_offsets: Array = struct.field(pytree_node=False)
-    
+
     # Non-jittable functions
     def render(self):
         """Override base class render to show figure-eight trajectory."""
-        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
+        idx = jp.clip(
+            self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
+        )
         next_trajectory = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
         trajectories = np.array(self.trajectories)
         next_trajectory = np.array(next_trajectory)
-        draw_line(self.sim, trajectories[0, 0:-1:2, :], rgba=jp.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0)
-        draw_line(self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
+        draw_line(
+            self.sim,
+            trajectories[0, 0:-1:2, :],
+            rgba=jp.array([1, 1, 1, 0.4]),
+            start_size=2.0,
+            end_size=2.0,
+        )
+        draw_line(
+            self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
+        )
         draw_points(self.sim, next_trajectory[0], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.data = self.data
         self.sim.render(world=0)
@@ -168,7 +178,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
         def _sanitize_action(action: Array, low: Array, high: Array) -> Array:
             action = jp.clip(action, low, high)
             return jp.array(action, device=jax_device).reshape((num_envs, 1, -1))
-        
+
         def _sanitize_action_STE(action: Array, low: Array, high: Array) -> Array:
             action_clipped = jp.clip(action, low, high)
             action = action + jax.lax.stop_gradient(action_clipped - action)

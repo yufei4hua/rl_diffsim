@@ -56,12 +56,12 @@ class JittableWrapper(struct.PyTreeNode):
     def unwrapped(self) -> struct.PyTreeNode:
         """Return the unwrapped (innermost) base environment."""
         return getattr(self.base, "unwrapped", self.base)
-      
+
     @property
     def steps(self) -> Array:
         """Get the current step count for each environment."""
         return getattr(self.base, "steps")
-    
+
     def render(self) -> None:
         """Returns the render mode from the base vector environment."""
         return self.base.render()
@@ -69,6 +69,7 @@ class JittableWrapper(struct.PyTreeNode):
     def close(self, **kwargs: Any) -> None:
         """Close all environments."""
         return self.base.close(**kwargs)
+
 
 # region NormAct
 @struct.dataclass
@@ -130,6 +131,7 @@ class NormalizeActionsJittable(JittableWrapper):
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
+
 # region AngleReward
 @struct.dataclass
 class AngleRewardJittable(JittableWrapper):
@@ -179,6 +181,7 @@ class AngleRewardJittable(JittableWrapper):
             return env, (obs, rewards, terminations, truncations, infos)
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
 
 # region ActionPenalty
 @struct.dataclass
@@ -255,6 +258,7 @@ class ActionPenaltyJittable(JittableWrapper):
 
         return cls(base=base, last_action=last_action, step=jax.jit(_step), reset=jax.jit(_reset))
 
+
 # region FlattenObs
 @struct.dataclass
 class FlattenJaxObservationJittable(JittableWrapper):
@@ -311,6 +315,7 @@ class FlattenJaxObservationJittable(JittableWrapper):
             return env, (flat_obs, reward, terminated, truncated, info)
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
 
 # region RecordData
 @struct.dataclass
@@ -472,7 +477,10 @@ class RecordDataJittable(JittableWrapper):
         axes[11].axis("off")
 
         plt.tight_layout()
-        plt.savefig(Path(__file__).parents[2] / "saves" / save_path) # TODO: nicer way to get root path
+        plt.savefig(
+            Path(__file__).parents[2] / "saves" / save_path
+        )  # TODO: nicer way to get root path
+
 
 # region Examples
 if __name__ == "__main__":

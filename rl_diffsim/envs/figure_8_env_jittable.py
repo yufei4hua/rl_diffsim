@@ -10,16 +10,19 @@ from crazyflow.envs.drone_env import action_space as create_action_space
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
+from crazyflow.sim.visualize import draw_line, draw_points
 from crazyflow.utils import leaf_replace
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 from jax import Array
 
+from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv
 
-class FigureEightJittableEnv(struct.PyTreeNode):
+
+class FigureEightJittableEnv(DroneJittableEnv):
     """Jittable Figure Eight Environment.
 
-    This class defines a subclass of PyTreeNode that contains environment data and jittable functions,
+    This class defines a subclass of DroneJittableEnv that contains environment data and jittable functions,
     allowing for efficient execution with JAX's JIT compilation. Pass env as an argument to jitted functions.
 
     Attributes:
@@ -33,33 +36,22 @@ class FigureEightJittableEnv(struct.PyTreeNode):
         data: Simulation data structure.
     """
 
-    # Immutable environment parameters
-    num_envs: int = struct.field(pytree_node=False)
-    max_episode_time: float = struct.field(pytree_node=False)
-    physics: Physics = struct.field(pytree_node=False)
-    drone_model: str = struct.field(pytree_node=False)
-    freq: int = struct.field(pytree_node=False)
-    device: str = struct.field(pytree_node=False)
-    single_action_space: spaces.Box = struct.field(pytree_node=False)
-    action_space: spaces.Box = struct.field(pytree_node=False)
-    single_observation_space: spaces.Dict = struct.field(pytree_node=False)
-    observation_space: spaces.Dict = struct.field(pytree_node=False)
-    n_substeps: int = struct.field(pytree_node=False)
     # Immutable figure-eight parameters
     trajectories: Array = struct.field(pytree_node=False)
-
-    # Variating simulation data
-    data: SimData = struct.field(pytree_node=True)
-    steps: Array = struct.field(pytree_node=True)
-    _marked_for_reset: Array = struct.field(pytree_node=True)
-
-    # Jittable functions
-    reset: Callable = struct.field(pytree_node=False)
-    step: Callable = struct.field(pytree_node=False)
-    obs: Callable = struct.field(pytree_node=False)
-    reward: Callable = struct.field(pytree_node=False)
-    terminated: Callable = struct.field(pytree_node=False)
-    truncated: Callable = struct.field(pytree_node=False)
+    sample_offsets: Array = struct.field(pytree_node=False)
+    
+    # Non-jittable functions
+    def render(self):
+        """Override base class render to show figure-eight trajectory."""
+        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
+        next_trajectory = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
+        trajectories = np.array(self.trajectories)
+        next_trajectory = np.array(next_trajectory)
+        draw_line(self.sim, trajectories[0, 0:-1:2, :], rgba=jp.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0)
+        draw_line(self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
+        draw_points(self.sim, next_trajectory[0], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
+        self.sim.data = self.data
+        self.sim.render(world=0)
 
     @classmethod
     def create(
@@ -270,6 +262,7 @@ class FigureEightJittableEnv(struct.PyTreeNode):
         _marked_for_reset = jp.zeros((num_envs,), dtype=jp.bool_, device=jax_device)
 
         return cls(
+            sim=sim,
             num_envs=num_envs,
             max_episode_time=max_episode_time,
             physics=physics,
@@ -282,15 +275,12 @@ class FigureEightJittableEnv(struct.PyTreeNode):
             observation_space=observation_space,
             n_substeps=n_substeps,
             trajectories=trajectories,
+            sample_offsets=sample_offsets,
             data=sim.data,
             steps=steps,
             _marked_for_reset=_marked_for_reset,
             reset=jax.jit(_reset),
             step=jax.jit(_step),
-            obs=jax.jit(_obs),
-            reward=jax.jit(_reward),
-            terminated=jax.jit(_terminated),
-            truncated=jax.jit(_truncated),
         )
 
 

@@ -33,18 +33,22 @@ class DroneJittableEnv(struct.PyTreeNode):
         data: Simulation data structure.
     """
 
-    # Immutable environment parameters
+    # Sim object for rendering
+    sim: Sim = struct.field(pytree_node=False)
+    # Constant environment parameters
     num_envs: int = struct.field(pytree_node=False)
     max_episode_time: float = struct.field(pytree_node=False)
     physics: Physics = struct.field(pytree_node=False)
+    drone_model: str = struct.field(pytree_node=False)
+    freq: int = struct.field(pytree_node=False)
+    device: str = struct.field(pytree_node=False)
     single_action_space: spaces.Box = struct.field(pytree_node=False)
     action_space: spaces.Box = struct.field(pytree_node=False)
     single_observation_space: spaces.Dict = struct.field(pytree_node=False)
     observation_space: spaces.Dict = struct.field(pytree_node=False)
-    freq: int = struct.field(pytree_node=False)
     n_substeps: int = struct.field(pytree_node=False)
 
-    # Variating simulation data
+    # Variable simulation data
     data: SimData = struct.field(pytree_node=True)
     steps: Array = struct.field(pytree_node=True)
     _marked_for_reset: Array = struct.field(pytree_node=True)
@@ -52,10 +56,16 @@ class DroneJittableEnv(struct.PyTreeNode):
     # Jittable functions
     reset: Callable = struct.field(pytree_node=False)
     step: Callable = struct.field(pytree_node=False)
-    obs: Callable = struct.field(pytree_node=False)
-    reward: Callable = struct.field(pytree_node=False)
-    terminated: Callable = struct.field(pytree_node=False)
-    truncated: Callable = struct.field(pytree_node=False)
+
+    # Non-jittable functions
+    def render(self):
+        """Sync current data into sim and call its render function."""
+        self.sim.data = self.data
+        self.sim.render(world=0)
+
+    def close(self):
+        """Close the underlying sim."""
+        self.sim.close()
 
     @classmethod
     def create(
@@ -83,6 +93,9 @@ class DroneJittableEnv(struct.PyTreeNode):
 
         Returns:
             An instance of DroneJittableEnv with jittable functions and data.
+
+        Note:
+            Override this create method to implement custom environments.
         """
         # Initialize the simulation
         jax_device = jax.devices(device)[0]
@@ -202,24 +215,23 @@ class DroneJittableEnv(struct.PyTreeNode):
         _marked_for_reset = jp.zeros((num_envs,), dtype=jp.bool_, device=jax_device)
 
         return cls(
+            sim=sim,
             num_envs=num_envs,
             max_episode_time=max_episode_time,
             physics=physics,
+            freq=freq,
+            device=device,
+            drone_model=drone_model,
             single_action_space=single_action_space,
             action_space=action_space,
             single_observation_space=single_observation_space,
             observation_space=observation_space,
-            freq=freq,
             n_substeps=n_substeps,
             data=sim.data,
             steps=steps,
             _marked_for_reset=_marked_for_reset,
             reset=jax.jit(_reset),
             step=jax.jit(_step),
-            obs=jax.jit(_obs),
-            reward=jax.jit(_reward),
-            terminated=jax.jit(_terminated),
-            truncated=jax.jit(_truncated),
         )
 
 

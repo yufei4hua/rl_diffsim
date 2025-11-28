@@ -9,7 +9,6 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
-from crazyflow.sim import Sim
 from gymnasium import spaces
 from gymnasium.spaces import flatten_space
 from gymnasium.vector.utils import batch_space
@@ -17,6 +16,7 @@ from jax import Array
 from jax.scipy.spatial.transform import Rotation as R
 
 
+# region Base
 @struct.dataclass
 class JittableWrapper(struct.PyTreeNode):
     """Base class for jittable wrappers that delegates common metadata to the wrapped base.
@@ -56,8 +56,21 @@ class JittableWrapper(struct.PyTreeNode):
     def unwrapped(self) -> struct.PyTreeNode:
         """Return the unwrapped (innermost) base environment."""
         return getattr(self.base, "unwrapped", self.base)
+      
+    @property
+    def steps(self) -> Array:
+        """Get the current step count for each environment."""
+        return getattr(self.base, "steps")
+    
+    def render(self) -> None:
+        """Returns the render mode from the base vector environment."""
+        return self.base.render()
 
+    def close(self, **kwargs: Any) -> None:
+        """Close all environments."""
+        return self.base.close(**kwargs)
 
+# region NormAct
 @struct.dataclass
 class NormalizeActionsJittable(JittableWrapper):
     """Jittable wrapper that exposes actions in [-1, 1] and rescales them to the simulator range.
@@ -86,7 +99,7 @@ class NormalizeActionsJittable(JittableWrapper):
         """Create a NormalizeActions wrapper around `base`.
 
         Parameters:
-            base: a jittable environment that exposes `single_action_space` and `num_envs`.
+            base: The jittable base environment to wrap.
 
         Returns:
             NormalizeActionsJittable: wrapper with jitted step/reset.
@@ -117,7 +130,7 @@ class NormalizeActionsJittable(JittableWrapper):
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
-
+# region AngleReward
 @struct.dataclass
 class AngleRewardJittable(JittableWrapper):
     """Jittable wrapper to penalize orientation in the reward."""
@@ -167,7 +180,7 @@ class AngleRewardJittable(JittableWrapper):
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
-
+# region ActionPenalty
 @struct.dataclass
 class ActionPenaltyJittable(JittableWrapper):
     """Jittable wrapper to apply action penalty and augment observations with last_action."""
@@ -242,7 +255,7 @@ class ActionPenaltyJittable(JittableWrapper):
 
         return cls(base=base, last_action=last_action, step=jax.jit(_step), reset=jax.jit(_reset))
 
-
+# region FlattenObs
 @struct.dataclass
 class FlattenJaxObservationJittable(JittableWrapper):
     """Jittable wrapper to flatten dict observations into a single array."""
@@ -299,7 +312,7 @@ class FlattenJaxObservationJittable(JittableWrapper):
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
-
+# region RecordData
 @struct.dataclass
 class RecordDataJittable(JittableWrapper):
     """Jittable wrapper that records debugging data during non-jitted runs.
@@ -325,8 +338,11 @@ class RecordDataJittable(JittableWrapper):
     def create(cls, base: struct.PyTreeNode) -> "RecordDataJittable":
         """Create a RecordData wrapper around `base`.
 
-        The created wrapper exposes jitted `step`/`reset` for use in compiled
-        rollouts and returns a wrapper with initialized (empty) record buffers.
+        Parameters:
+            base: The jittable environment to wrap.
+
+        Returns:
+            RecordDataJittable: Configured wrapper instance.
         """
         max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
         num_envs = int(base.num_envs)
@@ -456,59 +472,9 @@ class RecordDataJittable(JittableWrapper):
         axes[11].axis("off")
 
         plt.tight_layout()
-        plt.savefig(Path(__file__).parent / save_path)
+        plt.savefig(Path(__file__).parents[2] / "saves" / save_path) # TODO: nicer way to get root path
 
-
-@struct.dataclass
-class RenderSimJittable(JittableWrapper):
-    """Wrapper that keeps jitted step/reset, but adds a non-jittable render() via an external Sim."""
-
-    base: struct.PyTreeNode = struct.field(pytree_node=True)
-
-    sim: Sim = struct.field(pytree_node=False)
-    world: int = struct.field(pytree_node=False)
-
-    step: Callable = struct.field(pytree_node=False)
-    reset: Callable = struct.field(pytree_node=False)
-
-    @classmethod
-    def create(cls, base: struct.PyTreeNode, world: int = 0) -> "RenderSimJittable":
-        """Wrap a jittable env with an external Sim for rendering."""
-
-        def _reset(
-            env: "RenderSimJittable", *, seed: int | None = None, options: dict | None = None
-        ) -> tuple["RenderSimJittable", tuple[Array, Any]]:
-            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
-            env = env.replace(base=base_env)
-            return env, (obs, info)
-
-        def _step(
-            env: "RenderSimJittable", action: Array
-        ) -> tuple["RenderSimJittable", tuple[Array, Any]]:
-            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
-            env = env.replace(base=base_env)
-            return env, (obs, reward, terminated, truncated, info)
-
-        sim = Sim(
-            n_worlds=base.unwrapped.num_envs,
-            n_drones=1,
-            drone_model=base.unwrapped.drone_model,
-            device=base.unwrapped.device,
-            physics=base.unwrapped.physics,
-        )
-
-        return cls(base=base, sim=sim, world=world, step=jax.jit(_step), reset=jax.jit(_reset))
-
-    def render(self, env: struct.PyTreeNode):
-        """Sync current data into sim and call its render function."""
-        self.sim.data = env.unwrapped.data
-        self.sim.render(world=self.world)
-
-    def close(self):
-        """Close the underlying sim."""
-        self.sim.close()
-
-
+# region Examples
 if __name__ == "__main__":
     import time  # noqa: I001
     from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
@@ -533,7 +499,6 @@ if __name__ == "__main__":
     env = ActionPenaltyJittable.create(env)
     env = FlattenJaxObservationJittable.create(env)
     env = RecordDataJittable.create(env)
-    env = RenderSimJittable.create(env)
 
     # Reset the environment
     env, (obs, info) = env.reset(env, seed=42)
@@ -581,12 +546,12 @@ if __name__ == "__main__":
 
     # test rendering & data logging
     env, (obs, info) = env.reset(env)
-    for step in range(500):
-        base_action = jp.array([0.2, 0.0, 0.0, 0.0], dtype=jp.float32)  # fixed action
+    for step in range(100):
+        base_action = jp.array([0.0, 0.2, 0.0, 0.0], dtype=jp.float32)  # fixed action
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
         env, _ = env.step(env, action)
-        env.render(env)
-    env.base.plot_eval(save_path="eval_plot_test.png")
+        env.render()
+    # env.plot_eval(save_path="eval_plot_test.png")
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)

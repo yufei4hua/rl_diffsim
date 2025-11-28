@@ -42,17 +42,17 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_400_000
+    total_timesteps: int = 1_500_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024 // 2
+    num_envs: int = 1024 // 4
     """the number of parallel game environments"""
-    num_steps: int = 8 * 2
+    num_steps: int = 8 * 4
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 8
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 1.5e-3
+    actor_lr: float = 3.5e-3
     """the learning rate of the actor optimizer"""
     critic_lr: float = 1.0e-3
     """the learning rate of the critic optimizer"""
@@ -251,9 +251,8 @@ def compute_td_lambda(
 ) -> RolloutData:
     """Compute TD-λ returns."""
     last_value = agent.get_value(agent.critic_states.params, next_obs)
-    # TODO: move all get_value to this function.
 
-    returns = jp.zeros((args.num_envs,))
+    returns = last_value.reshape(args.num_envs,)
     dones = jp.concatenate([data.dones, next_done[None, :]], axis=0)
     values = jp.concatenate([data.values, last_value[None, :]], axis=0)
 

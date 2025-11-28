@@ -34,7 +34,7 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
-    jax_device: str = "gpu"
+    jax_device: str = "cpu"
     """environment device"""
     wandb_project_name: str = "rl-shac-f8"
     """the wandb's project name"""
@@ -42,37 +42,29 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_500_000
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024 // 4
+    num_envs: int = 64
     """the number of parallel game environments"""
-    num_steps: int = 8 * 4
+    num_steps: int = 32
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 8
+    num_minibatches: int = 4
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 3.5e-3
+    actor_lr: float = 8e-3
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 1.0e-3
+    critic_lr: float = 1.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.94
+    gamma: float = 0.98
     """the discount factor gamma"""
-    gae_lambda: float = 0.97
+    gae_lambda: float = 0.95
     """the lambda for the TD-lambda calculation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
-    clip_coef: float = 10.26
+    clip_coef: float = 0.8
     """the surrogate clipping coefficient"""
-    ent_coef: float = 0.007
-    """coefficient of the entropy"""
-    vf_coef: float = 0.7
-    """coefficient of the value function"""
-    max_grad_norm: float = 1.5
-    """the maximum norm for the gradient clipping"""
-    target_kl: float = None
-    """the target KL divergence threshold"""
-    hidden_size: int = 32
+    hidden_size: int = 64
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -84,7 +76,6 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    n_obs: int = 2
     rpy_coef: float = 0.06
     d_act_th_coef: float = 0.4
     d_act_xy_coef: float = 1.0
@@ -116,7 +107,7 @@ def make_jitted_envs(
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",
-        physics="so_rpy_rotor_drag",
+        physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
     )
@@ -146,6 +137,9 @@ class RolloutData:
     returns: Array
     losses: Array
 
+def global_max(pytree: dict) -> Array:
+    leaf_max = [jp.max(jp.abs(x)) for x in jax.tree.leaves(pytree)]
+    return jp.max(jp.stack(leaf_max))
 
 # region Policy Update
 @functools.partial(jax.jit, static_argnames=("args",))
@@ -177,10 +171,18 @@ def update_policy(
             env, key, sum_rewards, discounts, obs, dones = carry
             # 1. get action from policy
             (action, logprob, entropy), key = agent.get_action_sample(actor_params, obs, key)
+            # jax.debug.print("Action sampled: {action}", action=action[0])
             value = agent.get_value(critic_params, obs)
 
             # 2. step environment & compute stepwise loss
             env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
+            # base_obs = {
+            #     "pos": env.unwrapped.data.states.pos[0, 0, :],
+            #     "quat": env.unwrapped.data.states.quat[0, 0, :],
+            #     "vel": env.unwrapped.data.states.vel[0, 0, :],
+            #     "ang_vel": env.unwrapped.data.states.ang_vel[0, 0, :],
+            # }
+            # jax.debug.print("obs: {obs}", obs=base_obs)
             sum_rewards = sum_rewards + reward
             sum_rewards = jp.where(dones, 0.0, sum_rewards)
             loss = -discounts * jp.where(dones, value, reward)
@@ -240,7 +242,10 @@ def update_policy(
         sum_rewards,
         key,
     )
+
+    # jax.debug.print("Policy loss: {loss}, grad max: {grad_max}", loss=p_loss, grad_max=global_max(g_actor))
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
+    # jax.debug.print("Updated policy params max: {param_max}", param_max=global_max(agent.actor_states.params))
     return (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards, key))
 
 
@@ -355,7 +360,6 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     # make envs
     r_coefs = {
-        "n_obs": args.n_obs,
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
@@ -408,7 +412,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             sum_rewards=sum_rewards,
             key=key,
         )
-        envs.render()
+        # envs.render()
         print(f"Policy {time.time() - start_time:.5f} s", end=", ")
         # 2. compute TD-λ
         start_gae_time = time.time()
@@ -423,10 +427,11 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         print(f"total {time.time() - start_time:.5f} s")
         # 4. logging
         if wandb_enabled:
-            wandb.log(
-                {"train/reward": jp.mean(sum_rewards[next_done])},
-                step=global_step + args.batch_size,
-            )
+            if jp.any(next_done):
+                wandb.log(
+                    {"train/reward": jp.mean(sum_rewards[next_done])},
+                    step=global_step + args.batch_size,
+                )
             wandb.log(
                 {
                     "losses/p_loss": jp.mean(p_loss),
@@ -459,7 +464,6 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
     `n_eval` episodes with deterministic actions.
     """
     r_coefs = {
-        "n_obs": args.n_obs,
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,

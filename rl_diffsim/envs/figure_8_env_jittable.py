@@ -168,6 +168,11 @@ class FigureEightJittableEnv(DroneJittableEnv):
         def _sanitize_action(action: Array, low: Array, high: Array) -> Array:
             action = jp.clip(action, low, high)
             return jp.array(action, device=jax_device).reshape((num_envs, 1, -1))
+        
+        def _sanitize_action_STE(action: Array, low: Array, high: Array) -> Array:
+            action_clipped = jp.clip(action, low, high)
+            action = action + jax.lax.stop_gradient(action_clipped - action)
+            return jp.array(action, device=jax_device).reshape((num_envs, 1, -1))
 
         def _aux_obs(
             trajectories: Array, steps: Array, pos: Array, sample_offsets: Array
@@ -228,7 +233,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
             low, high = action_space.low, action_space.high
-            action = _sanitize_action(action, low, high)
+            action = _sanitize_action_STE(action, low, high)
             data = data.replace(
                 controls=data.controls.replace(
                     attitude=data.controls.attitude.replace(staged_cmd=action)

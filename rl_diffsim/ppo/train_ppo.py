@@ -76,6 +76,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    hidden_size: int = 64
+    """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -86,7 +88,6 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    n_obs: int = 2
     rpy_coef: float = 0.06
     d_act_th_coef: float = 0.4
     d_act_xy_coef: float = 1.0
@@ -336,7 +337,6 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
     # make envs
     r_coefs = {
-        "n_obs": args.n_obs,
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
@@ -366,7 +366,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         key=init_key,
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
-        hidden_size=64,
+        hidden_size=args.hidden_size,
         actor_lr=actor_lr,
         critic_lr=critic_lr,
     )
@@ -438,14 +438,15 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
 
 # region Evaluate
-def evaluate_ppo(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
+def evaluate_ppo(
+    args: Args, n_eval: int, model_path: Path, render: bool
+) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
     `n_eval` episodes with deterministic actions.
     """
     r_coefs = {
-        "n_obs": args.n_obs,
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
@@ -458,7 +459,7 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path, render: bool) -> tup
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
-        hidden_size=64,
+        hidden_size=args.hidden_size,
     )
     with open(model_path, "rb") as f:
         import pickle
@@ -517,7 +518,9 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
         train_ppo(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path, render)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(
+            args, n_eval, model_path, render
+        )
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

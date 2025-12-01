@@ -42,29 +42,29 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 2_000_000
+    total_timesteps: int = 500_000
     """total timesteps of the experiments"""
     num_envs: int = 64
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 16
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 4
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 8e-3
+    actor_lr: float = 2e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 1.5e-3
+    critic_lr: float = 2e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the TD-lambda calculation"""
-    update_epochs: int = 15
+    update_epochs: int = 10
     """the K epochs to update the policy"""
-    clip_coef: float = 0.8
+    clip_coef: float = 0.2
     """the surrogate clipping coefficient"""
-    hidden_size: int = 64
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -180,7 +180,7 @@ def update_policy(
 
             # 2. step environment & compute stepwise loss
             env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
-            
+
             sum_rewards = sum_rewards + reward
             next_sum_rewards = jp.where(dones, 0.0, sum_rewards)
             loss = -discounts * jp.where(dones, value, reward)
@@ -353,6 +353,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     # setup training
     if wandb_enabled and wandb.run is None:
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, config=vars(args))
+    sum_rewards_hist = []
 
     train_start_time = time.time()
     key = jax.random.PRNGKey(args.seed)
@@ -430,6 +431,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
                         {"train/reward": jp.mean(sum_reward[done])},
                         step=global_step + batch_step * args.num_envs,
                     )
+                    sum_rewards_hist.append(jp.mean(sum_reward[done]))
             wandb.log(
                 {
                     "losses/p_loss": jp.mean(p_loss),
@@ -453,9 +455,13 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
 
+    return sum_rewards_hist
+
 
 # region Evaluate
-def evaluate_shac(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
+def evaluate_shac(
+    args: Args, n_eval: int, model_path: Path, render: bool
+) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
@@ -533,7 +539,9 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
         train_shac(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(args, n_eval, model_path, render)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(
+            args, n_eval, model_path, render
+        )
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

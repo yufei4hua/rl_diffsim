@@ -134,6 +134,7 @@ class RolloutData:
     rewards: Array
     dones: Array
     values: Array
+    sum_rewards: Array
     returns: Array
     losses: Array
 
@@ -174,30 +175,24 @@ def update_policy(
             env, key, sum_rewards, discounts, obs, dones = carry
             # 1. get action from policy
             (action, logprob, entropy), key = agent.get_action_sample(actor_params, obs, key)
-            # jax.debug.print("Action sampled: {action}", action=action[0])
             value = agent.get_value(critic_params, obs)
 
             # 2. step environment & compute stepwise loss
             env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
-            # base_obs = {
-            #     "pos": env.unwrapped.data.states.pos[0, 0, :],
-            #     "quat": env.unwrapped.data.states.quat[0, 0, :],
-            #     "vel": env.unwrapped.data.states.vel[0, 0, :],
-            #     "ang_vel": env.unwrapped.data.states.ang_vel[0, 0, :],
-            # }
-            # jax.debug.print("obs: {obs}", obs=base_obs)
+            
             sum_rewards = sum_rewards + reward
-            sum_rewards = jp.where(dones, 0.0, sum_rewards)
+            next_sum_rewards = jp.where(dones, 0.0, sum_rewards)
             loss = -discounts * jp.where(dones, value, reward)
-            next_dones = terminations | truncations
             next_discounts = jp.where(dones, 1.0, discounts * args.gamma)
+            next_dones = terminations | truncations
 
-            return (env, key, sum_rewards, next_discounts, next_obs, next_dones), RolloutData(
+            return (env, key, next_sum_rewards, next_discounts, next_obs, next_dones), RolloutData(
                 observations=obs,
                 actions=action,
                 rewards=reward,
                 dones=dones,
                 values=value,
+                sum_rewards=sum_rewards,
                 returns=jp.zeros_like(reward),
                 losses=loss,
             )
@@ -415,7 +410,6 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             sum_rewards=sum_rewards,
             key=key,
         )
-        # envs.render()
         print(f"Policy {time.time() - start_time:.5f} s", end=", ")
         # 2. compute TD-λ
         start_gae_time = time.time()
@@ -428,11 +422,12 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         print(f"total {time.time() - start_time:.5f} s")
         # 4. logging
         if wandb_enabled:
-            if jp.any(next_done):
-                wandb.log(
-                    {"train/reward": jp.mean(sum_rewards[next_done])},
-                    step=global_step + args.batch_size,
-                )
+            for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
+                if jp.any(done):
+                    wandb.log(
+                        {"train/reward": jp.mean(sum_reward[done])},
+                        step=global_step + batch_step * args.num_envs,
+                    )
             wandb.log(
                 {
                     "losses/p_loss": jp.mean(p_loss),
@@ -454,7 +449,6 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
-    # envs.close()
 
 
 # region Evaluate
@@ -494,19 +488,15 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
     ep_seed = args.seed
 
     for episode in range(n_eval):
-        # jitted env reset returns (env, (obs, info))
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
         done = False
         episode_reward = 0.0
         steps = 0
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
-            # step env using jittable API: env, (obs, reward, terminated, truncated, info)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # render using the RenderSimJittable API
             eval_env.render()
             done = terminated | truncated
-            # reward is a jax Array shaped (1,) — convert to float
             episode_reward += float(np.asarray(reward).item())
             steps += 1
 

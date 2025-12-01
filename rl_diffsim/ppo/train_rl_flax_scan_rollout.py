@@ -44,9 +44,9 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 2_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024
+    num_envs: int = 2048
     """the number of parallel game environments"""
-    num_steps: int = 8
+    num_steps: int = 4
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 8
     """the number of mini-batches"""
@@ -146,6 +146,7 @@ class RolloutData:
     rewards: Array
     dones: Array
     values: Array
+    sum_rewards: Array
     advantages: Array
     returns: Array
 
@@ -175,16 +176,17 @@ def collect_rollout(
         # 2. step environment
         env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
         sum_rewards = sum_rewards + reward
-        sum_rewards = jp.where(dones, 0.0, sum_rewards)
+        next_sum_rewards = jp.where(dones, 0.0, sum_rewards)
         next_dones = terminations | truncations
 
-        return (env, key, sum_rewards, next_obs, next_dones), RolloutData(
+        return (env, key, next_sum_rewards, next_obs, next_dones), RolloutData(
             observations=obs,
             actions=action,
             logprobs=logprob,
             rewards=reward,
             dones=dones,
             values=value,
+            sum_rewards=sum_rewards,
             advantages=jp.zeros_like(reward),
             returns=jp.zeros_like(reward),
         )
@@ -404,10 +406,12 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         print(f"total {time.time() - start_time:.5f} s")
 
         if wandb_enabled:
-            wandb.log(
-                {"train/reward": jp.mean(sum_rewards[next_done])},
-                step=global_step + args.batch_size,
-            )
+            for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
+                if jp.any(done):
+                    wandb.log(
+                        {"train/reward": jp.mean(sum_reward[done])},
+                        step=global_step + batch_step * args.num_envs,
+                    )
             wandb.log(
                 {
                     "losses/pg_loss": jp.mean(pg_loss),

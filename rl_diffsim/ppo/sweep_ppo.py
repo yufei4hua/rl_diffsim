@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 import wandb
-from rl_diffsim.ppo.train_rl_torch import Args, evaluate_ppo, train_ppo  # noqa: F401
+from rl_diffsim.ppo.train_ppo_torch import Args, evaluate_ppo, train_ppo  # noqa: F401
 
 
 # 1: Define objective/training function

@@ -22,7 +22,7 @@ from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 
 from rl_diffsim.control.controller import Controller
-from rl_diffsim.ppo.train_rl_torch import Agent
+from rl_diffsim.ppo.train_ppo_torch import Agent
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray

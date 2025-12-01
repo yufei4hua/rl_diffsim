@@ -435,11 +435,10 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
-    # envs.close()
 
 
 # region Evaluate
-def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, float, list, list]:
+def evaluate_ppo(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
@@ -455,7 +454,6 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
     eval_env = RecordDataJittable.create(eval_env)
 
-    # create Agent & load params
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
@@ -476,19 +474,16 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
     ep_seed = args.seed
 
     for episode in range(n_eval):
-        # jitted env reset returns (env, (obs, info))
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
         done = False
         episode_reward = 0.0
         steps = 0
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
-            # step env using jittable API: env, (obs, reward, terminated, truncated, info)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # render using the RenderSimJittable API
-            eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
-            # reward is a jax Array shaped (1,) — convert to float
             episode_reward += float(np.asarray(reward).item())
             steps += 1
 
@@ -496,7 +491,7 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
         episode_lengths.append(steps)
         print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path="ppo_eval_plot.png")
+    fig = eval_env.plot_eval(save_path="ppo_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
 
     eval_env.close()
@@ -505,13 +500,14 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path) -> tuple[float, floa
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
+def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
     """Main entry.
 
     Flags:
       wandb_enabled: log metrics to wandb
       train: run training
       n_eval: number of evaluation episodes to run after training (or standalone)
+      render: whether to render the environment during evaluation
     """
     args = Args.create()
     model_path = Path(__file__).parents[2] / "saves/ppo_model_flax.ckpt"
@@ -521,7 +517,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
         train_ppo(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path, render)
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

@@ -135,6 +135,7 @@ class RolloutData:
     dones: Array
     values: Array
     sum_rewards: Array
+    entropy: Array
     returns: Array
     losses: Array
 
@@ -193,6 +194,7 @@ def update_policy(
                 dones=dones,
                 values=value,
                 sum_rewards=sum_rewards,
+                entropy=jp.mean(entropy),
                 returns=jp.zeros_like(reward),
                 losses=loss,
             )
@@ -432,6 +434,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
                 {
                     "losses/p_loss": jp.mean(p_loss),
                     "losses/v_loss": jp.mean(v_loss),
+                    "losses/entropy": jp.mean(data.entropy),
                     "losses/explained_variance": jp.mean(explained_var),
                     "charts/SPS": int(global_step / (time.time() - train_start_time)),
                 },
@@ -452,7 +455,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
 
 # region Evaluate
-def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, float, list, list]:
+def evaluate_shac(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
@@ -467,7 +470,6 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
     eval_env = RecordDataJittable.create(eval_env)
 
-    # create Agent & load params
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
@@ -495,7 +497,8 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1
@@ -504,7 +507,7 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
         episode_lengths.append(steps)
         print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path="shac_eval_plot.png")
+    fig = eval_env.plot_eval(save_path="shac_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
 
     eval_env.close()
@@ -513,13 +516,14 @@ def evaluate_shac(args: Args, n_eval: int, model_path: Path) -> tuple[float, flo
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
+def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
     """Main entry.
 
     Flags:
       wandb_enabled: log metrics to wandb
       train: run training
       n_eval: number of evaluation episodes to run after training (or standalone)
+      render: whether to render the environment during evaluation
     """
     args = Args.create()
     model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
@@ -529,7 +533,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1):
         train_shac(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(args, n_eval, model_path)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(args, n_eval, model_path, render)
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

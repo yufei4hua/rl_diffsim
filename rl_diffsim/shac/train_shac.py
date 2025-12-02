@@ -42,29 +42,29 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 500_000
+    total_timesteps: int = 250_000
     """total timesteps of the experiments"""
-    num_envs: int = 64
+    num_envs: int = 32
     """the number of parallel game environments"""
-    num_steps: int = 16
+    num_steps: int = 32
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 4
+    num_minibatches: int = 2
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 2e-2
+    actor_lr: float = 3.5e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 2e-3
+    critic_lr: float = 1.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.98
+    gamma: float = 0.96
     """the discount factor gamma"""
-    gae_lambda: float = 0.95
+    gae_lambda: float = 0.92
     """the lambda for the TD-lambda calculation"""
     update_epochs: int = 10
     """the K epochs to update the policy"""
-    clip_coef: float = 0.2
+    clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 32
+    hidden_size: int = 8
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -503,8 +503,8 @@ def evaluate_shac(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            if render:
-                eval_env.render()
+            # if render:
+            #     eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

@@ -42,7 +42,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 100_000
+    total_timesteps: int = 75_000
     """total timesteps of the experiments"""
     num_envs: int = 32
     """the number of parallel game environments"""
@@ -445,8 +445,8 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
         global_step += args.batch_size
 
-    train_end_time = time.time()
-    print(f"Training for {global_step} steps took {train_end_time - train_start_time:.2f} seconds.")
+    training_time = time.time() - train_start_time
+    print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
@@ -455,7 +455,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
 
-    return sum_rewards_hist
+    return sum_rewards_hist, training_time
 
 
 # region Evaluate

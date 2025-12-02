@@ -1,11 +1,14 @@
 """A naive RL pipeline for drone racing."""
 
 import functools
+import os
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+os.environ["JAX_COMPILATION_CACHE_DIR"] = "/tmp/jax_cache"
+os.environ["JAX_PERSISTENT_CACHE"] = "1"
 import fire
 import flax
 import flax.struct as struct
@@ -46,25 +49,25 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 8
+    num_steps: int = 32
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 4
+    num_minibatches: int = 8
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 2.9e-2
+    actor_lr: float = 4.4e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 2.4e-3
+    critic_lr: float = 3.4e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.92
+    gamma: float = 0.98
     """the discount factor gamma"""
     gae_lambda: float = 0.95
-    """the lambda for the TD-lambda calculation"""
-    update_epochs: int = 10
+    """the lambda for the TD-lambd a calculation"""
+    update_epochs: int = 12
     """the K epochs to update the policy"""
-    clip_coef: float = 0.25
+    clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 16
+    hidden_size: int = 8
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -393,6 +396,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         actor_lr=actor_lr,
         critic_lr=critic_lr,
     )
+    print("Make envs and agent took {:.5f} s".format(time.time() - train_start_time))
 
     # start the game
     global_step = 0

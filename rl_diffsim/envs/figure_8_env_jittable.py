@@ -243,7 +243,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
             low, high = action_space.low, action_space.high
-            action = _sanitize_action_STE(action, low, high)
+            action = _sanitize_action(action, low, high)
             data = data.replace(
                 controls=data.controls.replace(
                     attitude=data.controls.attitude.replace(staged_cmd=action)

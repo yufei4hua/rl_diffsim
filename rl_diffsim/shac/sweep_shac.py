@@ -34,16 +34,16 @@ def train():
 
 # 2: Define the search space
 sweep_configuration = {
-    "method": "bayes",  # "random", "bayes", "grid"
+    "method": "random",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
-        "num_envs": {"values": [16, 32, 64]},
+        "num_envs": {"values": [16, 32]},
         "num_steps": {"values": [8, 16, 32]},
-        "num_minibatches": {"values": [1, 2, 4]},
+        "num_minibatches": {"values": [2, 4, 8]},
         "actor_lr": {
             "distribution": "log_uniform_values",
             "min": 2e-2,
-            "max": 1e-1,
+            "max": 5e-2,
         },
         "critic_lr": {
             "distribution": "log_uniform_values",
@@ -52,7 +52,7 @@ sweep_configuration = {
         },
         "gamma": {"min": 0.9, "max": 0.999},
         "gae_lambda": {"min": 0.9, "max": 0.99},
-        "update_epochs": {"values": [10, 15]},
+        "update_epochs": {"values": [10, 12, 15]},
         "clip_coef": {"min": 0.2, "max": 0.6},
         "hidden_size": {"values": [8, 16]},
     },
@@ -63,4 +63,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep", entity="lsy-tum"
 )
 
-wandb.agent(sweep_id, function=train, count=100)
+wandb.agent(sweep_id, function=train, count=200)

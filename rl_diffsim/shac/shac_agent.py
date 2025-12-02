@@ -73,7 +73,7 @@ class Agent(struct.PyTreeNode):
         hidden_size: int = 64,
         actor_lr: float | optax.Schedule = 3e-4,
         critic_lr: float | optax.Schedule = 1e-3,
-    ) -> dict:
+    ) -> "Agent":
         """Initialize the SHAC agent's actor and critic networks."""
         actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
         critic = CriticNet(hidden_size=hidden_size)

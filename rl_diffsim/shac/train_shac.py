@@ -42,7 +42,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 60_000
+    total_timesteps: int = 50_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""

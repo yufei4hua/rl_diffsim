@@ -42,29 +42,29 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 250_000
+    total_timesteps: int = 100_000
     """total timesteps of the experiments"""
     num_envs: int = 32
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 2
+    num_minibatches: int = 8
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 3.5e-2
+    actor_lr: float = 2.6e-2
     """the learning rate of the actor optimizer"""
     critic_lr: float = 1.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.96
+    gamma: float = 0.92
     """the discount factor gamma"""
-    gae_lambda: float = 0.92
+    gae_lambda: float = 0.91
     """the lambda for the TD-lambda calculation"""
     update_epochs: int = 10
     """the K epochs to update the policy"""
-    clip_coef: float = 0.4
+    clip_coef: float = 0.3
     """the surrogate clipping coefficient"""
-    hidden_size: int = 8
+    hidden_size: int = 16
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime

@@ -5,13 +5,13 @@ import numpy as np
 import pytest
 
 TRAIN_CONFIGS = [
-    # {
-    #     "id": "shac_f8",
-    #     "module": "rl_diffsim.shac.train_shac",
-    #     "train_fn": "train_shac",
-    #     "eval_fn": "evaluate_shac",
-    #     "min_reward": 450.0,
-    # },
+    {
+        "id": "shac_f8",
+        "module": "rl_diffsim.shac.train_shac",
+        "train_fn": "train_shac",
+        "eval_fn": "evaluate_shac",
+        "min_reward": 450.0,
+    },
     {
         "id": "ppo_f8",
         "module": "rl_diffsim.ppo.train_ppo",

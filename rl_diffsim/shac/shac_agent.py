@@ -31,7 +31,9 @@ class ActorNet(nn.Module):
         mean = nn.tanh(mean)
         # Actor logstd
         actor_logstd = self.param(
-            "actor_logstd", lambda rng, shape: jp.array([[-1.5, -1.5, -1.5, -0.5]], dtype=jp.float32), (1, self.act_dim)
+            "actor_logstd",
+            lambda rng, shape: jp.array([[-1.5, -1.5, -1.5, -0.5]], dtype=jp.float32),
+            (1, self.act_dim),
         )
         logstd = jp.broadcast_to(actor_logstd, (mean.shape[0], self.act_dim))
 

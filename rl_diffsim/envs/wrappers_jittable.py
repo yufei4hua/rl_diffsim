@@ -8,12 +8,16 @@ from typing import Any, Callable
 import flax.struct as struct
 import jax
 import jax.numpy as jp
+import matplotlib
 import numpy as np
 from gymnasium import spaces
 from gymnasium.spaces import flatten_space
 from gymnasium.vector.utils import batch_space
 from jax import Array
 from jax.scipy.spatial.transform import Rotation as R
+
+matplotlib.use("Agg")  # render to raster images
+import matplotlib.pyplot as plt
 
 
 # region Base
@@ -420,13 +424,8 @@ class RecordDataJittable(JittableWrapper):
         rmse = np.sqrt(np.mean(pos_err**2))
         return rmse
 
-    def plot_eval(self, save_path: str = "eval_plot.png"):
+    def plot_eval(self, save_path: str = "eval_plot.png") -> plt.Figure:
         """Plot recorded traces and save to `save_path`."""
-        import matplotlib
-
-        matplotlib.use("Agg")  # render to raster images
-        import matplotlib.pyplot as plt
-
         actions = np.array(self._record_act)
         pos = np.array(self._record_pos)
         goal = np.array(self._record_goal)

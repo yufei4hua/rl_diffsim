@@ -40,16 +40,8 @@ sweep_configuration = {
         "num_envs": {"values": [16, 32]},
         "num_steps": {"values": [8, 16, 32]},
         "num_minibatches": {"values": [2, 4, 8]},
-        "actor_lr": {
-            "distribution": "log_uniform_values",
-            "min": 2e-2,
-            "max": 5e-2,
-        },
-        "critic_lr": {
-            "distribution": "log_uniform_values",
-            "min": 1e-3,
-            "max": 5e-3,
-        },
+        "actor_lr": {"distribution": "log_uniform_values", "min": 2e-2, "max": 5e-2},
+        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 5e-3},
         "gamma": {"min": 0.9, "max": 0.999},
         "gae_lambda": {"min": 0.9, "max": 0.99},
         "update_epochs": {"values": [10, 12, 15]},
@@ -59,8 +51,6 @@ sweep_configuration = {
 }
 
 # 3: Start the sweep
-sweep_id = wandb.sweep(
-    sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep", entity="lsy-tum"
-)
+sweep_id = wandb.sweep(sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep", entity="lsy-tum")
 
 wandb.agent(sweep_id, function=train, count=200)

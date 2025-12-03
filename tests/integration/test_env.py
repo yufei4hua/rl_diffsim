@@ -11,6 +11,7 @@ from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 
 available_envs = [DroneJittableEnv, FigureEightJittableEnv]
 
+
 @pytest.fixture(params=available_envs)
 def env(request: pytest.FixtureRequest) -> Generator[struct.PyTreeNode, None, None]:
     """Small env fixture for structural tests."""
@@ -24,7 +25,6 @@ def env(request: pytest.FixtureRequest) -> Generator[struct.PyTreeNode, None, No
         device="cpu",
     )
     yield env
-
 
 
 @pytest.mark.parametrize("EnvClass", available_envs)
@@ -79,12 +79,15 @@ def test_callables_exist(env: DroneJittableEnv):
     assert callable(env.reset)
     assert callable(env.step)
 
+
 def test_rollout_scan_and_jit_shape(env: struct.PyTreeNode) -> None:
     """Replicate the example script: scan over step() and check trajectory shapes."""
     # Start from a deterministic reset state
     env, _ = env.reset(env, seed=42)
 
-    def step_once(env: struct.PyTreeNode, _) -> tuple[struct.PyTreeNode, tuple[jax.Array, jax.Array]]:
+    def step_once(
+        env: struct.PyTreeNode, _
+    ) -> tuple[struct.PyTreeNode, tuple[jax.Array, jax.Array]]:
         """Single env step body for lax.scan."""
         base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
@@ -96,14 +99,11 @@ def test_rollout_scan_and_jit_shape(env: struct.PyTreeNode) -> None:
 
         return env, (pos, vel)
 
-    def rollout(env: struct.PyTreeNode, num_steps: int) -> tuple[struct.PyTreeNode, tuple[jax.Array, jax.Array]]:
+    def rollout(
+        env: struct.PyTreeNode, num_steps: int
+    ) -> tuple[struct.PyTreeNode, tuple[jax.Array, jax.Array]]:
         """Rollout for multiple steps using lax.scan."""
-        env_out, (pos_traj, vel_traj) = jax.lax.scan(
-            step_once,
-            env,
-            xs=None,
-            length=num_steps,
-        )
+        env_out, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
         return env_out, (pos_traj, vel_traj)
 
     rollout_jit = jax.jit(rollout, static_argnames=("num_steps",))

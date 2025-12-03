@@ -1,3 +1,4 @@
+# ruff: noqa
 """Launch script for the real race.
 
 Usage:
@@ -219,8 +220,12 @@ def return_to_start():
     drone.high_level_commander.go_to(*return_pos, 0, LAND_DURATION)
     wait_for_action(LAND_DURATION)
 
-def plot_eval_trajectory(actions: NDArray, pos: NDArray, goal: NDArray, rpy: NDArray, save_path: str = "plot.png"):
+
+def plot_eval_trajectory(
+    actions: NDArray, pos: NDArray, goal: NDArray, rpy: NDArray, save_path: str = "plot.png"
+) -> tuple:
     import matplotlib
+
     matplotlib.use("Agg")  # render to raster images
     import matplotlib.pyplot as plt
 
@@ -267,13 +272,14 @@ def plot_eval_trajectory(actions: NDArray, pos: NDArray, goal: NDArray, rpy: NDA
 
     # compute RMSE for position
     rmse_pos = np.sqrt(np.mean(pos_err**2))
-    axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos*1000:.3f} mm", fontsize=14)
+    axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos * 1000:.3f} mm", fontsize=14)
     axes[11].axis("off")
 
     plt.tight_layout()
     plt.savefig(save_path)
 
     return fig, axes, rmse_pos
+
 
 if __name__ == "__main__":
     drone_id = 52

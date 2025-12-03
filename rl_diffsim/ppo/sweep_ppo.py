@@ -16,10 +16,7 @@ def train():
         model_path = Path(__file__).parents[2] / "saves/ppo_model_flax_sweep.ckpt"
         jax_device = args.jax_device
         sum_rewards_hist, training_time = train_ppo(
-            args=args,
-            model_path=model_path,
-            jax_device=jax_device,
-            wandb_enabled=True,
+            args=args, model_path=model_path, jax_device=jax_device, wandb_enabled=True
         )
         # average over rewards curve: aiming at faster convergence
         mean_rewards = np.asarray(sum_rewards_hist).mean()

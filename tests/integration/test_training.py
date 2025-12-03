@@ -1,5 +1,5 @@
-from pathlib import Path
 import importlib
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -23,7 +23,7 @@ TRAIN_CONFIGS = [
 
 
 @pytest.mark.parametrize("cfg", TRAIN_CONFIGS, ids=lambda c: c["id"])
-def test_training_and_rewards(cfg, tmp_path: Path):
+def test_training_and_rewards(cfg: dict, tmp_path: Path):
     mod = importlib.import_module(cfg["module"])
     Args = getattr(mod, "Args")
     train_fn = getattr(mod, cfg["train_fn"])
@@ -32,27 +32,18 @@ def test_training_and_rewards(cfg, tmp_path: Path):
     args = Args.create(jax_device="cpu")
     model_path = tmp_path / f"{cfg['id']}_model_flax.ckpt"
 
-    _ = train_fn(
-        args=args,
-        model_path=model_path,
-        jax_device=args.jax_device,
-        wandb_enabled=False,
-    )
+    _ = train_fn(args=args, model_path=model_path, jax_device=args.jax_device, wandb_enabled=False)
 
     assert model_path.exists(), "Model file was not saved."
 
     fig, rmse_pos, episode_rewards, episode_lengths = eval_fn(
-        args=args,
-        n_eval=1,
-        model_path=model_path,
-        render=False,
+        args=args, n_eval=1, model_path=model_path, render=False
     )
 
     last_reward = float(np.mean(episode_rewards))
     assert not np.isnan(last_reward), "Final reward is NaN."
     assert last_reward > cfg["min_reward"], (
-        f"Expected final eval reward > {cfg['min_reward']}, "
-        f"but got {last_reward:.2f}"
+        f"Expected final eval reward > {cfg['min_reward']}, but got {last_reward:.2f}"
     )
 
     assert episode_lengths[-1] > 0

@@ -22,11 +22,11 @@ from utils import load_config, load_controller
 from rl_diffsim.envs.rand_traj import RandTrajEnv
 
 if TYPE_CHECKING:
-
     from rl_diffsim.control.controller import Controller
 
 
 logger = logging.getLogger(__name__)
+
 
 def simulate(
     config: str = "config.toml",
@@ -58,9 +58,7 @@ def simulate(
     controller_cls = load_controller(controller_path)  # This returns a class, not an instance
     # Create the drone environment
     env: RandTrajEnv = RandTrajEnv(
-        physics=config.sim.physics,
-        drone_model=config.sim.drone_model,
-        freq=config.env.freq,
+        physics=config.sim.physics, drone_model=config.sim.drone_model, freq=config.env.freq
     )
     env = JaxToNumpy(env)
 

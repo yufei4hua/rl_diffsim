@@ -358,7 +358,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, config=vars(args))
     sum_rewards_hist = []
 
-    train_start_time = time.time()
+    setup_start_time = time.time()
     key = jax.random.PRNGKey(args.seed)
     print("Training on device:", jax_device)
 
@@ -396,11 +396,29 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         actor_lr=actor_lr,
         critic_lr=critic_lr,
     )
-    print("Make envs and agent took {:.5f} s".format(time.time() - train_start_time))
+    print("Make envs and agent took {:.5f} s".format(time.time() - setup_start_time))
+
+    # warmup jax compile
+    start_warmup_time = time.time()
+    envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
+    for _ in range(2):
+        (_, _, _), (p_loss, (data, next_obs, next_done, sum_rewards, key)) = update_policy(
+            envs=envs,
+            args=args,
+            agent=agent,
+            next_obs=next_obs,
+            next_done=jp.zeros(args.num_envs, dtype=bool),
+            sum_rewards=jp.zeros((args.num_envs,)),
+            key=key,
+        )
+        data = compute_td_lambda(args, agent, next_obs, next_done, data)
+        (_, _), (v_loss, explained_var) = update_value(args, agent, data, key)
+    print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
     # start the game
+    train_start_time = time.time()
     global_step = 0
-    envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
+    # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards = jp.zeros((args.num_envs,))
 

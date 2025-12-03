@@ -14,7 +14,7 @@ import jax.numpy as jp
 import numpy as np
 import optax
 from jax import Array
-from ppo_agent import Agent
+from rl_diffsim.ppo.ppo_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
@@ -42,7 +42,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 2_000_000
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
     num_envs: int = 2048
     """the number of parallel game environments"""
@@ -330,6 +330,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     # setup training
     if wandb_enabled and wandb.run is None:
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, config=vars(args))
+    sum_rewards_hist = []
 
     train_start_time = time.time()
     key = jax.random.PRNGKey(args.seed)
@@ -345,7 +346,6 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     envs = make_jitted_envs(
         num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
     )
-    # envs = RenderSimJittable.create(envs)
 
     # setup annealing learning rate
     train_steps = args.num_iterations * args.update_epochs * args.num_minibatches
@@ -412,6 +412,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
                         {"train/reward": jp.mean(sum_reward[done])},
                         step=global_step + batch_step * args.num_envs,
                     )
+                    sum_rewards_hist.append(jp.mean(sum_reward[done]))
             wandb.log(
                 {
                     "losses/pg_loss": jp.mean(pg_loss),
@@ -426,8 +427,8 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
         global_step += args.batch_size
 
-    train_end_time = time.time()
-    print(f"Training for {global_step} steps took {train_end_time - train_start_time:.2f} seconds.")
+    training_time = time.time() - train_start_time
+    print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
@@ -435,6 +436,8 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
             pickle.dump(params, f)
         print(f"model saved to {model_path}")
+
+    return sum_rewards_hist, training_time
 
 
 # region Evaluate

@@ -17,7 +17,7 @@ import jax.numpy as jp
 import numpy as np
 import optax
 from jax import Array
-from shac_agent import Agent
+from rl_diffsim.shac.shac_agent import Agent
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv

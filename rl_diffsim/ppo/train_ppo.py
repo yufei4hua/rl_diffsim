@@ -44,27 +44,27 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 2048
+    num_envs: int = 256
     """the number of parallel game environments"""
     num_steps: int = 4
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 8
+    num_minibatches: int = 16
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 1.5e-3
+    actor_lr: float = 2e-4
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 1.5e-3
+    critic_lr: float = 6e-4
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.94
+    gamma: float = 0.92
     """the discount factor gamma"""
-    gae_lambda: float = 0.97
+    gae_lambda: float = 0.92
     """the lambda for the general advantage estimation"""
     update_epochs: int = 10
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
-    clip_coef: float = 0.26
+    clip_coef: float = 0.45
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""

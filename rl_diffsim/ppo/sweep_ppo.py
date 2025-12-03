@@ -3,10 +3,9 @@
 from pathlib import Path
 
 import numpy as np
-import torch
 
 import wandb
-from rl_diffsim.ppo.train_ppo_torch import Args, evaluate_ppo, train_ppo  # noqa: F401
+from rl_diffsim.ppo.train_ppo import Args, evaluate_ppo, train_ppo  # noqa: F401
 
 
 # 1: Define objective/training function
@@ -14,13 +13,11 @@ def train():
     """Train."""
     with wandb.init(project="rl_diffsim-PPO-sweep") as run:
         args = Args.create(**dict(run.config))
-        model_path = Path(__file__).parent / "saves/ppo_model_flax_sweep.ckpt"
-        device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+        model_path = Path(__file__).parents[2] / "saves/ppo_model_flax_sweep.ckpt"
         jax_device = args.jax_device
         sum_rewards_hist, training_time = train_ppo(
             args=args,
             model_path=model_path,
-            device=device,
             jax_device=jax_device,
             wandb_enabled=True,
         )
@@ -30,7 +27,7 @@ def train():
         _, rmse_pos, episode_rewards, _ = evaluate_ppo(
             args=args, n_eval=1, model_path=model_path, render=False
         )
-        score = mean_rewards - 2 * training_time
+        score = mean_rewards - 10 * training_time
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})
         run.log({"training_time": training_time})
@@ -43,7 +40,7 @@ sweep_configuration = {
     "method": "bayes",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
-        "num_envs": {"values": [256, 512, 1024, 2048]},
+        "num_envs": {"values": [1024, 2048]},
         "num_steps": {"values": [4, 8, 16, 32]},
         "num_minibatches": {"values": [4, 8, 16]},
         "actor_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 3e-3},
@@ -64,4 +61,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project="rl_diffsim-PPO-sweep", entity="fresssack"
 )
 
-wandb.agent(sweep_id, function=train, count=50)
+wandb.agent(sweep_id, function=train, count=200)

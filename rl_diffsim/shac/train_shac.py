@@ -246,10 +246,8 @@ def update_policy(
         key,
     )
 
-    # jax.debug.print("Policy loss: {loss}, grad max: {grad_max}", loss=p_loss, grad_max=global_max(g_actor))
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
-    # jax.debug.print("Updated policy params max: {param_max}", param_max=global_max(agent.actor_states.params))
-    return (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards, key))
+    return (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards))
 
 
 # region TD-λ
@@ -402,7 +400,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     start_warmup_time = time.time()
     envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     for _ in range(2):
-        (_, _, _), (p_loss, (data, next_obs, next_done, sum_rewards, key)) = update_policy(
+        (_, _, _), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
             envs=envs,
             args=args,
             agent=agent,
@@ -426,7 +424,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         print(f"Iter {iteration}/{args.num_iterations}", end=": ")
         start_time = time.time()
         # 1. rollout and policy update
-        (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards, key)) = update_policy(
+        (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
             envs=envs,
             args=args,
             agent=agent,

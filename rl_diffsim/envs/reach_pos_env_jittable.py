@@ -53,7 +53,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
     def create(
         cls,
         num_envs: int = 1,
-        max_episode_time: float = 10.0,
+        max_episode_time: float = 5.0,
         physics: Literal["so_rpy_rotor_drag", "first_principles"]
         | Physics = Physics.so_rpy_rotor_drag,
         drone_model: str = "cf21B_500",

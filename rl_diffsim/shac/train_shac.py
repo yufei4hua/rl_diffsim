@@ -1,14 +1,11 @@
 """A naive RL pipeline for drone racing."""
 
 import functools
-import os
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-os.environ["JAX_COMPILATION_CACHE_DIR"] = "/tmp/jax_cache"
-os.environ["JAX_PERSISTENT_CACHE"] = "1"
 import fire
 import flax
 import flax.struct as struct
@@ -19,7 +16,8 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
+from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv  # noqa: F401
+from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
@@ -45,7 +43,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 50_000
+    total_timesteps: int = 100_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -67,7 +65,7 @@ class Args:
     """the K epochs to update the policy"""
     clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 8
+    hidden_size: int = 16
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -103,10 +101,10 @@ class Args:
 # region MakeEnvs
 def make_jitted_envs(
     num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
-) -> FigureEightJittableEnv:
+) -> ReachPosJittableEnv:
     """Make environments for training RL policy."""
-    env: FigureEightJittableEnv = FigureEightJittableEnv.create(
-        n_samples=10,
+    env: ReachPosJittableEnv = ReachPosJittableEnv.create(
+        # n_samples=10,
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",
@@ -523,8 +521,8 @@ def evaluate_shac(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

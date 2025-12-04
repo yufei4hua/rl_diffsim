@@ -43,7 +43,9 @@ class ReachPosJittableEnv(DroneJittableEnv):
     # Non-jittable functions
     def render(self, world: int = 0) -> None:
         """Override base class render to show reach position."""
-        draw_points(self.sim, self.goal_pos[None, world], rgba=jp.array([1.0, 0, 0, 1.0]), size=0.01)
+        draw_points(
+            self.sim, self.goal_pos[None, world], rgba=jp.array([1.0, 0, 0, 1.0]), size=0.01
+        )
         self.sim.data = self.data
         self.sim.render(world=world)
 
@@ -178,17 +180,15 @@ class ReachPosJittableEnv(DroneJittableEnv):
             }
             obs["difference_to_goal"] = goal_pos - data.states.pos[:, 0, :]
             return obs
-        
-        def _sample_goal(
-            key: Array, goal: Array, mask: Array | None
-        ) -> Array:
+
+        def _sample_goal(key: Array, goal: Array, mask: Array | None) -> Array:
             pmin = jp.array([-1.0, -1.0, 0.5])
             pmax = jp.array([1.0, 1.0, 1.5])
             new_goal = jax.random.uniform(key, shape=goal.shape, minval=pmin, maxval=pmax)
             if mask is not None:
                 new_goal = jp.where(mask[..., None], new_goal, goal)
             return new_goal
-        
+
         def _reset(
             env: "ReachPosJittableEnv", *, seed: int | None = None, options: dict | None = None
         ) -> tuple[tuple[SimData, Array, Array], tuple[dict[str, Array], dict]]:
@@ -203,7 +203,10 @@ class ReachPosJittableEnv(DroneJittableEnv):
             # 2. reset sim
             data = sim._reset(data, sim.default_data, None)
             _marked_for_reset = env._marked_for_reset.at[...].set(False)
-            return env.replace(data=data, _marked_for_reset=_marked_for_reset, goal_pos=goal_pos), (_obs(goal_pos, data), {})
+            return env.replace(data=data, _marked_for_reset=_marked_for_reset, goal_pos=goal_pos), (
+                _obs(goal_pos, data),
+                {},
+            )
 
         def _reward(terminated: Array, pos: Array, goal: Array) -> Array:
             # distance to next trajectory point
@@ -256,13 +259,9 @@ class ReachPosJittableEnv(DroneJittableEnv):
             pos = data.states.pos[:, 0, :]
             goal = goal_pos
 
-            return env.replace(data=data, steps=steps, _marked_for_reset=_marked_for_reset, goal_pos=goal_pos), (
-                _obs(goal_pos, data),
-                _reward(terminated, pos, goal),
-                terminated,
-                truncated,
-                {},
-            )
+            return env.replace(
+                data=data, steps=steps, _marked_for_reset=_marked_for_reset, goal_pos=goal_pos
+            ), (_obs(goal_pos, data), _reward(terminated, pos, goal), terminated, truncated, {})
 
         # Initialize reset mask and step count
         steps = jp.zeros((num_envs, 1), dtype=jp.int32, device=jax_device)
@@ -311,9 +310,7 @@ if __name__ == "__main__":
     print("Goal Pos:", env.goal_pos.shape)
     print("Initial Goal Obs:", obs["difference_to_goal"].shape)
 
-    def step_once(
-        env: ReachPosJittableEnv, _
-    ) -> tuple[ReachPosJittableEnv, tuple[Array, Array]]:
+    def step_once(env: ReachPosJittableEnv, _) -> tuple[ReachPosJittableEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
         base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
@@ -352,4 +349,3 @@ if __name__ == "__main__":
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)
-

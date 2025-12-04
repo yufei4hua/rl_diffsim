@@ -7333,7 +7333,7 @@ packages:
 - pypi: ./
   name: rl-diffsim
   version: 0.0.1
-  sha256: cf19b4a98a4a6b48b6b73b8ffa97bc402c989780032b11640ac16dfe9c978233
+  sha256: 96df2d922ae1bfcb1888acd1c4e93d1f9f995e978f7edfb90dd02490f345cb81
   requires_dist:
   - fire>=0.6.0
   - numpy

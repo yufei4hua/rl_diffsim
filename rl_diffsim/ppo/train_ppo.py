@@ -16,7 +16,7 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
+from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv  # noqa: F401
 from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,

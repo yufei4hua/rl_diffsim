@@ -332,7 +332,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, config=vars(args))
     sum_rewards_hist = []
 
-    train_start_time = time.time()
+    setup_start_time = time.time()
     key = jax.random.PRNGKey(args.seed)
     print("Training on device:", jax_device)
 
@@ -370,8 +370,29 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         actor_lr=actor_lr,
         critic_lr=critic_lr,
     )
+    print("Make envs and agent took {:.5f} s".format(time.time() - setup_start_time))
+
+    # warmup jax compile
+    start_warmup_time = time.time()
+    envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
+    for _ in range(2):
+        _, data, next_obs, next_done, _, _ = collect_rollout(
+            envs=envs,
+            args=args,
+            agent=agent,
+            next_obs=next_obs,
+            next_done=jp.zeros(args.num_envs, dtype=bool),
+            sum_rewards=jp.zeros((args.num_envs,)),
+            key=key,
+        )
+        data = compute_gae(args, agent, next_obs, next_done, data)
+        (_, _), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var) = update_policy(
+            args, agent, data, key
+        )
+    print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
     # start the game
+    train_start_time = time.time()
     global_step = 0
     envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)

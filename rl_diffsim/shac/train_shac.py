@@ -1,4 +1,4 @@
-"""A naive RL pipeline for drone racing."""
+"""An SHAC implementation based on Flax."""
 
 import functools
 import time

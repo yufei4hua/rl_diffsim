@@ -1,4 +1,4 @@
-"""A naive RL pipeline for drone racing."""
+"""A PPO implementation based on Flax."""
 
 import functools
 import time

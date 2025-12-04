@@ -41,7 +41,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
     sample_offsets: Array = struct.field(pytree_node=False)
 
     # Non-jittable functions
-    def render(self):
+    def render(self, world: int = 0) -> None:
         """Override base class render to show figure-eight trajectory."""
         idx = jp.clip(
             self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
@@ -51,17 +51,17 @@ class FigureEightJittableEnv(DroneJittableEnv):
         next_trajectory = np.array(next_trajectory)
         draw_line(
             self.sim,
-            trajectories[0, 0:-1:2, :],
+            trajectories[world, 0:-1:2, :],
             rgba=jp.array([1, 1, 1, 0.4]),
             start_size=2.0,
             end_size=2.0,
         )
         draw_line(
-            self.sim, next_trajectory[0], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
+            self.sim, next_trajectory[world], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
         )
-        draw_points(self.sim, next_trajectory[0], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
+        draw_points(self.sim, next_trajectory[world], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.data = self.data
-        self.sim.render(world=0)
+        self.sim.render(world=world)
 
     @classmethod
     def create(

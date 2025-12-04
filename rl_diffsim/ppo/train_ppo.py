@@ -44,27 +44,27 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 256
+    num_envs: int = 1024
     """the number of parallel game environments"""
-    num_steps: int = 4
+    num_steps: int = 16
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 16
+    num_minibatches: int = 32
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 2e-4
+    actor_lr: float = 5e-4
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 6e-4
+    critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.92
+    gamma: float = 0.88
     """the discount factor gamma"""
-    gae_lambda: float = 0.92
+    gae_lambda: float = 0.96
     """the lambda for the general advantage estimation"""
-    update_epochs: int = 10
+    update_epochs: int = 15
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
-    clip_coef: float = 0.45
+    clip_coef: float = 0.5
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
@@ -485,8 +485,8 @@ def evaluate_ppo(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            if render:
-                eval_env.render()
+            # if render:
+            #     eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

@@ -37,18 +37,18 @@ sweep_configuration = {
     "method": "bayes",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
-        "num_envs": {"values": [1024, 2048]},
-        "num_steps": {"values": [4, 8, 16, 32]},
-        "num_minibatches": {"values": [4, 8, 16]},
-        "actor_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 3e-3},
-        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 3e-3},
+        "num_envs": {"values": [1024, 2048, 3072, 4096]},
+        "num_steps": {"values": [2, 4, 8, 16]},
+        "num_minibatches": {"values": [4, 8, 16, 32, 64]},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 1e-2},
+        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 1e-2},
         "gamma": {"min": 0.85, "max": 0.95},
         "gae_lambda": {"min": 0.9, "max": 0.99},
+        "update_epochs": {"values": [7, 10, 15]},
         "clip_coef": {"min": 0.1, "max": 0.8},
         "ent_coef": {"min": 0.0, "max": 1e-2},
         "vf_coef": {"min": 0.5, "max": 1.0},
-        "max_grad_norm": {"min": 1.5, "max": 4.0},
-        "hidden_size": {"values": [8, 16, 32, 64]},
+        "hidden_size": {"values": [16, 32, 64]},
     },
 }
 
@@ -58,4 +58,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project="rl_diffsim-PPO-sweep", entity="fresssack"
 )
 
-wandb.agent(sweep_id, function=train, count=200)
+wandb.agent(sweep_id, function=train, count=500)

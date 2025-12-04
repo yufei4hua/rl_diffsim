@@ -17,6 +17,7 @@ from jax import Array
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
+from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
@@ -42,19 +43,19 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 3_000_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024
+    num_envs: int = 1024 * 3
     """the number of parallel game environments"""
-    num_steps: int = 16
+    num_steps: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 32
+    num_minibatches: int = 16
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 5e-4
+    actor_lr: float = 2e-3
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 2.5e-3
+    critic_lr: float = 3e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.88
     """the discount factor gamma"""
@@ -76,7 +77,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 64
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -112,10 +113,10 @@ class Args:
 # region MakeEnvs
 def make_jitted_envs(
     num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
-) -> FigureEightJittableEnv:
+) -> ReachPosJittableEnv:
     """Make environments for training RL policy."""
-    env: FigureEightJittableEnv = FigureEightJittableEnv.create(
-        n_samples=10,
+    env: ReachPosJittableEnv = ReachPosJittableEnv.create(
+        # n_samples=10,
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",
@@ -411,7 +412,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             sum_rewards=sum_rewards,
             key=key,
         )
-        # envs.render(envs)
+        # envs.render()
         print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
         # 2. compute GAE
         start_gae_time = time.time()
@@ -506,8 +507,8 @@ def evaluate_ppo(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

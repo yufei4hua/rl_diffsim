@@ -388,7 +388,10 @@ class RecordDataJittable(JittableWrapper):
 
             act = action  # shape: (num_envs, act_dim)
             pos = raw.data.states.pos[:, 0, :]
-            goal = raw.trajectories[jp.arange(raw.steps.shape[0]), raw.steps.squeeze(1)]
+            if hasattr(raw, "trajectories"):
+                goal = raw.trajectories[jp.arange(raw.steps.shape[0]), raw.steps.squeeze(1)]
+            if hasattr(raw, "goal_pos"):
+                goal = raw.goal_pos
             rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
 
             # record data

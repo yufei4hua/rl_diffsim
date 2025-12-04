@@ -6,14 +6,47 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
-from crazyflow.envs.drone_env import action_space as create_action_space
+from crazyflow.control.control import Control
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
 from crazyflow.utils import leaf_replace
+from drone_controllers.mellinger.params import ForceTorqueParams
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 from jax import Array
+
+
+def create_action_space(control_type: Control | str, drone_model: str) -> spaces.Box:
+    """Select the appropriate action space for a given control type.
+
+    Args:
+        control_type: The desired control mode.
+        drone_model: Drone model of the environment.
+
+    Returns:
+        The action space.
+    """
+    match control_type:
+        case Control.attitude:
+            params = ForceTorqueParams.load(drone_model)
+            thrust_min, thrust_max = params.thrust_min * 4, params.thrust_max * 4
+            return spaces.Box(
+                np.array([-np.pi / 2, -np.pi / 2, -np.pi / 2, thrust_min], dtype=np.float32),
+                np.array([np.pi / 2, np.pi / 2, np.pi / 2, thrust_max], dtype=np.float32),
+            )
+        case Control.force_torque:
+            return spaces.Box(-1.0, 1.0, shape=(6,))
+        case "rotor_vel":
+            params = ForceTorqueParams.load(drone_model)
+            rotor_vel_min, rotor_vel_max = (
+                np.sqrt(params.thrust_min / params.rpm2thrust[2]),
+                np.sqrt(params.thrust_max / params.rpm2thrust[2]),
+            )
+            print("Rotor vel action space:", rotor_vel_min, rotor_vel_max)
+            return spaces.Box(rotor_vel_min, rotor_vel_max, shape=(4,))
+        case _:
+            raise ValueError(f"Invalid control type {control_type}")
 
 
 class DroneJittableEnv(struct.PyTreeNode):
@@ -189,7 +222,7 @@ class DroneJittableEnv(struct.PyTreeNode):
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)
             # 3. handle autoreset & update mask
-            sim._reset(data, sim.default_data, _marked_for_reset)
+            data = sim._reset(data, sim.default_data, _marked_for_reset)
             sim_time = data.core.steps / data.core.freq
             terminated, truncated = (
                 _terminated(data.states.pos),

@@ -21,6 +21,7 @@ TRAIN_CONFIGS = [
     },
 ]
 
+
 @pytest.mark.skip(reason="Temporarily disabled")
 @pytest.mark.parametrize("cfg", TRAIN_CONFIGS, ids=lambda c: c["id"])
 def test_training_and_rewards(cfg: dict, tmp_path: Path):

@@ -6,7 +6,6 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
-from crazyflow.envs.drone_env import action_space as create_action_space
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
@@ -16,7 +15,7 @@ from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 from jax import Array
 
-from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv
+from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv, create_action_space
 
 
 class FigureEightJittableEnv(DroneJittableEnv):

@@ -7,6 +7,7 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
+from crazyflow.control.control import Control
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
@@ -54,7 +55,8 @@ class ReachPosJittableEnv(DroneJittableEnv):
         num_envs: int = 1,
         max_episode_time: float = 5.0,
         physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.so_rpy_rotor_drag,
+        | Physics = Physics.first_principles,
+        control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
         device: str = "cpu",
@@ -70,6 +72,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
             num_envs: Number of parallel environments.
             max_episode_time: Maximum episode time in seconds.
             physics: Physics backend to use.
+            control: Control interface.
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
             device: Device to use for the simulation.
@@ -88,8 +91,18 @@ class ReachPosJittableEnv(DroneJittableEnv):
         # Initialize the simulation
         jax_device = jax.devices(device)[0]
         sim = Sim(
-            n_worlds=num_envs, n_drones=1, drone_model=drone_model, device=device, physics=physics
+            n_worlds=num_envs,
+            n_drones=1,
+            drone_model=drone_model,
+            physics=physics,
+            control=control if isinstance(control, Control) else Control.default,
+            device=device,
         )
+
+        # Modify the step pipeline if needed
+        if control == "rotor_vel":
+            sim.step_pipeline = sim.step_pipeline[2:]  # remove all controllers
+            sim.build_step_fn()
 
         # Override reset randomization function
         def build_reset_rotor_fn(physics: str) -> Callable[[SimData, Array], SimData]:
@@ -135,7 +148,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
         reset_rotor_randomization = build_reset_rotor_fn(
             physics if reset_rotor else "no_reset_rotor"
         )
-        
+
         reset_randomization = functools.partial(
             _reset_randomization, pmin=pos_min, pmax=pos_max, vmin=vel_min, vmax=vel_max
         )
@@ -143,7 +156,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
         sim.build_reset_fn()
 
         # Prepare immutable constants
-        single_action_space = create_action_space(sim.control, sim.drone_model)
+        single_action_space = create_action_space(control, sim.drone_model)
         action_space = batch_space(single_action_space, sim.n_worlds)
         single_observation_space = spaces.Dict(
             {
@@ -229,18 +242,38 @@ class ReachPosJittableEnv(DroneJittableEnv):
         def _done(terminated: Array, truncated: Array) -> Array:
             return terminated | truncated
 
+        def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
+            low, high = action_space.low, action_space.high
+            action = _sanitize_action(action, low, high)
+            match control:
+                case Control.state:
+                    raise NotImplementedError("State control currently not supported")
+                case Control.attitude:
+                    data = data.replace(
+                        controls=data.controls.replace(
+                            attitude=data.controls.attitude.replace(staged_cmd=action)
+                        )
+                    )
+                case Control.force_torque:
+                    data = data.replace(
+                        controls=data.controls.replace(
+                            force_torque=data.controls.force_torque.replace(staged_cmd=action)
+                        )
+                    )
+                case "rotor_vel":
+                    data = data.replace(controls=data.controls.replace(rotor_vel=action))
+                case _:
+                    raise ValueError(f"Invalid control type {control}")
+            return data
+        
+        _apply_action = functools.partial(_apply_action, control=control)
+
         def _step(
             env: "ReachPosJittableEnv", action: Array
         ) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
-            low, high = action_space.low, action_space.high
-            action = _sanitize_action(action, low, high)
-            data = data.replace(
-                controls=data.controls.replace(
-                    attitude=data.controls.attitude.replace(staged_cmd=action)
-                )
-            )
+            data = _apply_action(data, action)
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)
             # 3. handle autoreset & update mask
@@ -297,7 +330,8 @@ if __name__ == "__main__":
     env = ReachPosJittableEnv.create(
         num_envs=1024,
         max_episode_time=10.0,
-        physics=Physics.so_rpy_rotor_drag,
+        physics=Physics.first_principles,
+        control="rotor_vel",
         drone_model="cf21B_500",
         freq=500,
         device="gpu",
@@ -349,3 +383,13 @@ if __name__ == "__main__":
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)
+
+
+    # test rendering
+    print("Action_space:", env.action_space.low[0], env.action_space.high[0])
+    env, (obs, info) = env.reset(env)
+    for step in range(500):
+        base_action = jp.array([15000, 20000, 15000, 20000], dtype=jp.float32)  # fixed action
+        action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
+        env, _ = env.step(env, action)
+        env.render()

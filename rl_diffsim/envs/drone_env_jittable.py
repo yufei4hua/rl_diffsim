@@ -43,7 +43,6 @@ def create_action_space(control_type: Control | str, drone_model: str) -> spaces
                 np.sqrt(params.thrust_min / params.rpm2thrust[2]),
                 np.sqrt(params.thrust_max / params.rpm2thrust[2]),
             )
-            print("Rotor vel action space:", rotor_vel_min, rotor_vel_max)
             return spaces.Box(rotor_vel_min, rotor_vel_max, shape=(4,))
         case _:
             raise ValueError(f"Invalid control type {control_type}")

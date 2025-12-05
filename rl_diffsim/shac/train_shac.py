@@ -17,13 +17,14 @@ from jax import Array
 
 import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv  # noqa: F401
-from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
+from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv  # noqa: F401
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
+    ZeroYawJittable,
 )
 from rl_diffsim.shac.shac_agent import Agent
 
@@ -43,7 +44,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 500_000
+    total_timesteps: int = 100_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -53,9 +54,9 @@ class Args:
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 1.4e-2
+    actor_lr: float = 2.4e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 1.0e-3
+    critic_lr: float = 1.4e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
@@ -65,7 +66,7 @@ class Args:
     """the K epochs to update the policy"""
     clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 64
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -77,9 +78,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.1
-    d_act_th_coef: float = 1.0
-    d_act_xy_coef: float = 1.0
+    rpy_coef: float = 0.06
+    d_act_th_coef: float = 0.0
+    d_act_xy_coef: float = 0.0
     act_coef: float = 0.0
     """reward coefficients for training"""
 
@@ -101,12 +102,11 @@ class Args:
 # region MakeEnvs
 def make_jitted_envs(
     num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
-) -> ReachPosJittableEnv:
+) -> FigureEightJittableEnv:
     """Make environments for training RL policy."""
-    env: ReachPosJittableEnv = ReachPosJittableEnv.create(
-        # n_samples=10,
+    env: FigureEightJittableEnv = FigureEightJittableEnv.create(
         num_envs=num_envs,
-        freq=50,
+        freq=100,
         drone_model="cf21B_500",
         physics="first_principles",
         control="rotor_vel",
@@ -115,6 +115,7 @@ def make_jitted_envs(
     )
 
     env = NormalizeActionsJittable.create(env)
+    env = ZeroYawJittable.create(env)
     env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,

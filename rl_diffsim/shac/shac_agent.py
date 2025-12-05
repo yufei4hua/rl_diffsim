@@ -33,7 +33,7 @@ class ActorNet(nn.Module):
         actor_logstd = self.param(
             "actor_logstd",
             # lambda rng, shape: jp.array([[-1.5, -1.5, -1.5, -0.5]], dtype=jp.float32),
-            lambda rng, shape: jp.array([[-0.5, -0.5, -0.5, -0.5]], dtype=jp.float32),
+            lambda rng, shape: -1.0 * jp.array([[1.0, 1.0, 1.0, 1.0]], dtype=jp.float32),
             (1, self.act_dim),
         )
         logstd = jp.broadcast_to(actor_logstd, (mean.shape[0], self.act_dim))

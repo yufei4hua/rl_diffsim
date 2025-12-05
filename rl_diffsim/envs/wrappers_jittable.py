@@ -136,6 +136,41 @@ class NormalizeActionsJittable(JittableWrapper):
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
+# region ZeroYaw
+@struct.dataclass
+class ZeroYawJittable(JittableWrapper):
+    """Jittable wrapper to set yaw output to zero."""
+    @classmethod
+    def create(cls, base: struct.PyTreeNode) -> "ZeroYawJittable":
+        """Create an ZeroYawJittable around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+
+        Returns:
+            ZeroYawJittable: A configured wrapper with jitted step/reset.
+        """
+        def _reset(
+            env: "ZeroYawJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["ZeroYawJittable", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def _step(
+            env: "ZeroYawJittable", actions: Array
+        ) -> tuple["ZeroYawJittable", tuple[Any, ...]]:
+            actions = actions.at[..., 2].set(0.0)
+            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
+                env.base, actions
+            )
+
+            env = env.replace(base=base_env)
+            return env, (obs, rewards, terminations, truncations, infos)
+
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
+
 # region AngleReward
 @struct.dataclass
 class AngleRewardJittable(JittableWrapper):
@@ -175,7 +210,6 @@ class AngleRewardJittable(JittableWrapper):
         def _step(
             env: "AngleRewardJittable", actions: Array
         ) -> tuple["AngleRewardJittable", tuple[Any, ...]]:
-            actions = actions.at[..., 2].set(0.0)
             base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
                 env.base, actions
             )

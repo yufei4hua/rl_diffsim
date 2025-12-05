@@ -37,13 +37,13 @@ class Args:
     """seed of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
-    wandb_project_name: str = "rl-shac-f8"
+    wandb_project_name: str = "rl-shac-rp"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 100_000
+    total_timesteps: int = 500_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -53,9 +53,9 @@ class Args:
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 4.4e-2
+    actor_lr: float = 1.4e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 3.4e-3
+    critic_lr: float = 1.0e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
@@ -65,7 +65,7 @@ class Args:
     """the K epochs to update the policy"""
     clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 16
+    hidden_size: int = 64
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -77,10 +77,10 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.06
-    d_act_th_coef: float = 0.4
+    rpy_coef: float = 0.1
+    d_act_th_coef: float = 1.0
     d_act_xy_coef: float = 1.0
-    act_coef: float = 0.02
+    act_coef: float = 0.0
     """reward coefficients for training"""
 
     @staticmethod
@@ -109,6 +109,7 @@ def make_jitted_envs(
         freq=50,
         drone_model="cf21B_500",
         physics="first_principles",
+        control="rotor_vel",
         device=jax_device,
         reset_rotor=reset_rotor,
     )

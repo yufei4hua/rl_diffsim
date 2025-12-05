@@ -1,11 +1,13 @@
 """Jittable Drone Environment Implementation."""
 
+import functools
 from typing import Callable, Literal
 
 import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
+from crazyflow.control.control import Control
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
@@ -73,6 +75,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
         max_episode_time: float = 10.0,
         physics: Literal["so_rpy_rotor_drag", "first_principles"]
         | Physics = Physics.so_rpy_rotor_drag,
+        control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
         device: str = "cpu",
@@ -101,8 +104,18 @@ class FigureEightJittableEnv(DroneJittableEnv):
         # Initialize the simulation
         jax_device = jax.devices(device)[0]
         sim = Sim(
-            n_worlds=num_envs, n_drones=1, drone_model=drone_model, device=device, physics=physics
+            n_worlds=num_envs,
+            n_drones=1,
+            drone_model=drone_model,
+            physics=physics,
+            control=control if isinstance(control, Control) else Control.default,
+            device=device,
         )
+
+        # Modify the step pipeline if needed
+        if control == "rotor_vel":
+            sim.step_pipeline = sim.step_pipeline[2:]  # remove all controllers
+            sim.build_step_fn()
 
         # Override reset randomization function
         def build_reset_randomization_fn(physics: str) -> Callable[[SimData, Array], SimData]:
@@ -240,18 +253,38 @@ class FigureEightJittableEnv(DroneJittableEnv):
         def _done(terminated: Array, truncated: Array) -> Array:
             return terminated | truncated
 
+        def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
+            low, high = action_space.low, action_space.high
+            action = _sanitize_action(action, low, high)
+            match control:
+                case Control.state:
+                    raise NotImplementedError("State control currently not supported")
+                case Control.attitude:
+                    data = data.replace(
+                        controls=data.controls.replace(
+                            attitude=data.controls.attitude.replace(staged_cmd=action)
+                        )
+                    )
+                case Control.force_torque:
+                    data = data.replace(
+                        controls=data.controls.replace(
+                            force_torque=data.controls.force_torque.replace(staged_cmd=action)
+                        )
+                    )
+                case "rotor_vel":
+                    data = data.replace(controls=data.controls.replace(rotor_vel=action))
+                case _:
+                    raise ValueError(f"Invalid control type {control}")
+            return data
+        
+        _apply_action = functools.partial(_apply_action, control=control)
+
         def _step(
             env: "FigureEightJittableEnv", action: Array
         ) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
-            low, high = action_space.low, action_space.high
-            action = _sanitize_action(action, low, high)
-            data = data.replace(
-                controls=data.controls.replace(
-                    attitude=data.controls.attitude.replace(staged_cmd=action)
-                )
-            )
+            data = _apply_action(data, action)
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)
             # 3. handle autoreset & update mask

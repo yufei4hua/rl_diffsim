@@ -140,6 +140,12 @@ class NormalizeActionsJittable(JittableWrapper):
 @struct.dataclass
 class ZeroYawJittable(JittableWrapper):
     """Jittable wrapper to set yaw output to zero."""
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+    
     @classmethod
     def create(cls, base: struct.PyTreeNode) -> "ZeroYawJittable":
         """Create an ZeroYawJittable around `base`.

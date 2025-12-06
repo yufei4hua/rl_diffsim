@@ -181,6 +181,7 @@ class RealDroneCoreEnv:
             )
             # TODO: The estimators can't handle state commands, so we simply don't send anything
             # Make sure to use the legacy estimator with the state interface
+        # TODO: Implement action sending for force_torque/rotor_vel interface
 
     def _connect_to_drone(self, radio_id: int, radio_channel: int, drone_id: int) -> Crazyflie:
         cflib.crtp.init_drivers()

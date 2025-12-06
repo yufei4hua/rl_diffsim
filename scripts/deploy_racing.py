@@ -11,21 +11,17 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import fire
-import gymnasium
 import rclpy
+from utils import load_config, load_controller
 
-from scripts.utils import load_config, load_controller
-
-if TYPE_CHECKING:
-    from rl_diffsim.envs.real_race_env import RealDroneRaceEnv
+from rl_diffsim.envs.real_drone_env import RealDroneEnv
 
 logger = logging.getLogger(__name__)
 
 
-def main(config: str = "level2.toml", controller: str | None = None):
+def main(config: str = "config.toml", controller: str | None = None):
     """Deployment script to run the controller on the real drone.
 
     Args:
@@ -35,8 +31,7 @@ def main(config: str = "level2.toml", controller: str | None = None):
     """
     rclpy.init()
     config = load_config(Path(__file__).parents[1] / "config" / config)
-    env: RealDroneRaceEnv = gymnasium.make(
-        "RealDroneRacing-v0",
+    env: RealDroneEnv = RealDroneEnv(
         drones=config.deploy.drones,
         freq=config.env.freq,
         track=config.env.track,
@@ -45,15 +40,10 @@ def main(config: str = "level2.toml", controller: str | None = None):
         control_mode=config.env.control_mode,
     )
     try:
-        options = {
-            "check_drone_start_pos": config.deploy.check_drone_start_pos,
-            "check_race_track": config.deploy.check_race_track,
-            "real_track_objects": config.deploy.real_track_objects,
-        }
-        obs, info = env.reset(options=options)
+        obs, info = env.reset()
         next_obs = obs  # Set next_obs to avoid errors when the loop never enters
 
-        control_path = Path(__file__).parents[1] / "lsy_drone_racing/control"
+        control_path = Path(__file__).parents[1] / "rl_diffsim/control"
         controller_path = control_path / (controller or config.controller.file)
         controller_cls = load_controller(controller_path)
         controller = controller_cls(obs, info, config)
@@ -85,5 +75,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("jax").setLevel(logging.ERROR)
     logger.setLevel(logging.INFO)
-    logging.getLogger("lsy_drone_racing").setLevel(logging.INFO)
+    logging.getLogger("rl_diffsim").setLevel(logging.INFO)
     fire.Fire(main)

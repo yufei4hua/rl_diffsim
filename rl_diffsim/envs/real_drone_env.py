@@ -69,6 +69,7 @@ class RealDroneCoreEnv:
         self.pos_limit_high = np.array(pos_limit_high if pos_limit_high else [5.0, 5.0, 3.0])
         self.drone_names = [f"cf{drone['id']}" for drone in drones]
         self.drone_name = self.drone_names[rank]
+        self.takeoff_pos = [drone.get("takeoff_pos", [0.0, 0.0, 0.05]) for drone in drones]
         self.channel = drones[rank]["channel"]
         self.rank = rank
         self.freq = freq
@@ -138,7 +139,7 @@ class RealDroneCoreEnv:
         Returns:
             Reward for the current state.
         """
-        return 0.0  # Placeholder reward
+        return np.stack([0.0 for drone in self.drone_names])  # Placeholder reward
 
     def terminated(self) -> NDArray:
         """Check if the episode is terminated."""
@@ -248,6 +249,36 @@ class RealDroneCoreEnv:
         self.drone.param.set_value("flightmode.stabModeYaw", 1)
         time.sleep(0.1)  # Wait for settings to be applied
 
+    def _move_to_start(self):
+        # Enable high-level functions of the drone and disable low-level control access
+        self.drone.commander.send_stop_setpoint()
+        self.drone.commander.send_notify_setpoint_stop()
+        self.drone.param.set_value("commander.enHighLevel", "1")
+        self.drone.platform.send_arming_request(True)
+        # Move the drone to the start position
+        pos = self._ros_connector.pos[self.drone_name]
+        START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
+        TAKEOFF_DURATION = START_HEIGHT / 0.5  # s
+        MOVE_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0)  # s
+
+        def wait_for_action(dt: float):
+            tstart = time.perf_counter()
+            # Wait for the action to be completed and send the current position to the drone
+            while time.perf_counter() - tstart < dt:
+                if not rclpy.ok():
+                    raise RuntimeError("ROS has already stopped")
+                if not self._drone_healthy.is_set():
+                    raise RuntimeError("Drone connection lost")
+                obs = self.obs()
+                self.drone.extpos.send_extpose(*obs["pos"][self.rank], *obs["quat"][self.rank])
+                time.sleep(0.05)
+
+        self.drone.high_level_commander.takeoff(START_HEIGHT, TAKEOFF_DURATION)
+        wait_for_action(TAKEOFF_DURATION)
+        target_pos = self.takeoff_pos[self.rank]  # Default start position
+        self.drone.high_level_commander.go_to(*target_pos, 0, MOVE_DURATION)
+        wait_for_action(MOVE_DURATION)
+
     def _return_to_start(self):
         # Enable high-level functions of the drone and disable low-level control access
         self.drone.commander.send_stop_setpoint()
@@ -282,7 +313,8 @@ class RealDroneCoreEnv:
         break_pos[2] = RETURN_HEIGHT
         self.drone.high_level_commander.go_to(*break_pos, 0, BREAKING_DURATION)
         wait_for_action(BREAKING_DURATION)
-        return_pos = np.array([0.0, 0.0, RETURN_HEIGHT])  # Default return position
+        return_pos = self.takeoff_pos[self.rank]
+        return_pos[2] = RETURN_HEIGHT
         self.drone.high_level_commander.go_to(*return_pos, 0, RETURN_DURATION)
         wait_for_action(RETURN_DURATION)
         return_pos[2] = 0.05

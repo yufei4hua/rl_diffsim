@@ -30,23 +30,22 @@ def main(config: str = "config.toml", controller: str | None = None):
             the controller specified in the config file is used.
     """
     rclpy.init()
-    config = load_config(Path(__file__).parents[1] / "config" / config)
+    config = load_config(Path(__file__).parents[1] / "scripts" / config)
     env: RealDroneEnv = RealDroneEnv(
         drones=config.deploy.drones,
         freq=config.env.freq,
-        track=config.env.track,
-        randomizations=config.env.randomizations,
-        sensor_range=config.env.sensor_range,
         control_mode=config.env.control_mode,
     )
     try:
         obs, info = env.reset()
-        next_obs = obs  # Set next_obs to avoid errors when the loop never enters
+        env._move_to_start()  # Try to move to start position
+        next_obs = env.obs()  # Set next_obs to avoid errors when the loop never enters
+        print("Starting control loop...")
 
         control_path = Path(__file__).parents[1] / "rl_diffsim/control"
         controller_path = control_path / (controller or config.controller.file)
         controller_cls = load_controller(controller_path)
-        controller = controller_cls(obs, info, config)
+        controller = controller_cls(obs, info, config, None)
         start_time = time.perf_counter()
         while rclpy.ok():
             t_loop = time.perf_counter()
@@ -65,7 +64,7 @@ def main(config: str = "config.toml", controller: str | None = None):
                 exc = dt - 1 / config.env.freq
                 logger.warning(f"Controller execution time exceeded loop frequency by {exc:.3f}s.")
         ep_time = time.perf_counter() - start_time
-        finished_track = next_obs["target_gate"] == -1
+        finished_track = True
         logger.info(f"Track time: {ep_time:.3f}s" if finished_track else "Task not completed")
     finally:
         env.close()

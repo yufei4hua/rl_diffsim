@@ -19,7 +19,7 @@ import numpy as np
 from gymnasium.wrappers.vector.jax_to_numpy import JaxToNumpy
 from utils import load_config, load_controller
 
-from rl_diffsim.envs.rand_traj import RandTrajEnv
+from rl_diffsim.envs.figure_8_env import FigureEightEnv
 
 if TYPE_CHECKING:
     from rl_diffsim.control.controller import Controller
@@ -32,7 +32,7 @@ def simulate(
     config: str = "config.toml",
     controller: str | None = None,
     n_runs: int = 1,
-    render: bool | None = None,
+    render: bool | None = True,
 ) -> tuple[list[float], list[float]]:
     """Evaluate the drone controller over multiple episodes.
 
@@ -48,16 +48,12 @@ def simulate(
     """
     # Load configuration and check if firmare should be used.
     config = load_config(Path(__file__).parent / config)
-    if render is None:
-        render = config.sim.render
-    else:
-        config.sim.render = render
     # Load the controller module
     control_path = Path(__file__).parents[1] / "rl_diffsim/control"
     controller_path = control_path / (controller or config.controller.file)
     controller_cls = load_controller(controller_path)  # This returns a class, not an instance
     # Create the drone environment
-    env: RandTrajEnv = RandTrajEnv(
+    env: FigureEightEnv = FigureEightEnv(
         physics=config.sim.physics, drone_model=config.sim.drone_model, freq=config.env.freq
     )
     env = JaxToNumpy(env)
@@ -97,7 +93,7 @@ def simulate(
             # Add up reward, collisions
             if terminated or truncated or controller_finished:
                 break
-            if config.sim.render:  # Render the sim if selected.
+            if render:  # Render the sim if selected.
                 if ((i * fps) % config.env.freq) < fps:
                     env.render()
             i += 1

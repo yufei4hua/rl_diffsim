@@ -65,9 +65,11 @@ def main(config: str = "config.toml", controller: str | None = None):
                 logger.warning(f"Controller execution time exceeded loop frequency by {exc:.3f}s.")
         ep_time = time.perf_counter() - start_time
         finished_track = True
+        controller.episode_callback()
         logger.info(f"Track time: {ep_time:.3f}s" if finished_track else "Task not completed")
     finally:
         env.close()
+
 
 
 if __name__ == "__main__":

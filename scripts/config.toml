@@ -1,5 +1,6 @@
 [controller]
-file = "attitude_controller.py"
+file = "attitude_rl_f8_flax.py"
+# file = "attitude_controller.py"
 
 [deploy]
 

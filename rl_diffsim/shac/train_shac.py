@@ -45,7 +45,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 50_000
+    total_timesteps: int = 150_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -55,9 +55,9 @@ class Args:
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 4.4e-2
+    actor_lr: float = 4.0e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 3.4e-3
+    critic_lr: float = 3.0e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
@@ -67,7 +67,7 @@ class Args:
     """the K epochs to update the policy"""
     clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 8
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -79,10 +79,10 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.06
-    d_act_th_coef: float = 0.4
-    d_act_xy_coef: float = 1.0
-    act_coef: float = 0.02
+    rpy_coef: float = 0.1
+    d_act_th_coef: float = 2.0
+    d_act_xy_coef: float = 2.0
+    act_coef: float = 0.2
     """reward coefficients for training"""
 
     @staticmethod

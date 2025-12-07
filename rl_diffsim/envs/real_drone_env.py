@@ -286,10 +286,12 @@ class RealDroneCoreEnv:
         self.drone.param.set_value("commander.enHighLevel", "1")
         self.drone.platform.send_arming_request(True)
         # Fly back to the start position
+        pos = self._ros_connector.pos[self.drone_name]
+        vel = self._ros_connector.vel[self.drone_name]
         RETURN_HEIGHT = 1.75  # m
         BREAKING_DISTANCE = 1.0  # m
         BREAKING_DURATION = 3.0  # s
-        RETURN_DURATION = 7.0  # s
+        RETURN_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0)  # s
         LAND_DURATION = 3.0  # s
 
         def wait_for_action(dt: float):
@@ -304,8 +306,6 @@ class RealDroneCoreEnv:
                 self.drone.extpos.send_extpose(*obs["pos"][self.rank], *obs["quat"][self.rank])
                 time.sleep(0.05)
 
-        pos = self._ros_connector.pos[self.drone_name]
-        vel = self._ros_connector.vel[self.drone_name]
         # This quick check prevents us from engaging the return controller if we havent even started yet.
         if pos[2] < 0.2:
             return

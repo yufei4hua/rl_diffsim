@@ -38,19 +38,19 @@ sweep_configuration = {
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
         "num_envs": {"values": [16, 32]},
-        "num_steps": {"values": [8, 16, 32]},
-        "num_minibatches": {"values": [2, 4, 8]},
-        "actor_lr": {"distribution": "log_uniform_values", "min": 2e-2, "max": 6e-2},
-        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 5e-3},
-        "gamma": {"min": 0.9, "max": 0.999},
+        "num_steps": {"values": [16, 32]},
+        "num_minibatches": {"values": [4, 8, 16]},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 2e-2, "max": 1e-1},
+        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-2},
+        "gamma": {"min": 0.95, "max": 0.999},
         "gae_lambda": {"min": 0.9, "max": 0.99},
         "update_epochs": {"values": [10, 12, 15]},
-        "clip_coef": {"min": 0.2, "max": 0.6},
-        "hidden_size": {"values": [16, 32, 48, 64]},
+        # "clip_coef": {"min": 0.2, "max": 0.6},
+        "hidden_size": {"values": [8, 16]},
     },
 }
 
 # 3: Start the sweep
 sweep_id = wandb.sweep(sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep-deploy", entity="lsy-tum")
 
-wandb.agent(sweep_id, function=train, count=200)
+wandb.agent(sweep_id, function=train, count=100)

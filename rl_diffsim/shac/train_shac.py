@@ -45,7 +45,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 100_000
+    total_timesteps: int = 50_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -57,13 +57,13 @@ class Args:
     """Toggle learning rate annealing for policy networks"""
     anneal_critic_lr: bool = True
     """Toggle learning rate annealing for value networks"""
-    actor_lr: float = 5.9e-2
+    actor_lr: float = 6e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 4.0e-3
+    critic_lr: float = 4e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.99
+    gamma: float = 0.999
     """the discount factor gamma"""
-    gae_lambda: float = 0.95
+    gae_lambda: float = 0.96
     """the lambda for the TD-lambda calculation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
@@ -85,7 +85,7 @@ class Args:
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
     act_th_coef: float = 0.2
-    act_xy_coef: float = 0.3
+    act_xy_coef: float = 0.2
     """reward coefficients for training"""
 
     @staticmethod

@@ -52,7 +52,7 @@ class Args:
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 5e-4
+    actor_lr: float = 8e-4
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
@@ -76,7 +76,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 64
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -91,8 +91,8 @@ class Args:
     rpy_coef: float = 0.06
     d_act_th_coef: float = 0.4
     d_act_xy_coef: float = 1.0
-    act_th_coef: float = 0.02
-    act_xy_coef: float = 0.02
+    act_th_coef: float = 0.04
+    act_xy_coef: float = 0.04
     """reward coefficients for training"""
 
     @staticmethod

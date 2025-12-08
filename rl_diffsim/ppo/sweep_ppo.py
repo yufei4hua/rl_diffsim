@@ -34,12 +34,12 @@ def train():
 
 # 2: Define the search space
 sweep_configuration = {
-    "method": "bayes",  # "random", "bayes", "grid"
+    "method": "random",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
-        "num_envs": {"values": [1024, 2048, 3072, 4096]},
-        "num_steps": {"values": [2, 4, 8, 16]},
-        "num_minibatches": {"values": [4, 8, 16, 32, 64]},
+        "num_envs": {"values": [1024, 2048]},
+        "num_steps": {"values": [4, 8, 16]},
+        "num_minibatches": {"values": [4, 8, 16]},
         "actor_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 1e-2},
         "critic_lr": {"distribution": "log_uniform_values", "min": 1e-4, "max": 1e-2},
         "gamma": {"min": 0.85, "max": 0.95},
@@ -58,4 +58,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project="rl_diffsim-PPO-sweep", entity="fresssack"
 )
 
-wandb.agent(sweep_id, function=train, count=500)
+wandb.agent(sweep_id, function=train, count=100)

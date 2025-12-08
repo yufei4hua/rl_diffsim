@@ -372,16 +372,19 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     )
 
     # setup annealing learning rate
-    train_steps = args.num_iterations * args.update_epochs * args.num_minibatches
-    if args.anneal_lr:
+    if args.anneal_actor_lr:
         actor_lr = optax.linear_schedule(
-            init_value=args.actor_lr, end_value=0.0, transition_steps=train_steps
-        )
-        critic_lr = optax.linear_schedule(
-            init_value=args.critic_lr, end_value=0.0, transition_steps=train_steps
+            init_value=args.actor_lr, end_value=0.0, transition_steps=args.num_iterations
         )
     else:
         actor_lr = args.actor_lr
+    if args.anneal_critic_lr:
+        critic_lr = optax.linear_schedule(
+            init_value=args.critic_lr,
+            end_value=0.0,
+            transition_steps=args.num_iterations * args.update_epochs * args.num_minibatches,
+        )
+    else:
         critic_lr = args.critic_lr
 
     # setup agent

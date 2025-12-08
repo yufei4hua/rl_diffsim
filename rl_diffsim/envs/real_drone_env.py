@@ -259,7 +259,7 @@ class RealDroneCoreEnv:
         pos = self._ros_connector.pos[self.drone_name]
         START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
         TAKEOFF_DURATION = START_HEIGHT / 0.5  # s
-        MOVE_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0)  # s
+        MOVE_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 3.0)  # s
 
         def wait_for_action(dt: float):
             tstart = time.perf_counter()

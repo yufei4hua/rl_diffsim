@@ -37,19 +37,21 @@ def main(config: str = "config.toml", controller: str | None = None):
         control_mode=config.env.control_mode,
     )
     try:
-        obs, info = env.reset()
-        env._move_to_start()  # Try to move to start position
-        next_obs = env.obs()  # Set next_obs to avoid errors when the loop never enters
-        print("Starting control loop...")
-
         control_path = Path(__file__).parents[1] / "rl_diffsim/control"
         controller_path = control_path / (controller or config.controller.file)
         controller_cls = load_controller(controller_path)
+        obs, info = env.reset()
         controller = controller_cls(obs, info, config, None)
+
+        print("Moving to start position...")
+        env._move_to_start()
+        next_obs = env.obs()  # Set next_obs to avoid errors when the loop never enters
+
+        print("Starting controller...")
         start_time = time.perf_counter()
         while rclpy.ok():
             t_loop = time.perf_counter()
-            obs, info = env.unwrapped.obs(), env.unwrapped.info()
+            obs, info = env.obs(), env.info()
             obs = {k: v[0] for k, v in obs.items()}
             action = controller.compute_control(obs, info)
             next_obs, reward, terminated, truncated, info = env.step(action)

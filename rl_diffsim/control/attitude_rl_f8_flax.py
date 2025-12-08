@@ -88,7 +88,13 @@ class AttitudeRL(Controller):
         self.agent = agent.replace(
             actor_states=agent.actor_states.replace(params=params["actor"]),
         )
-        self.last_action = np.array([0.0, 0.0, 0.0, -0.048], dtype=np.float32)
+        self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+        # warm up jax policy
+        obs_rl = self._obs_rl(obs)
+        obs_rl = jp.array([obs_rl])
+        for _ in range(4):
+            self.agent.get_action_mean(self.agent.actor_states.params, obs_rl)
 
         self._finished = False
 

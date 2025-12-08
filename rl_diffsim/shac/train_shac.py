@@ -81,7 +81,7 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.3
+    rpy_coef: float = 0.1
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
     act_coef: float = 0.2

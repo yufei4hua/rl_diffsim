@@ -409,8 +409,8 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     # warmup jax compile
     start_warmup_time = time.time()
     envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
-    for _ in range(2):
-        (_, _, _), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
+    for _ in range(1):
+        (_, _, _), (p_loss, (data, _, next_done, sum_rewards)) = update_policy(
             envs=envs,
             args=args,
             agent=agent,
@@ -421,63 +421,51 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         )
         data = compute_td_lambda(args, agent, next_obs, next_done, data)
         (_, _), (v_loss, explained_var) = update_value(args, agent, data, key)
+    v_loss.block_until_ready()
     print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
+
+    def training_step(
+            carry: tuple[Any, Any, Array, Array, Array, Array],
+            iteration: int,
+        ) -> tuple[tuple[Any, Any, Array, Array, Array, Array], tuple[Array, Array, Array]]:
+            """Single training iteration using scan."""
+            envs, agent, key, next_obs, next_done, sum_rewards = carry
+            
+            # 1. rollout and policy update
+            (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
+                envs=envs,
+                args=args,
+                agent=agent,
+                next_obs=next_obs,
+                next_done=next_done,
+                sum_rewards=sum_rewards,
+                key=key,
+            )
+            # 2. compute TD-λ
+            data = compute_td_lambda(args, agent, next_obs, next_done, data)
+            # 3. value update
+            (agent, key), (v_loss, explained_var) = update_value(args, agent, data, key)
+            
+            return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, v_loss, explained_var)
 
     # start the game
     train_start_time = time.time()
     global_step = 0
-    # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards = jp.zeros((args.num_envs,))
+    # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
 
-    for iteration in range(1, args.num_iterations + 1):
-        print(f"Iter {iteration}/{args.num_iterations}", end=": ")
-        start_time = time.time()
-        # 1. rollout and policy update
-        (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
-            envs=envs,
-            args=args,
-            agent=agent,
-            next_obs=next_obs,
-            next_done=next_done,
-            sum_rewards=sum_rewards,
-            key=key,
-        )
-        print(f"Policy {time.time() - start_time:.5f} s", end=", ")
-        # 2. compute TD-λ
-        start_gae_time = time.time()
-        data = compute_td_lambda(args, agent, next_obs, next_done, data)
-        print(f"TD-λ {time.time() - start_gae_time:.5f} s", end=", ")
-        # 3. value update
-        start_value_time = time.time()
-        (agent, key), (v_loss, explained_var) = update_value(args, agent, data, key)
-        print(f"Value {time.time() - start_value_time:.5f} s", end=", ")
-        print(f"total {time.time() - start_time:.5f} s")
-        # 4. logging
-        if wandb_enabled:
-            for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
-                if jp.any(done):
-                    wandb.log(
-                        {"train/reward": jp.mean(sum_reward[done])},
-                        step=global_step + batch_step * args.num_envs,
-                    )
-                    sum_rewards_hist.append(jp.mean(sum_reward[done]))
-            wandb.log(
-                {
-                    "losses/p_loss": jp.mean(p_loss),
-                    "losses/v_loss": jp.mean(v_loss),
-                    "losses/entropy": jp.mean(data.entropy),
-                    "losses/explained_variance": jp.mean(explained_var),
-                    "charts/SPS": int(global_step / (time.time() - train_start_time)),
-                },
-                step=global_step + args.batch_size,
-            )
-
-        global_step += args.batch_size
-
+    (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, v_losses, explained_vars) = jax.lax.scan(
+        training_step,
+        (envs, agent, key, next_obs, next_done, sum_rewards),
+        length=args.num_iterations,
+    )
+    
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
+    global_step = args.num_iterations * args.batch_size
     print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
+
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
@@ -554,7 +542,7 @@ def evaluate_shac(
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
+def main(wandb_enabled: bool = False, train: bool = True, n_eval: int = 1, render: bool = True):
     """Main entry.
 
     Flags:

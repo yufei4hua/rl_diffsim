@@ -53,8 +53,10 @@ class Args:
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 8
     """the number of mini-batches"""
-    anneal_lr: bool = True
-    """Toggle learning rate annealing for policy and value networks"""
+    anneal_actor_lr: bool = False
+    """Toggle learning rate annealing for policy networks"""
+    anneal_critic_lr: bool = True
+    """Toggle learning rate annealing for value networks"""
     actor_lr: float = 4.0e-2
     """the learning rate of the actor optimizer"""
     critic_lr: float = 3.0e-3
@@ -62,7 +64,7 @@ class Args:
     gamma: float = 0.98
     """the discount factor gamma"""
     gae_lambda: float = 0.95
-    """the lambda for the TD-lambd a calculation"""
+    """the lambda for the TD-lambda calculation"""
     update_epochs: int = 12
     """the K epochs to update the policy"""
     clip_coef: float = 0.4
@@ -79,7 +81,7 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.1
+    rpy_coef: float = 0.3
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
     act_coef: float = 0.2
@@ -119,6 +121,8 @@ def make_jitted_envs(
     env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,
+        num_actions=1,
+        init_last_actions=jp.array([[0.0, 0.0, 0.0, -0.048]]),
         act_coef=coefs.get("act_coef", 0.04),
         d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
         d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
@@ -496,7 +500,7 @@ def evaluate_shac(
         "d_act_th_coef": args.d_act_th_coef,
         "act_coef": args.act_coef,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
+    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
     eval_env = RecordDataJittable.create(eval_env)
 
     agent = Agent.create(

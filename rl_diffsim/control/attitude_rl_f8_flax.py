@@ -88,7 +88,7 @@ class AttitudeRL(Controller):
         self.agent = agent.replace(
             actor_states=agent.actor_states.replace(params=params["actor"]),
         )
-        self.last_action = np.array([0.0, 0.0, 0.0, self.drone_mass * 9.81], dtype=np.float32)
+        self.last_action = np.array([0.0, 0.0, 0.0, -0.048], dtype=np.float32)
 
         self._finished = False
 

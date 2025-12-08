@@ -91,7 +91,8 @@ class Args:
     rpy_coef: float = 0.06
     d_act_th_coef: float = 0.4
     d_act_xy_coef: float = 1.0
-    act_coef: float = 0.02
+    act_th_coef: float = 0.02
+    act_xy_coef: float = 0.02
     """reward coefficients for training"""
 
     @staticmethod
@@ -128,7 +129,8 @@ def make_jitted_envs(
     env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,
-        act_coef=coefs.get("act_coef", 0.04),
+        act_th_coef=coefs.get("act_th_coef", 0.04),
+        act_xy_coef=coefs.get("act_xy_coef", 0.04),
         d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
         d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
     )
@@ -341,7 +343,8 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
-        "act_coef": args.act_coef,
+        "act_th_coef": args.act_th_coef,
+        "act_xy_coef": args.act_xy_coef,
     }
     envs = make_jitted_envs(
         num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
@@ -474,7 +477,8 @@ def evaluate_ppo(
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
-        "act_coef": args.act_coef,
+        "act_th_coef": args.act_th_coef,
+        "act_xy_coef": args.act_xy_coef,
     }
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
     eval_env = RecordDataJittable.create(eval_env)

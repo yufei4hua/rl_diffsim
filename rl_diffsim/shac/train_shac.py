@@ -45,7 +45,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 150_000
+    total_timesteps: int = 100_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -57,19 +57,19 @@ class Args:
     """Toggle learning rate annealing for policy networks"""
     anneal_critic_lr: bool = True
     """Toggle learning rate annealing for value networks"""
-    actor_lr: float = 4.0e-2
+    actor_lr: float = 5.9e-2
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 3.0e-3
+    critic_lr: float = 4.0e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.98
+    gamma: float = 0.99
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the TD-lambda calculation"""
-    update_epochs: int = 12
+    update_epochs: int = 15
     """the K epochs to update the policy"""
     clip_coef: float = 0.4
     """the surrogate clipping coefficient"""
-    hidden_size: int = 32
+    hidden_size: int = 16
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -81,10 +81,11 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.1
+    rpy_coef: float = 0.0
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
-    act_coef: float = 0.2
+    act_th_coef: float = 0.2
+    act_xy_coef: float = 0.3
     """reward coefficients for training"""
 
     @staticmethod
@@ -123,7 +124,8 @@ def make_jitted_envs(
         env,
         num_actions=1,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, -0.048]]),
-        act_coef=coefs.get("act_coef", 0.04),
+        act_th_coef=coefs.get("act_th_coef", 0.04),
+        act_xy_coef=coefs.get("act_xy_coef", 0.04),
         d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
         d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
     )
@@ -369,7 +371,8 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
-        "act_coef": args.act_coef,
+        "act_th_coef": args.act_th_coef,
+        "act_xy_coef": args.act_xy_coef,
     }
     envs = make_jitted_envs(
         num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
@@ -498,7 +501,8 @@ def evaluate_shac(
         "rpy_coef": args.rpy_coef,
         "d_act_xy_coef": args.d_act_xy_coef,
         "d_act_th_coef": args.d_act_th_coef,
-        "act_coef": args.act_coef,
+        "act_th_coef": args.act_th_coef,
+        "act_xy_coef": args.act_xy_coef,
     }
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
     eval_env = RecordDataJittable.create(eval_env)

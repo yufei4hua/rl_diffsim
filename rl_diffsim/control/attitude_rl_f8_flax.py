@@ -79,7 +79,7 @@ class AttitudeRL(Controller):
             key=jax.random.PRNGKey(0),
             obs_dim=13 + 3 * self.n_samples + 4, # base obs + local samples + last action
             act_dim=4,
-            hidden_size=32,
+            hidden_size=16,
         )
         model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
         with open(model_path, "rb") as f:
@@ -88,7 +88,7 @@ class AttitudeRL(Controller):
         self.agent = agent.replace(
             actor_states=agent.actor_states.replace(params=params["actor"]),
         )
-        self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        self.last_action = np.array([0.0, 0.0, 0.0, -0.048], dtype=np.float32)
 
         # warm up jax policy
         obs_rl = self._obs_rl(obs)

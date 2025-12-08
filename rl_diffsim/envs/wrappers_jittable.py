@@ -220,7 +220,8 @@ class ActionPenaltyJittable(JittableWrapper):
         base: struct.PyTreeNode | AngleRewardJittable,
         num_actions: int = 1,
         init_last_actions: Array | None = None,
-        act_coef: float = 0.01,
+        act_th_coef: float = 0.01,
+        act_xy_coef: float = 0.01,
         d_act_th_coef: float = 0.2,
         d_act_xy_coef: float = 0.4,
     ) -> "ActionPenaltyJittable":
@@ -256,7 +257,8 @@ class ActionPenaltyJittable(JittableWrapper):
             # penalty on actions
             action_diff = action - env.last_actions[:, 0, :]
             # energy
-            reward = reward - act_coef * action[..., -1] ** 2
+            reward = reward - act_th_coef * action[..., -1] ** 2
+            reward = reward - act_xy_coef * jp.sum(action[..., :3] * action[..., :3], axis=-1)
             # smoothness
             reward = reward - d_act_th_coef * action_diff[..., -1] ** 2
             reward = reward - d_act_xy_coef * jp.sum(action_diff[..., :3] ** 2, axis=-1)

@@ -24,7 +24,7 @@ def train():
         _, rmse_pos, episode_rewards, _ = evaluate_shac(
             args=args, n_eval=1, model_path=model_path, render=False
         )
-        score = mean_rewards - 2 * training_time
+        score = mean_rewards - rmse_pos
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})
         run.log({"training_time": training_time})
@@ -40,17 +40,17 @@ sweep_configuration = {
         "num_envs": {"values": [16, 32]},
         "num_steps": {"values": [8, 16, 32]},
         "num_minibatches": {"values": [2, 4, 8]},
-        "actor_lr": {"distribution": "log_uniform_values", "min": 2e-2, "max": 5e-2},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 2e-2, "max": 6e-2},
         "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 5e-3},
         "gamma": {"min": 0.9, "max": 0.999},
         "gae_lambda": {"min": 0.9, "max": 0.99},
         "update_epochs": {"values": [10, 12, 15]},
         "clip_coef": {"min": 0.2, "max": 0.6},
-        "hidden_size": {"values": [8, 16]},
+        "hidden_size": {"values": [16, 32, 48, 64]},
     },
 }
 
 # 3: Start the sweep
-sweep_id = wandb.sweep(sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep", entity="lsy-tum")
+sweep_id = wandb.sweep(sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep-deploy", entity="lsy-tum")
 
 wandb.agent(sweep_id, function=train, count=200)

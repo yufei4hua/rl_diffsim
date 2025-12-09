@@ -19,7 +19,6 @@ import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
-    AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
@@ -223,12 +222,7 @@ def update_policy(
 
     policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
-        envs,
-        agent.actor_states.params,
-        next_obs,
-        next_done,
-        sum_rewards,
-        key,
+        envs, agent.actor_states.params, next_obs, next_done, sum_rewards, key
     )
 
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
@@ -342,7 +336,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
     print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
-    
+
     if model_path is not None:
         params = {"actor": agent.actor_states.params}
         with open(model_path, "wb") as f:
@@ -370,7 +364,9 @@ def evaluate_bptt(
         "act_th_coef": args.act_th_coef,
         "act_xy_coef": args.act_xy_coef,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
+    eval_env = make_jitted_envs(
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
+    )
     eval_env = RecordDataJittable.create(eval_env)
 
     agent = Agent.create(
@@ -383,9 +379,7 @@ def evaluate_bptt(
         import pickle
 
         params = pickle.load(f)
-    agent = agent.replace(
-        actor_states=agent.actor_states.replace(params=params["actor"]),
-    )
+    agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
 
     episode_rewards = []
     episode_lengths = []

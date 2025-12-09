@@ -1,4 +1,4 @@
-"""An SHAC implementation based on Flax."""
+"""A BPTT implementation based on Flax."""
 
 import functools
 import time
@@ -19,7 +19,6 @@ import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
-    AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
@@ -53,9 +52,9 @@ class Args:
     """the number of mini-batches"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 6e-2
+    actor_lr: float = 6.4e-2
     """the learning rate of the actor optimizer"""
-    gamma: float = 0.999
+    gamma: float = 1.0
     """the discount factor gamma"""
     hidden_size: int = 16
     """the hidden size of actor and critic networks"""
@@ -73,7 +72,7 @@ class Args:
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
     act_th_coef: float = 0.2
-    act_xy_coef: float = 0.2
+    act_xy_coef: float = 0.1
     """reward coefficients for training"""
 
     @staticmethod
@@ -149,7 +148,7 @@ def update_policy(
     sum_rewards: Array,
     key: Array,
 ) -> float:
-    """SHAC policy updates."""
+    """BPTT policy updates."""
 
     def collect_rollout(
         envs: struct.PyTreeNode,
@@ -223,12 +222,7 @@ def update_policy(
 
     policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
-        envs,
-        agent.actor_states.params,
-        next_obs,
-        next_done,
-        sum_rewards,
-        key,
+        envs, agent.actor_states.params, next_obs, next_done, sum_rewards, key
     )
 
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
@@ -236,7 +230,7 @@ def update_policy(
 
 
 # region Train
-def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> None:
+def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> None:
     """Train.
 
     JAX/Flax training: collect rollouts using the numpy env API, compute GAE in JAX,
@@ -305,9 +299,9 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     sum_rewards = jp.zeros((args.num_envs,))
 
     # Define single iteration function for scan
-    def train_iteration(carry, iteration_idx):
+    def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
         envs, agent, key, next_obs, next_done, sum_rewards = carry
-        
+
         # 1. rollout and policy update
         (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
             envs=envs,
@@ -318,7 +312,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             sum_rewards=sum_rewards,
             key=key,
         )
-        
+
         # Return carry and metrics for logging
         return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data)
 
@@ -326,21 +320,21 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
         train_iteration,
         (envs, agent, key, next_obs, next_done, sum_rewards),
-        jp.arange(args.num_iterations)
+        jp.arange(args.num_iterations),
     )
 
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
     total_steps = args.num_iterations * args.batch_size
     print(f"Training for {total_steps} steps took {training_time:.2f} seconds.")
-    
+
     # Post-training logging
     if wandb_enabled:
         # Log aggregated metrics
         for iter_idx in range(args.num_iterations):
             global_step = iter_idx * args.batch_size
             data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
-            
+
             # Log episode rewards
             for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
                 if jp.any(done):
@@ -349,7 +343,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
                         step=global_step + batch_step * args.num_envs,
                     )
                     sum_rewards_hist.append(float(jp.mean(sum_reward[done])))
-            
+
             # Log training metrics
             wandb.log(
                 {
@@ -359,7 +353,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
                 },
                 step=global_step + args.batch_size,
             )
-    
+
     if model_path is not None:
         params = {"actor": agent.actor_states.params}
         with open(model_path, "wb") as f:
@@ -372,7 +366,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
 
 # region Evaluate
-def evaluate_shac(
+def evaluate_bptt(
     args: Args, n_eval: int, model_path: Path, render: bool
 ) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
@@ -387,7 +381,9 @@ def evaluate_shac(
         "act_th_coef": args.act_th_coef,
         "act_xy_coef": args.act_xy_coef,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
+    eval_env = make_jitted_envs(
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
+    )
     eval_env = RecordDataJittable.create(eval_env)
 
     agent = Agent.create(
@@ -400,9 +396,7 @@ def evaluate_shac(
         import pickle
 
         params = pickle.load(f)
-    agent = agent.replace(
-        actor_states=agent.actor_states.replace(params=params["actor"]),
-    )
+    agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
 
     episode_rewards = []
     episode_lengths = []
@@ -445,14 +439,14 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
       render: whether to render the environment during evaluation
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / "saves/bptt_model_flax.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training
-        train_shac(args, model_path, jax_device, wandb_enabled)
+        train_bptt(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_bptt(
             args, n_eval, model_path, render
         )
         if wandb_enabled and train:

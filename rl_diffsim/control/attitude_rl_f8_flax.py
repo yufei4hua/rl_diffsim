@@ -75,23 +75,19 @@ class AttitudeRL(Controller):
         self.trajectory = np.array([x, y, z]).T
 
         # Load RL policy
-        self.algo_name = "shac"
+        self.algo_name = "bptt"
         model_path = Path(__file__).parents[2] / f"saves/{self.algo_name}_model_flax.ckpt"
         with open(model_path, "rb") as f:
             import pickle
+
             params = pickle.load(f)
             obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
             act_dim = params["actor"]["params"]["actor_logstd"].shape[-1]
             hidden_size = params["actor"]["params"]["Dense_0"]["kernel"].shape[1]
         agent = Agent.create(
-            key=jax.random.PRNGKey(0),
-            obs_dim=obs_dim,
-            act_dim=act_dim,
-            hidden_size=hidden_size,
+            key=jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=hidden_size
         )
-        self.agent = agent.replace(
-            actor_states=agent.actor_states.replace(params=params["actor"]),
-        )
+        self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.last_action = np.array([0.0, 0.0, 0.0, -0.048], dtype=np.float32)
 
         # warm up jax policy
@@ -128,7 +124,7 @@ class AttitudeRL(Controller):
         obs_rl = jp.array([obs_rl])
         act = self.agent.get_action_mean(self.agent.actor_states.params, obs_rl)
         act = np.array(act)
-        act[..., 2] = 0.0 # Enforce yaw to zero
+        act[..., 2] = 0.0  # Enforce yaw to zero
         self.last_action = act.squeeze(0)
 
         act = self._scale_actions(act.squeeze(0)).astype(np.float32)
@@ -200,7 +196,7 @@ class AttitudeRL(Controller):
             goal=goal[None, :],
             rpy=rpy[None, :],
         )
-        
+
         self._tick += 1
         return self._finished
 
@@ -208,4 +204,3 @@ class AttitudeRL(Controller):
         """Reset the integral error."""
         self._tick = 0
         self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_deploy_plot.png")
-

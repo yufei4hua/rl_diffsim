@@ -75,16 +75,20 @@ class AttitudeRL(Controller):
         self.trajectory = np.array([x, y, z]).T
 
         # Load RL policy
-        agent = Agent.create(
-            key=jax.random.PRNGKey(0),
-            obs_dim=13 + 3 * self.n_samples + 4, # base obs + local samples + last action
-            act_dim=4,
-            hidden_size=16,
-        )
-        model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
+        self.algo_name = "shac"
+        model_path = Path(__file__).parents[2] / f"saves/{self.algo_name}_model_flax.ckpt"
         with open(model_path, "rb") as f:
             import pickle
             params = pickle.load(f)
+            obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
+            act_dim = params["actor"]["params"]["actor_logstd"].shape[-1]
+            hidden_size = params["actor"]["params"]["Dense_0"]["kernel"].shape[1]
+        agent = Agent.create(
+            key=jax.random.PRNGKey(0),
+            obs_dim=obs_dim,
+            act_dim=act_dim,
+            hidden_size=hidden_size,
+        )
         self.agent = agent.replace(
             actor_states=agent.actor_states.replace(params=params["actor"]),
         )
@@ -203,5 +207,5 @@ class AttitudeRL(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
-        self.eval_recorder.plot_eval(save_path="shac_deploy_plot.png")
+        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_deploy_plot.png")
 

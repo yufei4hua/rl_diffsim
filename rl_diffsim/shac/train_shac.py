@@ -16,8 +16,7 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv  # noqa: F401
-from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv  # noqa: F401
+from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     AngleRewardJittable,
@@ -38,13 +37,13 @@ class Args:
     """seed of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
-    wandb_project_name: str = "rl-shac-rp"
+    wandb_project_name: str = "rl-shac-f8"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 100_000
+    total_timesteps: int = 50_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -108,18 +107,18 @@ def make_jitted_envs(
 ) -> FigureEightJittableEnv:
     """Make environments for training RL policy."""
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
+        n_samples=10,
         num_envs=num_envs,
-        freq=100,
+        freq=50,
         drone_model="cf21B_500",
         physics="first_principles",
-        control="rotor_vel",
         device=jax_device,
         reset_rotor=reset_rotor,
     )
 
     env = NormalizeActionsJittable.create(env)
     env = ZeroYawJittable.create(env)
-    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    # env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,
         num_actions=1,
@@ -147,12 +146,6 @@ class RolloutData:
     entropy: Array
     returns: Array
     losses: Array
-
-
-def global_max(pytree: dict) -> Array:
-    """Compute the global max abs value in a pytree."""
-    leaf_max = [jp.max(jp.abs(x)) for x in jax.tree.leaves(pytree)]
-    return jp.max(jp.stack(leaf_max))
 
 
 # region Policy Update
@@ -410,7 +403,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     start_warmup_time = time.time()
     envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     for _ in range(2):
-        (_, _, _), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
+        (_, _, _), (p_loss, (data, _, next_done, sum_rewards)) = update_policy(
             envs=envs,
             args=args,
             agent=agent,
@@ -421,6 +414,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         )
         data = compute_td_lambda(args, agent, next_obs, next_done, data)
         (_, _), (v_loss, explained_var) = update_value(args, agent, data, key)
+    v_loss.block_until_ready()
     print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
     # start the game
@@ -478,6 +472,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
     print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
+    
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
@@ -535,8 +530,8 @@ def evaluate_shac(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            if render:
-                eval_env.render()
+            # if render:
+            #     eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

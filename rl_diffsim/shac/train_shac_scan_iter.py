@@ -1,4 +1,4 @@
-"""A naive RL pipeline for drone racing."""
+"""An SHAC implementation based on Flax."""
 
 import functools
 import time
@@ -27,8 +27,6 @@ from rl_diffsim.envs.wrappers_jittable import (
 )
 from rl_diffsim.shac.shac_agent import Agent
 
-# jax.config.update("jax_optimization_level", "O3")
-# jax.config.update("jax_exec_time_optimization_effort", 1.0)
 
 # region Arguments
 @dataclass(frozen=True)
@@ -120,7 +118,7 @@ def make_jitted_envs(
 
     env = NormalizeActionsJittable.create(env)
     env = ZeroYawJittable.create(env)
-    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    # env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,
         num_actions=1,
@@ -148,12 +146,6 @@ class RolloutData:
     entropy: Array
     returns: Array
     losses: Array
-
-
-def global_max(pytree: dict) -> Array:
-    """Compute the global max abs value in a pytree."""
-    leaf_max = [jp.max(jp.abs(x)) for x in jax.tree.leaves(pytree)]
-    return jp.max(jp.stack(leaf_max))
 
 
 # region Policy Update
@@ -427,11 +419,10 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     def training_step(
             carry: tuple[Any, Any, Array, Array, Array, Array],
-            iteration: int,
+            _,
         ) -> tuple[tuple[Any, Any, Array, Array, Array, Array], tuple[Array, Array, Array]]:
             """Single training iteration using scan."""
             envs, agent, key, next_obs, next_done, sum_rewards = carry
-            
             # 1. rollout and policy update
             (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
                 envs=envs,
@@ -466,7 +457,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     training_time = time.time() - train_start_time
     global_step = args.num_iterations * args.batch_size
     print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
-
+    
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:

@@ -9,6 +9,8 @@ from typing import Any
 
 os.environ["JAX_COMPILATION_CACHE_DIR"] = "/tmp/jax_cache"
 os.environ["JAX_PERSISTENT_CACHE"] = "1"
+os.environ["JAX_EXEC_TIME_OPTIMIZATION_EFFORT"] = "1.0"
+os.environ["JAX_OPTIMIZATION_LEVEL"] = "O3"
 import fire
 import flax
 import flax.struct as struct

@@ -1,4 +1,4 @@
-"""A BPTT implementation based on Flax."""
+"""An SHAC implementation based on Flax."""
 
 import functools
 import time
@@ -16,6 +16,7 @@ import optax
 from jax import Array
 
 import wandb
+from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
@@ -24,7 +25,6 @@ from rl_diffsim.envs.wrappers_jittable import (
     RecordDataJittable,
     ZeroYawJittable,
 )
-from rl_diffsim.shac.shac_agent import Agent
 
 
 # region Arguments
@@ -52,9 +52,9 @@ class Args:
     """the number of mini-batches"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 6.4e-2
+    actor_lr: float = 6e-2
     """the learning rate of the actor optimizer"""
-    gamma: float = 1.0
+    gamma: float = 0.999
     """the discount factor gamma"""
     hidden_size: int = 16
     """the hidden size of actor and critic networks"""
@@ -72,7 +72,7 @@ class Args:
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
     act_th_coef: float = 0.2
-    act_xy_coef: float = 0.1
+    act_xy_coef: float = 0.2
     """reward coefficients for training"""
 
     @staticmethod
@@ -148,7 +148,7 @@ def update_policy(
     sum_rewards: Array,
     key: Array,
 ) -> float:
-    """BPTT policy updates."""
+    """SHAC policy updates."""
 
     def collect_rollout(
         envs: struct.PyTreeNode,
@@ -294,14 +294,14 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     # start the game
     train_start_time = time.time()
+    global_step = 0
     # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards = jp.zeros((args.num_envs,))
 
-    # Define single iteration function for scan
-    def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
-        envs, agent, key, next_obs, next_done, sum_rewards = carry
-
+    for iteration in range(1, args.num_iterations + 1):
+        print(f"Iter {iteration}/{args.num_iterations}", end=": ")
+        start_time = time.time()
         # 1. rollout and policy update
         (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
             envs=envs,
@@ -312,47 +312,30 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             sum_rewards=sum_rewards,
             key=key,
         )
-
-        # Return carry and metrics for logging
-        return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data)
-
-    # Run training loop using scan
-    (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
-        train_iteration,
-        (envs, agent, key, next_obs, next_done, sum_rewards),
-        jp.arange(args.num_iterations),
-    )
-
-    next_obs.block_until_ready()
-    training_time = time.time() - train_start_time
-    total_steps = args.num_iterations * args.batch_size
-    print(f"Training for {total_steps} steps took {training_time:.2f} seconds.")
-
-    # Post-training logging
-    if wandb_enabled:
-        # Log aggregated metrics
-        for iter_idx in range(args.num_iterations):
-            global_step = iter_idx * args.batch_size
-            data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
-
-            # Log episode rewards
+        print(f"Policy {time.time() - start_time:.5f} s")
+        # 4. logging
+        if wandb_enabled:
             for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
                 if jp.any(done):
                     wandb.log(
                         {"train/reward": jp.mean(sum_reward[done])},
                         step=global_step + batch_step * args.num_envs,
                     )
-                    sum_rewards_hist.append(float(jp.mean(sum_reward[done])))
-
-            # Log training metrics
+                    sum_rewards_hist.append(jp.mean(sum_reward[done]))
             wandb.log(
                 {
-                    "losses/p_loss": float(jp.mean(p_losses[iter_idx])),
-                    "losses/entropy": float(jp.mean(data.entropy)),
-                    "charts/SPS": int(global_step / training_time) if training_time > 0 else 0,
+                    "losses/p_loss": jp.mean(p_loss),
+                    "losses/entropy": jp.mean(data.entropy),
+                    "charts/SPS": int(global_step / (time.time() - train_start_time)),
                 },
                 step=global_step + args.batch_size,
             )
+
+        global_step += args.batch_size
+
+    next_obs.block_until_ready()
+    training_time = time.time() - train_start_time
+    print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
 
     if model_path is not None:
         params = {"actor": agent.actor_states.params}
@@ -439,7 +422,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
       render: whether to render the environment during evaluation
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/bptt_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training

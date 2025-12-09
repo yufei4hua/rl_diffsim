@@ -10,7 +10,7 @@ from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
 from packaging.version import Version
 
-from rl_diffsim.envs.race_core import RaceCoreEnv, build_action_space, build_observation_space
+from rl_diffsim.gym_envs.race_core import RaceCoreEnv, build_action_space, build_observation_space
 
 if TYPE_CHECKING:
     from jax import Array

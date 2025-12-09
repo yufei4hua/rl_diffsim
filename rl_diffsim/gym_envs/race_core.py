@@ -36,7 +36,7 @@ from crazyflow.sim.sim import use_box_collision
 # from crazyflow.sim.symbolic import symbolic_attitude
 from flax.struct import dataclass
 from gymnasium import spaces
-from lsy_drone_racing.envs.randomize import (
+from rl_diffsim.gym_envs.randomize import (
     randomize_drone_inertia_fn,
     randomize_drone_mass_fn,
     randomize_drone_pos_fn,
@@ -45,7 +45,7 @@ from lsy_drone_racing.envs.randomize import (
     randomize_gate_rpy_fn,
     randomize_obstacle_pos_fn,
 )
-from lsy_drone_racing.envs.utils import gate_passed, generate_random_track, load_track
+from rl_diffsim.gym_envs.utils import gate_passed, generate_random_track, load_track
 
 if TYPE_CHECKING:
     from crazyflow.sim.data import SimData

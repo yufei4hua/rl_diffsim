@@ -19,7 +19,7 @@ import numpy as np
 from gymnasium.wrappers.vector.jax_to_numpy import JaxToNumpy
 from utils import load_config, load_controller
 
-from rl_diffsim.envs.figure_8_env import FigureEightEnv
+from rl_diffsim.gym_envs.figure_8_env import FigureEightEnv
 
 if TYPE_CHECKING:
     from rl_diffsim.control.controller import Controller
@@ -78,8 +78,7 @@ def simulate(
             # Tracking issue:
             # https://github.com/jax-ml/jax/issues/29810
             action = np.asarray(jp.asarray(action), copy=True)
-            action = action[None, :]
-            obs, reward, terminated, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(action[None, :])
             obs = {k: v[0] for k, v in obs.items()}
             info = {k: v[0] for k, v in info.items()}
             reward = float(reward[0])

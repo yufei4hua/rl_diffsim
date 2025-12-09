@@ -233,17 +233,20 @@ class ActionPenaltyJittable(JittableWrapper):
     """Jittable wrapper to apply action penalty and augment observations with last_action."""
 
     base: struct.PyTreeNode | AngleRewardJittable = struct.field(pytree_node=True)
-    last_action: Array = struct.field(pytree_node=True)
+    last_actions: Array = struct.field(pytree_node=True)
+    num_actions: int = struct.field(pytree_node=False)
 
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
 
     @property
     def single_observation_space(self) -> spaces.Space:
-        """Return the base single_observation_space augmented with last_action."""
+        """Return the base single_observation_space augmented with action_history."""
         spec = {k: v for k, v in self.base.single_observation_space.items()}
         act_dim = self.base.action_space.shape[-1]
-        spec["last_action"] = spaces.Box(-np.inf, np.inf, shape=(act_dim,), dtype=np.float32)
+        spec["action_history"] = spaces.Box(
+            -np.inf, np.inf, shape=(self.num_actions, act_dim), dtype=np.float32
+        )
         return spaces.Dict(spec)
 
     @property
@@ -255,7 +258,10 @@ class ActionPenaltyJittable(JittableWrapper):
     def create(
         cls,
         base: struct.PyTreeNode | AngleRewardJittable,
-        act_coef: float = 0.01,
+        num_actions: int = 1,
+        init_last_actions: Array | None = None,
+        act_th_coef: float = 0.01,
+        act_xy_coef: float = 0.01,
         d_act_th_coef: float = 0.2,
         d_act_xy_coef: float = 0.4,
     ) -> "ActionPenaltyJittable":
@@ -270,15 +276,17 @@ class ActionPenaltyJittable(JittableWrapper):
         """
         num_envs = base.num_envs
         act_dim = base.action_space.shape[-1]
-        # last_action is part of the observation dict (computed in property)
-        last_action = jp.zeros((num_envs, act_dim), dtype=jp.float32)
+        # last_actions is part of the observation dict (computed in property)
+        last_actions = jp.zeros((num_envs, num_actions, act_dim), dtype=jp.float32)
+        if init_last_actions is not None:
+            last_actions = jp.broadcast_to(init_last_actions, last_actions.shape)
 
         def _reset(
             env: "ActionPenaltyJittable", *, seed: int | None = None, options: dict | None = None
         ) -> tuple["ActionPenaltyJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
-            env = env.replace(base=base_env, last_action=jp.zeros_like(env.last_action))
-            obs["last_action"] = env.last_action
+            env = env.replace(base=base_env, last_actions=jp.zeros_like(env.last_actions))
+            obs["last_actions"] = env.last_actions
             return env, (obs, info)
 
         def _step(
@@ -287,21 +295,24 @@ class ActionPenaltyJittable(JittableWrapper):
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
             # penalty on actions
-            action_diff = action - env.last_action
+            action_diff = action - env.last_actions[:, 0, :]
             # energy
-            reward = reward - act_coef * action[..., -1] ** 2
+            reward = reward - act_th_coef * action[..., -1] ** 2
+            reward = reward - act_xy_coef * jp.sum(action[..., :3] * action[..., :3], axis=-1)
             # smoothness
             reward = reward - d_act_th_coef * action_diff[..., -1] ** 2
             reward = reward - d_act_xy_coef * jp.sum(action_diff[..., :3] ** 2, axis=-1)
 
-            new_last_action = action
-            env = env.replace(base=base_env, last_action=new_last_action)
+            # update action history
+            new_last_actions = jp.roll(env.last_actions, shift=1, axis=1)
+            new_last_actions = new_last_actions.at[:, 0, :].set(action)
+            env = env.replace(base=base_env, last_actions=new_last_actions)
 
-            obs["last_action"] = env.last_action
+            # flatten action history for observation: (num_envs, num_actions * act_dim)
+            obs["last_actions"] = env.last_actions
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(base=base, last_action=last_action, step=jax.jit(_step), reset=jax.jit(_reset))
-
+        return cls(base=base, last_actions=last_actions, num_actions=num_actions, step=jax.jit(_step), reset=jax.jit(_reset))
 
 # region FlattenObs
 @struct.dataclass
@@ -364,14 +375,7 @@ class FlattenJaxObservationJittable(JittableWrapper):
 # region RecordData
 @struct.dataclass
 class RecordDataJittable(JittableWrapper):
-    """Jittable wrapper that records debugging data during non-jitted runs.
-
-    The jitted `step`/`reset` do NOT perform recording (they are pure and
-    suitable for jitted rollouts). Use `record_step()` (a regular Python
-    method) when you want to run the environment and capture debug traces to
-    Python lists for later analysis. `calc_rmse` and `plot_eval` operate on
-    those collected lists and are intentionally non-jitted.
-    """
+    """Jittable wrapper that records debugging data."""
 
     base: struct.PyTreeNode = struct.field(pytree_node=True)
 
@@ -393,6 +397,7 @@ class RecordDataJittable(JittableWrapper):
         Returns:
             RecordDataJittable: Configured wrapper instance.
         """
+        assert hasattr(base.unwrapped, "max_episode_time"), "Base env must have max_episode_time attribute"
         max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
         num_envs = int(base.num_envs)
         act_dim = int(base.action_space.shape[-1])

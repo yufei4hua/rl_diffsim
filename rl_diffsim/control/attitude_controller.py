@@ -15,18 +15,20 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from drone_models.core import load_params
-from lsy_drone_racing.control import Controller
 from scipy.interpolate import CubicSpline
 from scipy.spatial.transform import Rotation as R
 
+from rl_diffsim.control import Controller
+
 if TYPE_CHECKING:
+    from crazyflow.sim import Sim
     from numpy.typing import NDArray
 
 
 class AttitudeController(Controller):
     """Example of a controller using the collective thrust and attitude interface."""
 
-    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict):
+    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: Sim):
         """Initialize the attitude controller.
 
         Args:
@@ -34,6 +36,7 @@ class AttitudeController(Controller):
                 observation space for details.
             info: Additional environment information from the reset.
             config: The configuration of the environment.
+            sim: The simulation instance only for rendering.
         """
         super().__init__(obs, info, config)
         self.freq = config.env.freq
@@ -49,33 +52,46 @@ class AttitudeController(Controller):
         self.g = 9.81
         self._tick = 0
 
-        # Same waypoints as in the trajectory controller. Determined by trial and error.
-        waypoints = np.array(
-            [
-                [-1.5, 1.0, 0.05],
-                [-1.0, 0.8, 0.2],
-                [0.3, 0.55, 0.5],
-                [1.3, 0.2, 0.65],
-                [0.85, 1.1, 1.1],
-                [-0.5, 0.2, 0.65],
-                [-1.15, 0.0, 0.52],
-                [-1.15, 0.0, 1.1],
-                [-0.0, -0.4, 1.1],
-                [0.5, -0.4, 1.1],
-            ]
-        )
-        # Scale trajectory between 0 and 1
-        ts = np.linspace(0, 1, np.shape(waypoints)[0])
-        cs_x = CubicSpline(ts, waypoints[:, 0])
-        cs_y = CubicSpline(ts, waypoints[:, 1])
-        cs_z = CubicSpline(ts, waypoints[:, 2])
+        # # Same waypoints as in the trajectory controller. Determined by trial and error.
+        # waypoints = np.array(
+        #     [
+        #         [-1.5, 1.0, 0.05],
+        #         [-1.0, 0.8, 0.2],
+        #         [0.3, 0.55, 0.5],
+        #         [1.3, 0.2, 0.65],
+        #         [0.85, 1.1, 1.1],
+        #         [-0.5, 0.2, 0.65],
+        #         [-1.15, 0.0, 0.52],
+        #         [-1.15, 0.0, 1.1],
+        #         [-0.0, -0.4, 1.1],
+        #         [0.5, -0.4, 1.1],
+        #     ]
+        # )
+        # # Scale trajectory between 0 and 1
+        # ts = np.linspace(0, 1, np.shape(waypoints)[0])
+        # cs_x = CubicSpline(ts, waypoints[:, 0])
+        # cs_y = CubicSpline(ts, waypoints[:, 1])
+        # cs_z = CubicSpline(ts, waypoints[:, 2])
 
-        des_completion_time = 15
-        ts = np.linspace(0, 1, int(self.freq * des_completion_time))
+        # des_completion_time = 15
+        # ts = np.linspace(0, 1, int(self.freq * des_completion_time))
 
-        self.x_des = cs_x(ts)
-        self.y_des = cs_y(ts)
-        self.z_des = cs_z(ts)
+        # self.x_des = cs_x(ts)
+        # self.y_des = cs_y(ts)
+        # self.z_des = cs_z(ts)
+
+        # Figure-8 trajectory
+        # Create the figure eight trajectory
+        self.trajectory_time = 10.0
+        n_steps = int(np.ceil(self.trajectory_time * self.freq))
+        t = np.linspace(0, 2 * np.pi, n_steps)
+        radius = 1  # Radius for the circles
+        x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
+        y = np.zeros_like(t)  # x is 0 everywhere
+        z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
+        self.trajectory = np.array([x, y, z]).T
+
+
         self._finished = False
 
     def compute_control(
@@ -91,11 +107,11 @@ class AttitudeController(Controller):
         Returns:
             The collective thrust and orientation [t_des, r_des, p_des, y_des] as a numpy array.
         """
-        i = min(self._tick, len(self.x_des) - 1)
-        if i == len(self.x_des) - 1:  # Maximum duration reached
+        i = min(self._tick, len(self.trajectory) - 1)
+        if i == len(self.trajectory) - 1:  # Maximum duration reached
             self._finished = True
 
-        des_pos = np.array([self.x_des[i], self.y_des[i], self.z_des[i]])
+        des_pos = self.trajectory[i]
         des_vel = np.zeros(3)
         des_yaw = 0.0
 

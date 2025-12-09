@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import importlib.util
 import inspect
 import logging
@@ -15,12 +16,17 @@ import toml
 from ml_collections import ConfigDict
 
 os.environ["SCIPY_ARRAY_API"] = "1"
+import matplotlib
 from scipy.spatial.transform import Rotation as R
 
 from rl_diffsim.control.controller import Controller
 
+matplotlib.use("Agg")  # render to raster images
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+
 if TYPE_CHECKING:
-    from pathlib import Path
     from typing import Any
 
     from numpy.typing import NDArray
@@ -128,3 +134,98 @@ def _rotation_matrix_from_points(p1: NDArray, p2: NDArray) -> R:
     x_axis = (v := np.cross(random_vector, z_axis)) / np.linalg.norm(v, axis=-1, keepdims=True)
     y_axis = np.cross(z_axis, x_axis)
     return R.from_matrix(np.stack((x_axis, y_axis, z_axis), axis=-1))
+
+
+@dataclass
+class EvalRecorder:
+    """Class to record evaluation data and plot them."""
+
+    _record_act: list[NDArray]
+    _record_pos: list[NDArray]
+    _record_goal: list[NDArray]
+    _record_rpy: list[NDArray]
+
+    def __init__(self):
+        """Initialize the recorder."""
+        self._record_act = []
+        self._record_pos = []
+        self._record_goal = []
+        self._record_rpy = []
+
+    def record_step(
+        self,
+        action: NDArray,
+        position: NDArray,
+        goal: NDArray,
+        rpy: NDArray,
+    ):
+        """Record a single step's data.
+
+        Args:
+            action: The action taken at this step.
+            position: The drone's position at this step.
+            goal: The current goal position at this step.
+            rpy: The roll, pitch, yaw angles at this step.
+        """
+        self._record_act.append(action)
+        self._record_pos.append(position)
+        self._record_goal.append(goal)
+        self._record_rpy.append(rpy)
+
+    def plot_eval(self, save_path: str = "eval_plot.png") -> plt.Figure:
+        """Plot recorded traces and save to `save_path`."""
+        actions = np.array(self._record_act)
+        pos = np.array(self._record_pos)
+        goal = np.array(self._record_goal)
+        rpy = np.array(self._record_rpy)
+
+        fig, axes = plt.subplots(3, 4, figsize=(18, 12))
+        axes = axes.flatten()
+
+        # Actions
+        action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        for i in range(4):
+            axes[i].plot(actions[:, 0, i])
+            axes[i].set_title(f"{action_labels[i]} Command")
+            axes[i].set_xlabel("Time Step")
+            axes[i].set_ylabel("Action Value")
+            axes[i].grid(True)
+
+        # Position plots and goals
+        for i, label in enumerate(["X Position", "Y Position", "Z Position"]):
+            axes[4 + i].plot(pos[:, 0, i])
+            axes[4 + i].plot(goal[:, 0, i], linestyle="--")
+            axes[4 + i].set_title(label)
+            axes[4 + i].set_xlabel("Time Step")
+            axes[4 + i].set_ylabel("Position (m)")
+            axes[4 + i].grid(True)
+            axes[4 + i].legend(["Position", "Goal"])
+
+        # Position error
+        pos_err = np.linalg.norm(pos[:, 0] - goal[:, 0], axis=1)
+        axes[7].plot(pos_err)
+        axes[7].set_title("Position Error")
+        axes[7].set_xlabel("Time Step")
+        axes[7].set_ylabel("Error (m)")
+        axes[7].grid(True)
+
+        # Angles
+        rpy_labels = ["Roll", "Pitch", "Yaw"]
+        for i in range(3):
+            axes[8 + i].plot(rpy[:, 0, i])
+            axes[8 + i].set_title(f"{rpy_labels[i]} Angle")
+            axes[8 + i].set_xlabel("Time Step")
+            axes[8 + i].set_ylabel("Angle (rad)")
+            axes[8 + i].grid(True)
+
+        # compute RMSE for position
+        rmse_pos = np.sqrt(np.mean(pos_err**2))
+        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos * 1000:.3f} mm", fontsize=14)
+        axes[11].axis("off")
+
+        plt.tight_layout()
+        plt.savefig(
+            Path(__file__).parents[1] / "saves" / save_path
+        )  # TODO: nicer way to get root path
+
+        return fig

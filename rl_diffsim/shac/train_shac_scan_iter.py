@@ -1,16 +1,11 @@
 """A naive RL pipeline for drone racing."""
 
 import functools
-import os
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-os.environ["JAX_COMPILATION_CACHE_DIR"] = "/tmp/jax_cache"
-os.environ["JAX_PERSISTENT_CACHE"] = "1"
-os.environ["JAX_EXEC_TIME_OPTIMIZATION_EFFORT"] = "1.0"
-os.environ["JAX_OPTIMIZATION_LEVEL"] = "O3"
 import fire
 import flax
 import flax.struct as struct
@@ -31,6 +26,8 @@ from rl_diffsim.envs.wrappers_jittable import (
 )
 from rl_diffsim.shac.shac_agent import Agent
 
+jax.config.update("jax_optimization_level", "O3")
+jax.config.update("jax_exec_time_optimization_effort", 1.0)
 
 # region Arguments
 @dataclass(frozen=True)

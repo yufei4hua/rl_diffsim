@@ -23,11 +23,12 @@ from rl_diffsim.envs.wrappers_jittable import (
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
+    ZeroYawJittable,
 )
 from rl_diffsim.shac.shac_agent import Agent
 
-jax.config.update("jax_optimization_level", "O3")
-jax.config.update("jax_exec_time_optimization_effort", 1.0)
+# jax.config.update("jax_optimization_level", "O3")
+# jax.config.update("jax_exec_time_optimization_effort", 1.0)
 
 # region Arguments
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def make_jitted_envs(
     )
 
     env = NormalizeActionsJittable.create(env)
+    env = ZeroYawJittable.create(env)
     env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,

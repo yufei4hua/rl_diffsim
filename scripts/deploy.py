@@ -32,9 +32,7 @@ def main(config: str = "config.toml", controller: str | None = None):
     rclpy.init()
     config = load_config(Path(__file__).parents[1] / "scripts" / config)
     env: RealDroneEnv = RealDroneEnv(
-        drones=config.deploy.drones,
-        freq=config.env.freq,
-        control_mode=config.env.control_mode,
+        drones=config.deploy.drones, freq=config.env.freq, control_mode=config.env.control_mode
     )
     try:
         control_path = Path(__file__).parents[1] / "rl_diffsim/control"
@@ -71,7 +69,6 @@ def main(config: str = "config.toml", controller: str | None = None):
         logger.info(f"Track time: {ep_time:.3f}s" if finished_track else "Task not completed")
     finally:
         env.close()
-
 
 
 if __name__ == "__main__":

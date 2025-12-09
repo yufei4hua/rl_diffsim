@@ -19,7 +19,6 @@ import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
-    AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
@@ -472,7 +471,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
     print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
-    
+
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
@@ -500,7 +499,9 @@ def evaluate_shac(
         "act_th_coef": args.act_th_coef,
         "act_xy_coef": args.act_xy_coef,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
+    eval_env = make_jitted_envs(
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
+    )
     eval_env = RecordDataJittable.create(eval_env)
 
     agent = Agent.create(

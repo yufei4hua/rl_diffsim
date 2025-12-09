@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import importlib.util
 import inspect
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Type
 
 import mujoco
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from typing import Any
 
     from numpy.typing import NDArray
-
     from rl_diffsim.envs.race_core import RaceCoreEnv
 
 
@@ -152,13 +151,7 @@ class EvalRecorder:
         self._record_goal = []
         self._record_rpy = []
 
-    def record_step(
-        self,
-        action: NDArray,
-        position: NDArray,
-        goal: NDArray,
-        rpy: NDArray,
-    ):
+    def record_step(self, action: NDArray, position: NDArray, goal: NDArray, rpy: NDArray):
         """Record a single step's data.
 
         Args:

@@ -51,6 +51,8 @@ sweep_configuration = {
 }
 
 # 3: Start the sweep
-sweep_id = wandb.sweep(sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep-deploy", entity="lsy-tum")
+sweep_id = wandb.sweep(
+    sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep-deploy", entity="lsy-tum"
+)
 
 wandb.agent(sweep_id, function=train, count=100)

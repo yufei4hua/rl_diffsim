@@ -265,7 +265,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
                 case _:
                     raise ValueError(f"Invalid control type {control}")
             return data
-        
+
         _apply_action = functools.partial(_apply_action, control=control)
 
         def _step(
@@ -383,7 +383,6 @@ if __name__ == "__main__":
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)
-
 
     # test rendering
     print("Action_space:", env.action_space.low[0], env.action_space.high[0])

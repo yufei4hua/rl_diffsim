@@ -90,6 +90,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
             num_envs: Number of parallel environments.
             max_episode_time: Maximum episode time in seconds.
             physics: Physics backend to use.
+            control: Control interface to use.
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
             device: Device to use for the simulation.
@@ -276,7 +277,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
                 case _:
                     raise ValueError(f"Invalid control type {control}")
             return data
-        
+
         _apply_action = functools.partial(_apply_action, control=control)
 
         def _step(

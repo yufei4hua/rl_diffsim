@@ -19,7 +19,6 @@ import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
-    AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
@@ -417,28 +416,30 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     v_loss.block_until_ready()
     print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
-    def training_step(
-            carry: tuple[Any, Any, Array, Array, Array, Array],
-            _,
-        ) -> tuple[tuple[Any, Any, Array, Array, Array, Array], tuple[Array, Array, Array, RolloutData]]:
-            """Single training iteration using scan."""
-            envs, agent, key, next_obs, next_done, sum_rewards = carry
-            # 1. rollout and policy update
-            (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
-                envs=envs,
-                args=args,
-                agent=agent,
-                next_obs=next_obs,
-                next_done=next_done,
-                sum_rewards=sum_rewards,
-                key=key,
-            )
-            # 2. compute TD-λ
-            data = compute_td_lambda(args, agent, next_obs, next_done, data)
-            # 3. value update
-            (agent, key), (v_loss, explained_var) = update_value(args, agent, data, key)
-            
-            return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, v_loss, explained_var, data)
+    def training_step(carry: tuple, _) -> tuple[tuple, tuple]:
+        """Single training iteration using scan."""
+        envs, agent, key, next_obs, next_done, sum_rewards = carry
+        # 1. rollout and policy update
+        (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
+            envs=envs,
+            args=args,
+            agent=agent,
+            next_obs=next_obs,
+            next_done=next_done,
+            sum_rewards=sum_rewards,
+            key=key,
+        )
+        # 2. compute TD-λ
+        data = compute_td_lambda(args, agent, next_obs, next_done, data)
+        # 3. value update
+        (agent, key), (v_loss, explained_var) = update_value(args, agent, data, key)
+
+        return (envs, agent, key, next_obs, next_done, sum_rewards), (
+            p_loss,
+            v_loss,
+            explained_var,
+            data,
+        )
 
     # start the game
     train_start_time = time.time()
@@ -447,12 +448,15 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     sum_rewards = jp.zeros((args.num_envs,))
     # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
 
-    (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, v_losses, explained_vars, all_data) = jax.lax.scan(
+    (
+        (envs, agent, key, next_obs, next_done, sum_rewards),
+        (p_losses, v_losses, explained_vars, all_data),
+    ) = jax.lax.scan(
         training_step,
         (envs, agent, key, next_obs, next_done, sum_rewards),
         length=args.num_iterations,
     )
-    
+
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
     global_step = args.num_iterations * args.batch_size
@@ -464,7 +468,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         for iter_idx in range(args.num_iterations):
             global_step = iter_idx * args.batch_size
             data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
-            
+
             # Log episode rewards
             for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
                 if jp.any(done):
@@ -473,7 +477,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
                         step=global_step + batch_step * args.num_envs,
                     )
                     sum_rewards_hist.append(float(jp.mean(sum_reward[done])))
-            
+
             # Log training metrics
             wandb.log(
                 {
@@ -485,7 +489,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
                 },
                 step=global_step + args.batch_size,
             )
-    
+
     if model_path is not None:
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
@@ -513,7 +517,9 @@ def evaluate_shac(
         "act_th_coef": args.act_th_coef,
         "act_xy_coef": args.act_xy_coef,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
+    eval_env = make_jitted_envs(
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
+    )
     eval_env = RecordDataJittable.create(eval_env)
 
     agent = Agent.create(

@@ -145,7 +145,7 @@ class ZeroYawJittable(JittableWrapper):
 
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
-    
+
     @classmethod
     def create(cls, base: struct.PyTreeNode) -> "ZeroYawJittable":
         """Create an ZeroYawJittable around `base`.
@@ -156,6 +156,7 @@ class ZeroYawJittable(JittableWrapper):
         Returns:
             ZeroYawJittable: A configured wrapper with jitted step/reset.
         """
+
         def _reset(
             env: "ZeroYawJittable", *, seed: int | None = None, options: dict | None = None
         ) -> tuple["ZeroYawJittable", tuple[Any, Any]]:
@@ -312,7 +313,14 @@ class ActionPenaltyJittable(JittableWrapper):
             obs["last_actions"] = env.last_actions
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(base=base, last_actions=last_actions, num_actions=num_actions, step=jax.jit(_step), reset=jax.jit(_reset))
+        return cls(
+            base=base,
+            last_actions=last_actions,
+            num_actions=num_actions,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
 
 # region FlattenObs
 @struct.dataclass
@@ -397,7 +405,9 @@ class RecordDataJittable(JittableWrapper):
         Returns:
             RecordDataJittable: Configured wrapper instance.
         """
-        assert hasattr(base.unwrapped, "max_episode_time"), "Base env must have max_episode_time attribute"
+        assert hasattr(base.unwrapped, "max_episode_time"), (
+            "Base env must have max_episode_time attribute"
+        )
         max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
         num_envs = int(base.num_envs)
         act_dim = int(base.action_space.shape[-1])

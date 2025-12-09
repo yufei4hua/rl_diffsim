@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from drone_models.core import load_params
-from scipy.interpolate import CubicSpline
 from scipy.spatial.transform import Rotation as R
 
 from rl_diffsim.control import Controller
@@ -90,7 +89,6 @@ class AttitudeController(Controller):
         y = np.zeros_like(t)  # x is 0 everywhere
         z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
         self.trajectory = np.array([x, y, z]).T
-
 
         self._finished = False
 

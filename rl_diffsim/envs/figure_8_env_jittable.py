@@ -99,6 +99,8 @@ class FigureEightJittableEnv(DroneJittableEnv):
             trajectory_time: Total time for completing the figure-eight trajectory in seconds.
             samples_dt: Time between trajectory sample points in seconds.
             reset_rotor: Whether to reset rotor speeds on environment reset.
+            reset_randomization: A function that randomizes the initial state of the simulation. If
+                None, the default randomization for pos and vel is used.
 
         Returns:
             An instance of FigureEightJittableEnv with jittable functions and data.
@@ -148,11 +150,13 @@ class FigureEightJittableEnv(DroneJittableEnv):
                     return _reset_rotor_so_rpy
                 case "no_reset_rotor":
                     return _no_reset_rotor
+
         reset_rotor_randomization = build_reset_rotor_fn(
             physics if reset_rotor else "no_reset_rotor"
         )
 
         if reset_randomization is None:
+
             def _reset_randomization(
                 data: SimData, mask: Array, pmin: Array, pmax: Array, vmin: float, vmax: float
             ) -> SimData:
@@ -166,6 +170,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
                 vel = jax.random.uniform(key=vel_key, shape=shape, minval=vmin, maxval=vmax)
                 data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel))
                 return data
+
             reset_randomization = functools.partial(
                 _reset_randomization, pmin=-0.1, pmax=0.1, vmin=-0.5, vmax=0.5
             )
@@ -275,7 +280,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
 
         def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
             low, high = action_space.low, action_space.high
-            action = _sanitize_action(action, low, high)
+            action = _sanitize_action_STE(action, low, high)
             match control:
                 case Control.state:
                     raise NotImplementedError("State control currently not supported")

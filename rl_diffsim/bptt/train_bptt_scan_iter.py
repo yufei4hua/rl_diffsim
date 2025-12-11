@@ -16,7 +16,7 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.bptt.bptt_agent import Agent
+from rl_diffsim.bptt.bptt_agent_deterministic import Agent
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
@@ -42,21 +42,19 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 22_000
+    total_timesteps: int = 25_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 48
+    num_steps: int = 40
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 2
-    """the number of mini-batches"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
     actor_lr: float = 4.6e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
-    hidden_size: int = 12
+    hidden_size: int = 8
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -79,16 +77,16 @@ class Args:
         args = Args(**kwargs)
         batch_size = int(args.num_envs * args.num_steps)
         num_iterations = args.total_timesteps // batch_size
-        return replace(
-            args,
-            batch_size=batch_size,
-            num_iterations=num_iterations,
-        )
+        return replace(args, batch_size=batch_size, num_iterations=num_iterations)
 
 
 # region MakeEnvs
 def make_jitted_envs(
-    num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
+    num_envs: int = None,
+    jax_device: str = "cpu",
+    coefs: dict = {},
+    reset_rotor: bool = False,
+    reset_random: bool = False,
 ) -> FigureEightJittableEnv:
     """Make environments for training RL policy."""
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
@@ -99,6 +97,7 @@ def make_jitted_envs(
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
+        reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
     env = NormalizeActionsJittable.create(env)
@@ -250,7 +249,11 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         "act_xy_coef": args.act_xy_coef,
     }
     envs = make_jitted_envs(
-        num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
+        num_envs=args.num_envs,
+        jax_device=jax_device,
+        coefs=r_coefs,
+        reset_rotor=True,
+        reset_random=True,
     )
 
     # setup annealing learning rate
@@ -414,10 +417,11 @@ def evaluate_bptt(
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
-        print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
+        # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
     fig = eval_env.plot_eval(save_path="bptt_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
+    print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
 
     eval_env.close()
 

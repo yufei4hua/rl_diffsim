@@ -37,11 +37,11 @@ sweep_configuration = {
     "method": "random",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
-        "num_envs": {"distribution": "int_uniform", "min": 12, "max": 64},
+        "num_envs": {"distribution": "int_uniform", "min": 4, "max": 16},
         "num_steps": {"distribution": "int_uniform", "min": 32, "max": 96},
-        "actor_lr": {"distribution": "log_uniform_values", "min": 1e-2, "max": 4e-1},
-        # "gamma": {"min": 0.95, "max": 0.999},
-        "hidden_size": {"values": [8, 12, 16]},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 5e-4, "max": 4e-1},
+        # "gamma": {"min": 0.90, "max": 1.0},
+        "hidden_size": {"distribution": "int_uniform", "min": 4, "max": 16},
     },
 }
 
@@ -50,4 +50,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project="rl_diffsim-BPTT-sweep-deploy", entity="fresssack"
 )
 
-wandb.agent(sweep_id, function=train, count=100)
+wandb.agent(sweep_id, function=train, count=200)

@@ -29,16 +29,8 @@ class ActorNet(nn.Module):
         x = nn.tanh(x)
         mean = nn.Dense(self.act_dim, kernel_init=orthogonal(0.01), bias_init=zeros)(x)
         mean = nn.tanh(mean)
-        # Actor logstd
-        actor_logstd = self.param(
-            "actor_logstd",
-            lambda rng, shape: jp.array([[-2.0, -2.0, -2.0, -1.5]], dtype=jp.float32),
-            # lambda rng, shape: -1.0 * jp.array([[1.0, 1.0, 1.0, 1.0]], dtype=jp.float32),
-            (1, self.act_dim),
-        )
-        logstd = jp.broadcast_to(actor_logstd, (mean.shape[0], self.act_dim))
 
-        return mean, logstd
+        return mean
 
 
 class Agent(struct.PyTreeNode):
@@ -68,20 +60,13 @@ class Agent(struct.PyTreeNode):
 
         # Build jittable actor and critic inference functions
         def _get_action_sample(params: dict, obs: Array, key: Array) -> tuple[Array, Array]:
-            """Get stochastic action sample for collecting rollout."""
-            mean, logstd = actor.apply(params, obs)
-            std = jp.exp(logstd)
-            new_key, sub = jax.random.split(key)
-            eps = jax.random.normal(sub, mean.shape, dtype=mean.dtype)
-            action = mean + std * eps
-            logp = -0.5 * (eps**2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
-            logp = jp.sum(logp, axis=-1)
-            entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
-            return (action, logp, entropy), new_key
+            """Keep this interface for stochastic training pipeline."""
+            mean = actor.apply(params, obs)
+            return (mean, jp.zeros_like(mean), jp.zeros_like(mean)), key
 
         def _get_action_mean(params: dict, obs: Array) -> Array:
             """Get deterministic action (mean)."""
-            mean, logstd = actor.apply(params, obs)
+            mean = actor.apply(params, obs)
             return mean
 
         return cls(

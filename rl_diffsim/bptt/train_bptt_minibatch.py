@@ -225,7 +225,9 @@ def update_policy(
 
     actor_states = agent.actor_states
 
-    def grad_update_step(actor_states, grad):
+    def grad_update_step(
+        actor_states: struct.PyTreeNode, grad: struct.PyTreeNode
+    ) -> tuple[struct.PyTreeNode, None]:
         actor_states = actor_states.apply_gradients(grads=grad)
         return actor_states, None
 

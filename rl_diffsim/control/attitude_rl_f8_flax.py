@@ -74,22 +74,6 @@ class AttitudeRL(Controller):
         z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
         self.trajectory = np.array([x, y, z]).T
 
-        # Load custom trajectory data
-        traj_data = np.load("rl_diffsim/envs/custom_snap_ref_traj_final_v6_2.npy", allow_pickle=True).item()
-        pos_ref = traj_data['POS_REF']  # Extract position reference trajectory
-        
-        # Create cyclic shifts for each environment to start at different points
-        n_steps = pos_ref.shape[0]
-        sample_offsets = jp.array(jp.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
-        
-        trajectories = []
-        for env_idx in range(1):
-            shift = (env_idx * n_steps) // 1  # Distribute shifts evenly
-            shifted_traj = np.roll(pos_ref, -shift, axis=0)  # Cyclic shift
-            trajectories.append(shifted_traj)
-        trajectories = jp.array(np.array(trajectories))  # (num_envs, n_steps, 3)
-        self.trajectory = np.array(trajectories[0])  # Use the first environment's trajectory
-
         # Load RL policy
         self.algo_name = "bptt"
         model_path = Path(__file__).parents[2] / f"saves/{self.algo_name}_model_flax.ckpt"
@@ -98,8 +82,7 @@ class AttitudeRL(Controller):
 
             params = pickle.load(f)
             obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
-            # act_dim = params["actor"]["params"]["actor_logstd"].shape[-1]
-            act_dim = 4
+            act_dim = params["actor"]["params"]["actor_logstd"].shape[-1]
             hidden_size = params["actor"]["params"]["Dense_0"]["kernel"].shape[1]
         agent = Agent.create(
             key=jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=hidden_size

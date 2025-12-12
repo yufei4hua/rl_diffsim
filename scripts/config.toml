@@ -5,10 +5,10 @@ file = "attitude_rl_f8_flax.py"
 [deploy]
 
 [[deploy.drones]]
-id = 55
-channel = 80
-drone_model = "cf2x_L250"  # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
-takeoff_pos = [1.4, 0.5, 1.1]  # Takeoff position [x, y, z] in meters
+id = 20
+channel = 100
+drone_model = "cf21B_500"  # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
+takeoff_pos = [0.0, 0.0, 1.5]  # Takeoff position [x, y, z] in meters
 
 [sim]
 # Physics options:
@@ -16,8 +16,8 @@ takeoff_pos = [1.4, 0.5, 1.1]  # Takeoff position [x, y, z] in meters
 # "so_rpy": Simplified identified model.
 # "so_rpy_rotor": Simplified identified model with rotor dynamics.
 # "so_rpy_rotor_drag": Simplified identified model with rotor dynamics and drag.
-physics = "so_rpy_rotor_drag"
-drone_model = "cf2x_L250"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
+physics = "first_principles"
+drone_model = "cf21B_500"                        # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
 camera_view = [5.0, 180.0, -25.0, 0.0, 0.0, 0.0] # Camera view [distance, azimuth, elevation, lookat_x, lookat_y, lookat_z]
 freq = 50                                        # Simulation frequency, in Hz
 attitude_freq = 500                              # Controller frequency, in Hz. This frequency is used to simulate the onboard controller, NOT for the environment's step function

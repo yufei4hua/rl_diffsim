@@ -195,8 +195,7 @@ class EvalRecorder:
             axes[4 + i].legend(["Position", "Goal"])
 
         # Position error
-        # pos_err = np.linalg.norm(pos[:, 0] - goal[:, 0], axis=1)
-        pos_err = np.linalg.norm(pos[:, 0, :2] - goal[:, 0, :2], axis=1)
+        pos_err = np.linalg.norm(pos[:, 0] - goal[:, 0], axis=1)
         axes[7].plot(pos_err)
         axes[7].set_title("Position Error")
         axes[7].set_xlabel("Time Step")
@@ -214,15 +213,8 @@ class EvalRecorder:
 
         # compute RMSE for position
         rmse_pos = np.sqrt(np.mean(pos_err**2))
-        # XY trajectory (actual vs goal)
-        axes[11].plot(pos[:, 0, 0], pos[:, 0, 1])
-        axes[11].plot(goal[:, 0, 0], goal[:, 0, 1], linestyle="--")
-        axes[11].set_title(f"XY Trajectory (RMSE: {rmse_pos * 1000:.1f} mm)")
-        axes[11].set_xlabel("X (m)")
-        axes[11].set_ylabel("Y (m)")
-        axes[11].grid(True)
-        axes[11].legend(["Actual", "Goal"])
-        axes[11].set_aspect("equal", adjustable="box")
+        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos * 1000:.3f} mm", fontsize=14)
+        axes[11].axis("off")
 
         plt.tight_layout()
         plt.savefig(

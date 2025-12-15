@@ -66,9 +66,9 @@ class JittableWrapper(struct.PyTreeNode):
         """Get the current step count for each environment."""
         return getattr(self.base, "steps")
 
-    def render(self, world: int = 0) -> None:
+    def render(self, **kwargs: dict) -> None:
         """Returns the render mode from the base vector environment."""
-        return self.base.render(world=world)
+        return self.base.render(**kwargs)
 
     def close(self, **kwargs: Any) -> None:
         """Close all environments."""

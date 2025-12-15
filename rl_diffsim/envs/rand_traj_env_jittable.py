@@ -44,7 +44,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
     sample_offsets: Array = struct.field(pytree_node=False)
 
     # Non-jittable functions
-    def render(self, world: int = 0) -> None:
+    def render(self, world: int = 0, **kwargs: dict) -> None:
         """Override base class render to show random trajectory."""
         idx = jp.clip(
             self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
@@ -68,7 +68,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
         )
         draw_points(self.sim, next_trajectory[world], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.data = self.data
-        self.sim.render(world=world)
+        return self.sim.render(world=world, **kwargs)
 
     @classmethod
     def create(

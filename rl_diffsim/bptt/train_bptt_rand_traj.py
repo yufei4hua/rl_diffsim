@@ -11,13 +11,14 @@ import flax
 import flax.struct as struct
 import jax
 import jax.numpy as jp
+import mujoco
 import numpy as np
 import optax
 from jax import Array
 
 import wandb
 from rl_diffsim.bptt.bptt_agent_deterministic import Agent
-from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
+from rl_diffsim.envs.rand_traj_env_jittable import RandTrajJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
     FlattenJaxObservationJittable,
@@ -34,15 +35,17 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
+    exp_name: str = "bptt_randtraj"
+    """the name of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
-    wandb_project_name: str = "rl-bptt-f8"
+    wandb_project_name: str = "rl-bptt-rand-traj"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 25_000
+    total_timesteps: int = 50_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -87,9 +90,9 @@ def make_jitted_envs(
     coefs: dict = {},
     reset_rotor: bool = False,
     reset_random: bool = False,
-) -> FigureEightJittableEnv:
+) -> RandTrajJittableEnv:
     """Make environments for training RL policy."""
-    env: FigureEightJittableEnv = FigureEightJittableEnv.create(
+    env: RandTrajJittableEnv = RandTrajJittableEnv.create(
         n_samples=10,
         num_envs=num_envs,
         freq=50,
@@ -97,7 +100,6 @@ def make_jitted_envs(
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
-        reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
     env = NormalizeActionsJittable.create(env)
@@ -381,7 +383,7 @@ def evaluate_bptt(
         "act_xy_coef": args.act_xy_coef,
     }
     eval_env = make_jitted_envs(
-        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
+        num_envs=n_eval, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
     )
     eval_env = RecordDataJittable.create(eval_env)
 
@@ -401,6 +403,15 @@ def evaluate_bptt(
     episode_lengths = []
     ep_seed = args.seed
 
+    frames = [] # VIDEO RECORDING
+    cam_config = {
+        "type": mujoco.mjtCamera.mjCAMERA_TRACKING,
+        "trackbodyid": eval_env.unwrapped.sim.mj_model.body("drone:0").id,
+        "distance": 12.0,
+        "azimuth": 90,
+        "elevation": -20,
+    }
+
     for episode in range(n_eval):
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
         done = False
@@ -409,21 +420,28 @@ def evaluate_bptt(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render()
-            done = terminated | truncated
-            episode_reward += float(np.asarray(reward).item())
+            if render:
+                rgb_array = eval_env.render(world=episode, mode="rgb_array")
+                frames.append(np.array(rgb_array))  # VIDEO RECORDING
+            done = (terminated | truncated)[episode]
+            episode_reward += float(np.mean(reward).item())
             steps += 1
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
         # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path="bptt_eval_plot.png") if render else None
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
     print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
 
     eval_env.close()
+
+    # VIDEO RECORDING
+    import imageio.v2 as imageio
+    video_path = f"saves/{args.exp_name}_eval_video.mp4"
+    imageio.mimwrite(video_path, frames, fps=50, quality=8)
+    print(f"Saved evaluation video to {video_path}")
 
     return fig, rmse_pos, episode_rewards, episode_lengths
 
@@ -439,7 +457,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
       render: whether to render the environment during evaluation
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/bptt_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / f"saves/{args.exp_name}_model.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 import wandb
-from rl_diffsim.bptt.train_bptt_scan_iter import Args, evaluate_bptt, train_bptt
+from rl_diffsim.bptt.train_bptt_figure8 import Args, evaluate_bptt, train_bptt
 
 
 # 1: Define objective/training function

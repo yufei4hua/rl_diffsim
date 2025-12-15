@@ -1,4 +1,4 @@
-"""An SHAC implementation based on Flax."""
+"""A BPTT implementation based on Flax."""
 
 import functools
 import time
@@ -16,7 +16,7 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.bptt.bptt_agent import Agent
+from rl_diffsim.bptt.bptt_agent_deterministic import Agent
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
@@ -34,6 +34,8 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
+    exp_name: str = "bptt_f8"
+    """the name of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
     wandb_project_name: str = "rl-bptt-f8"
@@ -42,28 +44,24 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 50_000
+    total_timesteps: int = 25_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 40
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 8
-    """the number of mini-batches"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 6e-2
+    actor_lr: float = 4.6e-2
     """the learning rate of the actor optimizer"""
-    gamma: float = 0.999
+    gamma: float = 1.0
     """the discount factor gamma"""
-    hidden_size: int = 16
+    hidden_size: int = 8
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
     batch_size: int = 0
     """the batch size (computed in runtime)"""
-    minibatch_size: int = 0
-    """the mini-batch size (computed in runtime)"""
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
 
@@ -72,7 +70,7 @@ class Args:
     d_act_th_coef: float = 2.0
     d_act_xy_coef: float = 2.0
     act_th_coef: float = 0.2
-    act_xy_coef: float = 0.2
+    act_xy_coef: float = 0.1
     """reward coefficients for training"""
 
     @staticmethod
@@ -80,19 +78,17 @@ class Args:
         """Create arguments class."""
         args = Args(**kwargs)
         batch_size = int(args.num_envs * args.num_steps)
-        minibatch_size = int(batch_size // args.num_minibatches)
         num_iterations = args.total_timesteps // batch_size
-        return replace(
-            args,
-            batch_size=batch_size,
-            minibatch_size=minibatch_size,
-            num_iterations=num_iterations,
-        )
+        return replace(args, batch_size=batch_size, num_iterations=num_iterations)
 
 
 # region MakeEnvs
 def make_jitted_envs(
-    num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
+    num_envs: int = None,
+    jax_device: str = "cpu",
+    coefs: dict = {},
+    reset_rotor: bool = False,
+    reset_random: bool = False,
 ) -> FigureEightJittableEnv:
     """Make environments for training RL policy."""
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
@@ -103,6 +99,7 @@ def make_jitted_envs(
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
+        reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
     env = NormalizeActionsJittable.create(env)
@@ -148,7 +145,7 @@ def update_policy(
     sum_rewards: Array,
     key: Array,
 ) -> float:
-    """SHAC policy updates."""
+    """BPTT policy updates."""
 
     def collect_rollout(
         envs: struct.PyTreeNode,
@@ -254,7 +251,11 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         "act_xy_coef": args.act_xy_coef,
     }
     envs = make_jitted_envs(
-        num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
+        num_envs=args.num_envs,
+        jax_device=jax_device,
+        coefs=r_coefs,
+        reset_rotor=True,
+        reset_random=True,
     )
 
     # setup annealing learning rate
@@ -294,14 +295,14 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     # start the game
     train_start_time = time.time()
-    global_step = 0
     # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards = jp.zeros((args.num_envs,))
 
-    for iteration in range(1, args.num_iterations + 1):
-        print(f"Iter {iteration}/{args.num_iterations}", end=": ")
-        start_time = time.time()
+    # Define single iteration function for scan
+    def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
+        envs, agent, key, next_obs, next_done, sum_rewards = carry
+
         # 1. rollout and policy update
         (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
             envs=envs,
@@ -312,30 +313,47 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             sum_rewards=sum_rewards,
             key=key,
         )
-        print(f"Policy {time.time() - start_time:.5f} s")
-        # 4. logging
-        if wandb_enabled:
+
+        # Return carry and metrics for logging
+        return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data)
+
+    # Run training loop using scan
+    (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
+        train_iteration,
+        (envs, agent, key, next_obs, next_done, sum_rewards),
+        jp.arange(args.num_iterations),
+    )
+
+    next_obs.block_until_ready()
+    training_time = time.time() - train_start_time
+    total_steps = args.num_iterations * args.batch_size
+    print(f"Training for {total_steps} steps took {training_time:.2f} seconds.")
+
+    # Post-training logging
+    if wandb_enabled:
+        # Log aggregated metrics
+        for iter_idx in range(args.num_iterations):
+            global_step = iter_idx * args.batch_size
+            data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
+
+            # Log episode rewards
             for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
                 if jp.any(done):
                     wandb.log(
                         {"train/reward": jp.mean(sum_reward[done])},
                         step=global_step + batch_step * args.num_envs,
                     )
-                    sum_rewards_hist.append(jp.mean(sum_reward[done]))
+                    sum_rewards_hist.append(float(jp.mean(sum_reward[done])))
+
+            # Log training metrics
             wandb.log(
                 {
-                    "losses/p_loss": jp.mean(p_loss),
-                    "losses/entropy": jp.mean(data.entropy),
-                    "charts/SPS": int(global_step / (time.time() - train_start_time)),
+                    "losses/p_loss": float(jp.mean(p_losses[iter_idx])),
+                    "losses/entropy": float(jp.mean(data.entropy)),
+                    "charts/SPS": int(global_step / training_time) if training_time > 0 else 0,
                 },
                 step=global_step + args.batch_size,
             )
-
-        global_step += args.batch_size
-
-    next_obs.block_until_ready()
-    training_time = time.time() - train_start_time
-    print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
 
     if model_path is not None:
         params = {"actor": agent.actor_states.params}
@@ -401,10 +419,11 @@ def evaluate_bptt(
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
-        print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
+        # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path="bptt_eval_plot.png") if render else None
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
+    print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
 
     eval_env.close()
 
@@ -422,7 +441,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
       render: whether to render the environment during evaluation
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / f"saves/{args.exp_name}_model.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training

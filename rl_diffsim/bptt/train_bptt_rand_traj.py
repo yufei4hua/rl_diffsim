@@ -11,7 +11,6 @@ import flax
 import flax.struct as struct
 import jax
 import jax.numpy as jp
-import mujoco
 import numpy as np
 import optax
 from jax import Array
@@ -404,13 +403,13 @@ def evaluate_bptt(
     ep_seed = args.seed
 
     # frames = [] # VIDEO RECORDING
-    cam_config = {
-        "type": mujoco.mjtCamera.mjCAMERA_TRACKING,
-        "trackbodyid": eval_env.unwrapped.sim.mj_model.body("drone:0").id,
-        "distance": 12.0,
-        "azimuth": 90,
-        "elevation": -20,
-    }
+    # cam_config = {
+    #     "type": mujoco.mjtCamera.mjCAMERA_TRACKING,
+    #     "trackbodyid": eval_env.unwrapped.sim.mj_model.body("drone:0").id,
+    #     "distance": 12.0,
+    #     "azimuth": 90,
+    #     "elevation": -20,
+    # }
 
     for episode in range(n_eval):
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
@@ -421,7 +420,7 @@ def evaluate_bptt(
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             if render:
-                rgb_array = eval_env.render(world=episode, mode="human")
+                eval_env.render(world=episode, mode="human")
                 # frames.append(np.array(rgb_array))  # VIDEO RECORDING
             done = (terminated | truncated)[episode]
             episode_reward += float(np.mean(reward).item())

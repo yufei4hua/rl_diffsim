@@ -17,16 +17,16 @@ class ActorNet(nn.Module):
 
     hidden_size: int = 64
     act_dim: int = 4
+    num_layers: int = 2
 
     @nn.compact
     def __call__(self, obs: Array) -> tuple[Array, Array]:
         """Simple MLP model for actor-critic."""
         # Actor mean
         x = obs
-        x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
-        x = nn.tanh(x)
-        x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
-        x = nn.tanh(x)
+        for i in range(self.num_layers):
+            x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros, name=f"fc_{i}")(x)
+            x = nn.tanh(x)
         mean = nn.Dense(self.act_dim, kernel_init=orthogonal(0.01), bias_init=zeros)(x)
         mean = nn.tanh(mean)
 
@@ -47,10 +47,11 @@ class Agent(struct.PyTreeNode):
         obs_dim: int,
         act_dim: int,
         hidden_size: int = 64,
+        num_layers: int = 2,
         actor_lr: float | optax.Schedule = 3e-4,
     ) -> "Agent":
         """Initialize the SHAC agent's actor and critic networks."""
-        actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
+        actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim, num_layers=num_layers)
         dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
         actor_params = actor.init(key, dummy_obs)
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
@@ -81,7 +82,7 @@ if __name__ == "__main__":
     # initialization
     obs_dim, act_dim = 13, 4
     agent = Agent.create(
-        jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=64, actor_lr=3e-4
+        jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=64, actor_lr=3e-4, num_layers=2
     )
 
     obs = jp.ones((2, obs_dim), dtype=jp.float32)

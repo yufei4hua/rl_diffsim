@@ -36,7 +36,10 @@ def create_action_space(control_type: Control | str, drone_model: str) -> spaces
                 np.array([np.pi / 2, np.pi / 2, np.pi / 2, thrust_max], dtype=np.float32),
             )
         case Control.force_torque:
-            return spaces.Box(-1.0, 1.0, shape=(6,))
+            return spaces.Box(
+                np.array([0.0, -1e-5, -1e-5, -1e-5], dtype=np.float32),
+                np.array([0.8, 1e-5, 1e-5, 1e-5], dtype=np.float32),
+            )
         case "rotor_vel":
             params = ForceTorqueParams.load(drone_model)
             rotor_vel_min, rotor_vel_max = (

@@ -112,7 +112,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
             n_drones=1,
             drone_model=drone_model,
             physics=physics,
-            control=control if isinstance(control, Control) else Control.default,
+            control=control if control in [c.value for c in Control] else Control.default,
             device=device,
         )
 

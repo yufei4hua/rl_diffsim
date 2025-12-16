@@ -403,7 +403,7 @@ def evaluate_bptt(
     episode_lengths = []
     ep_seed = args.seed
 
-    frames = [] # VIDEO RECORDING
+    # frames = [] # VIDEO RECORDING
     cam_config = {
         "type": mujoco.mjtCamera.mjCAMERA_TRACKING,
         "trackbodyid": eval_env.unwrapped.sim.mj_model.body("drone:0").id,
@@ -421,8 +421,8 @@ def evaluate_bptt(
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             if render:
-                rgb_array = eval_env.render(world=episode, mode="rgb_array")
-                frames.append(np.array(rgb_array))  # VIDEO RECORDING
+                rgb_array = eval_env.render(world=episode, mode="human")
+                # frames.append(np.array(rgb_array))  # VIDEO RECORDING
             done = (terminated | truncated)[episode]
             episode_reward += float(np.mean(reward).item())
             steps += 1
@@ -437,11 +437,11 @@ def evaluate_bptt(
 
     eval_env.close()
 
-    # VIDEO RECORDING
-    import imageio.v2 as imageio
-    video_path = f"saves/{args.exp_name}_eval_video.mp4"
-    imageio.mimwrite(video_path, frames, fps=50, quality=8)
-    print(f"Saved evaluation video to {video_path}")
+    # # VIDEO RECORDING
+    # import imageio.v2 as imageio
+    # video_path = f"saves/{args.exp_name}_eval_video.mp4"
+    # imageio.mimwrite(video_path, frames, fps=50, quality=8)
+    # print(f"Saved evaluation video to {video_path}")
 
     return fig, rmse_pos, episode_rewards, episode_lengths
 

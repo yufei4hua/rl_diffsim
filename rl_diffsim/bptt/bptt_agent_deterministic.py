@@ -24,8 +24,8 @@ class ActorNet(nn.Module):
         """Simple MLP model for actor-critic."""
         # Actor mean
         x = obs
-        for i in range(self.num_layers):
-            x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros, name=f"fc_{i}")(x)
+        for _ in range(self.num_layers):
+            x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
             x = nn.tanh(x)
         mean = nn.Dense(self.act_dim, kernel_init=orthogonal(0.01), bias_init=zeros)(x)
         mean = nn.tanh(mean)
@@ -82,7 +82,12 @@ if __name__ == "__main__":
     # initialization
     obs_dim, act_dim = 13, 4
     agent = Agent.create(
-        jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=64, actor_lr=3e-4, num_layers=2
+        jax.random.PRNGKey(0),
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        hidden_size=64,
+        actor_lr=3e-4,
+        num_layers=2,
     )
 
     obs = jp.ones((2, obs_dim), dtype=jp.float32)

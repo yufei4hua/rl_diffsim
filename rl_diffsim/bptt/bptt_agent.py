@@ -25,7 +25,9 @@ class ActorNet(nn.Module):
         # Actor mean
         x = obs
         for i in range(self.num_layers):
-            x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros, name=f"fc_{i}")(x)
+            x = nn.Dense(
+                self.hidden_size, kernel_init=orthogonal(), bias_init=zeros, name=f"Dense_{i}"
+            )(x)
             x = nn.tanh(x)
         mean = nn.Dense(self.act_dim, kernel_init=orthogonal(0.01), bias_init=zeros)(x)
         mean = nn.tanh(mean)

@@ -6,23 +6,44 @@ import pytest
 
 TRAIN_CONFIGS = [
     {
+        "id": "bptt_f8",
+        "module": "rl_diffsim.bptt.train_bptt_figure8",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 450.0,
+    },
+    {
+        "id": "bptt_rt",
+        "module": "rl_diffsim.bptt.train_bptt_randtraj",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 450.0,
+    },
+    {
         "id": "shac_f8",
-        "module": "rl_diffsim.shac.train_shac",
+        "module": "rl_diffsim.shac.train_shac_figure8",
         "train_fn": "train_shac",
         "eval_fn": "evaluate_shac",
         "min_reward": 450.0,
     },
     {
         "id": "ppo_f8",
-        "module": "rl_diffsim.ppo.train_ppo",
+        "module": "rl_diffsim.ppo.train_ppo_figure8",
         "train_fn": "train_ppo",
         "eval_fn": "evaluate_ppo",
         "min_reward": 450.0,
     },
+    {
+        "id": "ppo_rp",
+        "module": "rl_diffsim.ppo.train_ppo_reachpos",
+        "train_fn": "train_ppo",
+        "eval_fn": "evaluate_ppo",
+        "min_reward": 180.0,
+    },
 ]
 
 
-@pytest.mark.skip(reason="Temporarily disabled")
+# @pytest.mark.skip(reason="Temporarily disabled")
 @pytest.mark.parametrize("cfg", TRAIN_CONFIGS, ids=lambda c: c["id"])
 def test_training_and_rewards(cfg: dict, tmp_path: Path):
     mod = importlib.import_module(cfg["module"])

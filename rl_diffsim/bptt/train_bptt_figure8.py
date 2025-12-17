@@ -32,12 +32,12 @@ from rl_diffsim.envs.wrappers_jittable import (
 class Args:
     """Class to store configurations."""
 
-    seed: int = 4444
+    seed: int = 42
     """seed of the experiment"""
-    exp_name: str = "bptt_f8"
-    """the name of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
+    exp_name: str = "bptt_f8"
+    """the name of the experiment"""
     wandb_project_name: str = "rl-bptt-f8"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"

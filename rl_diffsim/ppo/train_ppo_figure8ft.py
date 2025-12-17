@@ -37,9 +37,9 @@ class Args:
     """seed of the experiment"""
     jax_device: str = "gpu"
     """environment device"""
-    exp_name: str = "ppo_f8"
+    exp_name: str = "ppo_f8ft"
     """the name of the experiment"""
-    wandb_project_name: str = "rl-ppo-f8"
+    wandb_project_name: str = "rl-ppo-f8ft"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
@@ -514,8 +514,8 @@ def evaluate_ppo(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

@@ -8,9 +8,15 @@ from crazyflow.sim.physics import Physics
 
 from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
+from rl_diffsim.envs.rand_traj_env_jittable import RandTrajJittableEnv
 from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
 
-available_envs = [DroneJittableEnv, FigureEightJittableEnv, ReachPosJittableEnv]
+available_envs = [
+    DroneJittableEnv,
+    FigureEightJittableEnv,
+    ReachPosJittableEnv,
+    RandTrajJittableEnv,
+]
 
 
 @pytest.fixture(params=available_envs)

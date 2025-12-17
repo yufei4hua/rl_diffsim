@@ -19,11 +19,9 @@ import wandb
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
-    AngleRewardJittable,
     FlattenJaxObservationJittable,
     NormalizeActionsJittable,
     RecordDataJittable,
-    ZeroYawJittable,
 )
 from rl_diffsim.ppo.ppo_agent import Agent
 
@@ -115,24 +113,32 @@ class Args:
 
 # region MakeEnvs
 def make_jitted_envs(
-    num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
+    num_envs: int = None,
+    jax_device: str = "cpu",
+    coefs: dict = {},
+    reset_rotor: bool = False,
+    reset_random: bool = False,
 ) -> FigureEightJittableEnv:
     """Make environments for training RL policy."""
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
         n_samples=10,
         num_envs=num_envs,
         freq=50,
+        sim_freq=50,
         drone_model="cf21B_500",
-        physics="so_rpy_rotor_drag",
+        physics="first_principles",
+        control="force_torque",
         device=jax_device,
         reset_rotor=reset_rotor,
+        reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
     env = NormalizeActionsJittable.create(env)
-    env = ZeroYawJittable.create(env)
-    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    # env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenaltyJittable.create(
         env,
+        num_actions=1,
+        init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
         act_th_coef=coefs.get("act_th_coef", 0.04),
         act_xy_coef=coefs.get("act_xy_coef", 0.04),
         d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
@@ -400,14 +406,14 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
     # start the game
     train_start_time = time.time()
-    global_step = 0
-    envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
+    # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
     next_done = jp.zeros(args.num_envs, dtype=bool)
     sum_rewards = jp.zeros((args.num_envs,))
 
-    for iteration in range(1, args.num_iterations + 1):
-        print(f"Iter {iteration}/{args.num_iterations}", end=": ")
-        start_time = time.time()
+    # Define single iteration function for scan
+    def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
+        envs, agent, key, next_obs, next_done, sum_rewards = carry
+
         # 1. collect rollouts
         envs, data, next_obs, next_done, sum_rewards, key = collect_rollout(
             envs=envs,
@@ -418,46 +424,71 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             sum_rewards=sum_rewards,
             key=key,
         )
-        # envs.render()
-        print(f"Rollouts {time.time() - start_time:.5f} s", end=", ")
+
         # 2. compute GAE
-        start_gae_time = time.time()
         data = compute_gae(args, agent, next_obs, next_done, data)
-        print(f"GAE {time.time() - start_gae_time:.5f} s", end=", ")
+
         # 3. update policy
-        start_pg_time = time.time()
         (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var) = update_policy(
             args, agent, data, key
         )
-        print(f"PG {time.time() - start_pg_time:.5f} s", end=", ")
-        # 4. logging
-        print(f"total {time.time() - start_time:.5f} s")
 
-        if wandb_enabled:
+        # Return carry and metrics for logging
+        return (envs, agent, key, next_obs, next_done, sum_rewards), (
+            data,
+            pg_loss,
+            v_loss,
+            entropy_loss,
+            approx_kl,
+            explained_var,
+        )
+
+    # Run training loop using scan
+    (
+        (envs, agent, key, next_obs, next_done, sum_rewards),
+        (all_data, all_pg_loss, all_v_loss, all_entropy_loss, all_approx_kl, all_explained_var),
+    ) = jax.lax.scan(
+        train_iteration,
+        (envs, agent, key, next_obs, next_done, sum_rewards),
+        jp.arange(args.num_iterations),
+    )
+
+    next_obs.block_until_ready()
+    training_time = time.time() - train_start_time
+    total_steps = args.num_iterations * args.batch_size
+    print(f"Training for {total_steps} steps took {training_time:.2f} seconds.")
+
+    # Post-training logging
+    if wandb_enabled:
+        # Log aggregated metrics
+        for iter_idx in range(args.num_iterations):
+            global_step = iter_idx * args.batch_size
+            data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
+
+            # Log episode rewards
             for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
                 if jp.any(done):
                     wandb.log(
                         {"train/reward": jp.mean(sum_reward[done])},
                         step=global_step + batch_step * args.num_envs,
                     )
-                    sum_rewards_hist.append(jp.mean(sum_reward[done]))
+                    sum_rewards_hist.append(float(jp.mean(sum_reward[done])))
+
+            # Log training metrics
             wandb.log(
                 {
-                    "losses/pg_loss": jp.mean(pg_loss),
-                    "losses/v_loss": jp.mean(v_loss),
-                    "losses/entropy": -jp.mean(entropy_loss),
-                    "losses/approx_kl": jp.mean(approx_kl),
-                    "losses/explained_variance": jp.mean(explained_var),
-                    "charts/SPS": int(global_step / (time.time() - train_start_time)),
+                    "losses/pg_loss": float(jp.mean(all_pg_loss[iter_idx])),
+                    "losses/v_loss": float(jp.mean(all_v_loss[iter_idx])),
+                    "losses/entropy": float(-jp.mean(all_entropy_loss[iter_idx])),
+                    "losses/approx_kl": float(jp.mean(all_approx_kl[iter_idx])),
+                    "losses/explained_variance": float(jp.mean(all_explained_var[iter_idx])),
+                    "charts/SPS": int(global_step / training_time) if training_time > 0 else 0,
                 },
                 step=global_step + args.batch_size,
             )
-
-        global_step += args.batch_size
-
-    training_time = time.time() - train_start_time
-    print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
+            
     if model_path is not None:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
             import pickle

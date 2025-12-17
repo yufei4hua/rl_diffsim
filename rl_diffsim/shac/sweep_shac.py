@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 import wandb
-from rl_diffsim.shac.train_shac import Args, evaluate_shac, train_shac
+from rl_diffsim.shac.train_shac_figure8 import Args, evaluate_shac, train_shac
 
 
 # 1: Define objective/training function

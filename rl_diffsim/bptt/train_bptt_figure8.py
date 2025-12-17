@@ -32,7 +32,7 @@ from rl_diffsim.envs.wrappers_jittable import (
 class Args:
     """Class to store configurations."""
 
-    seed: int = 42
+    seed: int = 4444
     """seed of the experiment"""
     exp_name: str = "bptt_f8"
     """the name of the experiment"""
@@ -170,7 +170,7 @@ def update_policy(
 
             sum_rewards = sum_rewards + reward
             next_sum_rewards = jp.where(dones, 0.0, sum_rewards)
-            loss = -discounts * jp.where(dones, 0.0, reward)
+            loss = -discounts * reward  # jp.where(dones, 0.0, reward)
             next_discounts = jp.where(dones, 1.0, discounts * args.gamma)
             next_dones = terminations | truncations
 

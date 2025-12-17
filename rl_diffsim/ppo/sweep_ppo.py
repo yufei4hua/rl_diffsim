@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 import wandb
-from rl_diffsim.ppo.train_ppo import Args, evaluate_ppo, train_ppo
+from rl_diffsim.ppo.train_ppo_figure8 import Args, evaluate_ppo, train_ppo
 
 
 # 1: Define objective/training function

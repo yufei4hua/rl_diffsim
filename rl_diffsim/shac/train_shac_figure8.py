@@ -491,6 +491,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             )
 
     if model_path is not None:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
             import pickle

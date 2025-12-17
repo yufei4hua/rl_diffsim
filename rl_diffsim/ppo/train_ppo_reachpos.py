@@ -456,6 +456,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     training_time = time.time() - train_start_time
     print(f"Training for {global_step} steps took {training_time:.2f} seconds.")
     if model_path is not None:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
         with open(model_path, "wb") as f:
             import pickle

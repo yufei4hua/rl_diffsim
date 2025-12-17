@@ -37,10 +37,10 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
-    exp_name: str = "bptt_f8ft"
-    """the name of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
+    exp_name: str = "bptt_f8ft"
+    """the name of the experiment"""
     wandb_project_name: str = "rl-bptt-f8ft"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
@@ -370,6 +370,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             )
 
     if model_path is not None:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         params = {"actor": agent.actor_states.params}
         with open(model_path, "wb") as f:
             import pickle

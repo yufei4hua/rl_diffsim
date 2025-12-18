@@ -44,15 +44,15 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 600_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 48
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
-    anneal_actor_lr: bool = False
+    anneal_actor_lr: bool = True
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 1e-3
+    actor_lr: float = 3e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
@@ -68,11 +68,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.2
-    d_act_th_coef: float = 0.5
-    d_act_xy_coef: float = 0.0
-    act_th_coef: float = 0.1
-    act_xy_coef: float = 0.0
+    rpy_coef: float = 0.1
+    act_coefs: tuple = (0.5, 0.1, 0.1, 0.1)
+    d_act_coefs: tuple = (0.2, 0.1, 0.1, 0.1)
     """reward coefficients for training"""
 
     @staticmethod
@@ -96,7 +94,7 @@ def make_jitted_envs(
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
         n_samples=10,
         num_envs=num_envs,
-        freq=100,
+        freq=50,
         sim_freq=500,
         drone_model="cf21B_500",
         physics="first_principles",
@@ -112,10 +110,8 @@ def make_jitted_envs(
         env,
         num_actions=1,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
-        act_th_coef=coefs.get("act_th_coef", 0.0),
-        act_xy_coef=coefs.get("act_xy_coef", 0.0),
-        d_act_th_coef=coefs.get("d_act_th_coef", 0.0),
-        d_act_xy_coef=coefs.get("d_act_xy_coef", 0.0),
+        act_coefs=coefs.get("act_coefs", (0.0,) * 4),
+        d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )
     env = FlattenJaxObservationJittable.create(env)
     return env
@@ -250,10 +246,8 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     # make envs
     r_coefs = {
         "rpy_coef": args.rpy_coef,
-        "d_act_xy_coef": args.d_act_xy_coef,
-        "d_act_th_coef": args.d_act_th_coef,
-        "act_th_coef": args.act_th_coef,
-        "act_xy_coef": args.act_xy_coef,
+        "act_coefs": args.act_coefs,
+        "d_act_coefs": args.d_act_coefs,
     }
     envs = make_jitted_envs(
         num_envs=args.num_envs,
@@ -398,10 +392,8 @@ def evaluate_bptt(
     """
     r_coefs = {
         "rpy_coef": args.rpy_coef,
-        "d_act_xy_coef": args.d_act_xy_coef,
-        "d_act_th_coef": args.d_act_th_coef,
-        "act_th_coef": args.act_th_coef,
-        "act_xy_coef": args.act_xy_coef,
+        "d_act_coefs": args.d_act_coefs,
+        "act_coefs": args.act_coefs,
     }
     eval_env = make_jitted_envs(
         num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True

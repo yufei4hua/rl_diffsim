@@ -261,10 +261,8 @@ class ActionPenaltyJittable(JittableWrapper):
         base: struct.PyTreeNode | AngleRewardJittable,
         num_actions: int = 1,
         init_last_actions: Array | None = None,
-        act_th_coef: float = 0.01,
-        act_xy_coef: float = 0.01,
-        d_act_th_coef: float = 0.2,
-        d_act_xy_coef: float = 0.4,
+        act_coefs: tuple = (0.0,) * 4,
+        d_act_coefs: tuple = (0.0,) * 4,
     ) -> "ActionPenaltyJittable":
         """Create an ActionPenaltyJittable that augments observations with `last_action` and applies action-based penalties to rewards.
 
@@ -277,17 +275,12 @@ class ActionPenaltyJittable(JittableWrapper):
         """
         num_envs = base.num_envs
         act_dim = base.action_space.shape[-1]
+        act_coefs = jp.array(act_coefs, dtype=jp.float32)
+        d_act_coefs = jp.array(d_act_coefs, dtype=jp.float32)
         # last_actions is part of the observation dict (computed in property)
         last_actions = jp.zeros((num_envs, num_actions, act_dim), dtype=jp.float32)
         if init_last_actions is not None:
             last_actions = jp.broadcast_to(init_last_actions, last_actions.shape)
-
-        if base.unwrapped.sim.control == "attitude":
-            th_axis, xy_axes = 3, [0, 1, 2]
-        elif base.unwrapped.sim.control == "force_torque":
-            th_axis, xy_axes = 0, [1, 2, 3]
-        else:
-            raise ValueError(f"Unsupported control type: {base.unwrapped.sim.control}")
 
         def _reset(
             env: "ActionPenaltyJittable", *, seed: int | None = None, options: dict | None = None
@@ -302,16 +295,11 @@ class ActionPenaltyJittable(JittableWrapper):
         ) -> tuple["ActionPenaltyJittable", tuple[Any, ...]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
-            # penalty on actions
             action_diff = action - env.last_actions[:, 0, :]
             # energy
-            reward = reward - act_th_coef * action[..., th_axis] ** 2
-            reward = reward - act_xy_coef * jp.sum(
-                action[..., xy_axes] * action[..., xy_axes], axis=-1
-            )
+            reward = reward - jp.sum(act_coefs * (action**2), axis=-1)
             # smoothness
-            reward = reward - d_act_th_coef * action_diff[..., th_axis] ** 2
-            reward = reward - d_act_xy_coef * jp.sum(action_diff[..., xy_axes] ** 2, axis=-1)
+            reward = reward - jp.sum(d_act_coefs * (action_diff**2), axis=-1)
             # update action history
             new_last_actions = jp.roll(env.last_actions, shift=1, axis=1)
             new_last_actions = new_last_actions.at[:, 0, :].set(action)

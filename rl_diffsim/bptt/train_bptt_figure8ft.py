@@ -44,7 +44,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 300_000
+    total_timesteps: int = 400_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -68,9 +68,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.1
-    act_coefs: tuple = (0.5, 0.1, 0.1, 0.1)
-    d_act_coefs: tuple = (0.2, 0.1, 0.1, 0.1)
+    rpy_coef: float = 0.15
+    act_coefs: tuple = (0.4, 0.2, 0.2, 0.6)
+    d_act_coefs: tuple = (0.3, 0.2, 0.2, 0.1)
     """reward coefficients for training"""
 
     @staticmethod
@@ -277,21 +277,21 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     )
     print("Make envs and agent took {:.5f} s".format(time.time() - setup_start_time))
 
-    # # warmup jax compile
-    # start_warmup_time = time.time()
-    # envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
-    # for _ in range(2):
-    #     (_, _, _), (p_loss, (data, _, next_done, sum_rewards)) = update_policy(
-    #         envs=envs,
-    #         args=args,
-    #         agent=agent,
-    #         next_obs=next_obs,
-    #         next_done=jp.zeros(args.num_envs, dtype=bool),
-    #         sum_rewards=jp.zeros((args.num_envs,)),
-    #         key=key,
-    #     )
-    # p_loss.block_until_ready()
-    # print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
+    # warmup jax compile
+    start_warmup_time = time.time()
+    envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
+    for _ in range(2):
+        (_, _, _), (p_loss, (data, _, next_done, sum_rewards)) = update_policy(
+            envs=envs,
+            args=args,
+            agent=agent,
+            next_obs=next_obs,
+            next_done=jp.zeros(args.num_envs, dtype=bool),
+            sum_rewards=jp.zeros((args.num_envs,)),
+            key=key,
+        )
+    p_loss.block_until_ready()
+    print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
     # start the game
     train_start_time = time.time()

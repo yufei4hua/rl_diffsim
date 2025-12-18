@@ -210,8 +210,8 @@ class AngleRewardJittable(JittableWrapper):
         def _rewards(rewards: Array, observations: dict[str, Array]) -> Array:
             """Additional angular rewards."""
             # apply rpy penalty
-            rpy_norm = jp.linalg.norm(R.from_quat(observations["quat"]).as_euler("xyz"), axis=-1)
-            rewards -= rpy_coef * rpy_norm
+            rotvec_norm = jp.linalg.norm(R.from_quat(observations["quat"]).as_rotvec(), axis=-1)
+            rewards -= rpy_coef * rotvec_norm
             return rewards
 
         def _step(
@@ -501,7 +501,12 @@ class RecordDataJittable(JittableWrapper):
         axes = axes.flatten()
 
         # Actions
-        action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        if self.base.unwrapped.sim.control == "attitude":
+            action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        elif self.base.unwrapped.sim.control == "force_torque":
+            action_labels = ["Thrust", "Tx", "Ty", "Tz"]
+        else:
+            raise ValueError(f"Unsupported control type: {self.base.unwrapped.sim.control}")
         for i in range(4):
             axes[i].plot(actions[:, 0, i])
             axes[i].set_title(f"{action_labels[i]} Command")

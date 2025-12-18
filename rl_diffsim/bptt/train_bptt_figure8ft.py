@@ -15,9 +15,6 @@ import numpy as np
 import optax
 from jax import Array
 
-# Enable NaN checking - JAX will raise an error immediately when NaN/Inf is detected
-jax.config.update("jax_debug_nans", True)
-
 import wandb
 from rl_diffsim.bptt.bptt_agent_deterministic import Agent
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
@@ -47,21 +44,21 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 100_000
+    total_timesteps: int = 600_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 1
+    num_steps: int = 48
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 4e-6
+    actor_lr: float = 1e-3
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
-    num_layers: int = 3
+    num_layers: int = 2
     """the number of layers of actor networks"""
-    hidden_size: int = 32
+    hidden_size: int = 64
     """the hidden size of actor networks"""
 
     # to be filled in runtime
@@ -71,10 +68,10 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 1.0
-    d_act_th_coef: float = 0.0
+    rpy_coef: float = 0.2
+    d_act_th_coef: float = 0.5
     d_act_xy_coef: float = 0.0
-    act_th_coef: float = 0.0
+    act_th_coef: float = 0.1
     act_xy_coef: float = 0.0
     """reward coefficients for training"""
 
@@ -99,8 +96,8 @@ def make_jitted_envs(
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
         n_samples=10,
         num_envs=num_envs,
-        freq=50,
-        sim_freq=50,
+        freq=100,
+        sim_freq=500,
         drone_model="cf21B_500",
         physics="first_principles",
         control="force_torque",
@@ -110,15 +107,15 @@ def make_jitted_envs(
     )
 
     env = NormalizeActionsJittable.create(env)
-    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.0))
     env = ActionPenaltyJittable.create(
         env,
         num_actions=1,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
-        act_th_coef=coefs.get("act_th_coef", 0.04),
-        act_xy_coef=coefs.get("act_xy_coef", 0.04),
-        d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
-        d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
+        act_th_coef=coefs.get("act_th_coef", 0.0),
+        act_xy_coef=coefs.get("act_xy_coef", 0.0),
+        d_act_th_coef=coefs.get("d_act_th_coef", 0.0),
+        d_act_xy_coef=coefs.get("d_act_xy_coef", 0.0),
     )
     env = FlattenJaxObservationJittable.create(env)
     return env
@@ -212,7 +209,7 @@ def update_policy(
         envs, data, next_discounts, next_obs, next_done, sum_rewards, key = collect_rollout(
             envs, actor_params, next_obs, next_done, sum_rewards, key
         )
-        jax.debug.print("data losses: {}", data.losses)
+        # jax.debug.print("data losses: {}", data.losses)
         # compute loss as in SHAC paper Eq(5)
         losses = jp.sum(data.losses)
         return losses / (args.num_envs * args.num_steps), (
@@ -228,7 +225,7 @@ def update_policy(
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
         envs, agent.actor_states.params, next_obs, next_done, sum_rewards, key
     )
-    jax.debug.print("grad: {}", g_actor)
+    # jax.debug.print("grad: {}", g_actor)
 
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
     return (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards))
@@ -263,7 +260,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         jax_device=jax_device,
         coefs=r_coefs,
         reset_rotor=True,
-        reset_random=True,
+        reset_random=False,
     )
 
     # setup annealing learning rate
@@ -281,6 +278,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
         hidden_size=args.hidden_size,
+        num_layers=args.num_layers,
         actor_lr=actor_lr,
     )
     print("Make envs and agent took {:.5f} s".format(time.time() - setup_start_time))
@@ -308,8 +306,9 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     sum_rewards = jp.zeros((args.num_envs,))
 
     # Define single iteration function for scan
-    def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
+    def train_iteration(carry: tuple, iteration: int) -> tuple[tuple, tuple]:
         envs, agent, key, next_obs, next_done, sum_rewards = carry
+        # jax.debug.print("Iter {}", iteration)
 
         # 1. rollout and policy update
         (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards)) = update_policy(
@@ -325,18 +324,25 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         # Return carry and metrics for logging
         return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data)
 
-    # # Run training loop using scan
-    # (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
-    #     train_iteration,
-    #     (envs, agent, key, next_obs, next_done, sum_rewards),
-    #     jp.arange(args.num_iterations),
-    # )
+    # Run training loop using scan
+    (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
+        train_iteration,
+        (envs, agent, key, next_obs, next_done, sum_rewards),
+        jp.arange(args.num_iterations),
+    )
 
-    # DEBUG: use python loop
-    for _ in range(args.num_iterations):
-        (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data) = train_iteration(
-            (envs, agent, key, next_obs, next_done, sum_rewards), None
-        )
+    # # DEBUG: use python loop
+    # from scipy.spatial.transform import Rotation as R
+    # for _ in range(args.num_iterations):
+    #     (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data) = train_iteration(
+    #         (envs, agent, key, next_obs, next_done, sum_rewards), None
+    #     )
+    #     # post iter rendering
+    #     for obs in data.observations:
+    #         # print(f"pos: {obs[0, -10:-7]} quat: {obs[0, -7:-3]} euler: {R.from_quat(obs[0, -7:-3]).as_euler('xyz', degrees=True)}")
+    #         data4render = envs.unwrapped.data
+    #         envs.unwrapped.sim.data = data4render.replace(states=data4render.states.replace(pos=obs[:, None, -10:-7]))
+    #         envs.unwrapped.sim.render()
 
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
@@ -401,7 +407,6 @@ def evaluate_bptt(
         num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
     )
     eval_env = RecordDataJittable.create(eval_env)
-
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
@@ -423,11 +428,13 @@ def evaluate_bptt(
         done = False
         episode_reward = 0.0
         steps = 0
+        fps = 250
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             # if render:
-            #     eval_env.render()
+            #     if ((steps * fps) % eval_env.unwrapped.freq) < fps:
+            #         eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

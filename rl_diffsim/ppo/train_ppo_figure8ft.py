@@ -43,7 +43,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 20_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -77,6 +77,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    num_layers: int = 2
+    """the number of layers of actor networks"""
     hidden_size: int = 64
     """the hidden size of actor and critic networks"""
 
@@ -89,7 +91,7 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.06
+    rpy_coef: float = 0.1
     d_act_th_coef: float = 0.4
     d_act_xy_coef: float = 1.0
     act_th_coef: float = 0.04
@@ -380,6 +382,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
         hidden_size=args.hidden_size,
+        num_layers=args.num_layers,
         actor_lr=actor_lr,
         critic_lr=critic_lr,
     )
@@ -486,7 +489,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
                 },
                 step=global_step + args.batch_size,
             )
-            
+
     if model_path is not None:
         model_path.parent.mkdir(parents=True, exist_ok=True)
         params = {"actor": agent.actor_states.params, "critic": agent.critic_states.params}
@@ -545,8 +548,8 @@ def evaluate_ppo(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            if render:
-                eval_env.render()
+            # if render:
+            #     eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

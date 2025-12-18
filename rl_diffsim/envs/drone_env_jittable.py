@@ -27,18 +27,18 @@ def create_action_space(control_type: Control | str, drone_model: str) -> spaces
     Returns:
         The action space.
     """
+    params = ForceTorqueParams.load(drone_model)
+    thrust_min, thrust_max = params.thrust_min * 4, params.thrust_max * 4
     match control_type:
         case Control.attitude:
-            params = ForceTorqueParams.load(drone_model)
-            thrust_min, thrust_max = params.thrust_min * 4, params.thrust_max * 4
             return spaces.Box(
                 np.array([-np.pi / 2, -np.pi / 2, -np.pi / 2, thrust_min], dtype=np.float32),
                 np.array([np.pi / 2, np.pi / 2, np.pi / 2, thrust_max], dtype=np.float32),
             )
         case Control.force_torque:
             return spaces.Box(
-                np.array([0.0, -1e-5, -1e-5, -1e-5], dtype=np.float32),
-                np.array([0.8, 1e-5, 1e-5, 1e-5], dtype=np.float32),
+                np.array([thrust_min, -1e-4, -1e-4, -1e-4], dtype=np.float32),
+                np.array([thrust_max, 1e-4, 1e-4, 1e-4], dtype=np.float32),
             )
         case "rotor_vel":
             params = ForceTorqueParams.load(drone_model)

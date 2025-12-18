@@ -52,7 +52,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
         next_trajectory = np.array(next_trajectory)
         draw_line(
             self.sim,
-            trajectories[world, 0:-1:2, :],
+            trajectories[world, 0:-1:4, :],
             rgba=jp.array([1, 1, 1, 0.4]),
             start_size=2.0,
             end_size=2.0,

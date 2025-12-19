@@ -1,7 +1,6 @@
 """Jittable Drone Environment Implementation."""
 
 import functools
-import os
 from typing import Callable, Literal
 
 import flax.struct as struct

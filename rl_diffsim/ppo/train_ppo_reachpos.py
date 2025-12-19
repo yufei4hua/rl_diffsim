@@ -115,7 +115,6 @@ def make_jitted_envs(
 ) -> ReachPosJittableEnv:
     """Make environments for training RL policy."""
     env: ReachPosJittableEnv = ReachPosJittableEnv.create(
-        # n_samples=10,
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",

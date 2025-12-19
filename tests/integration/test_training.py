@@ -6,6 +6,13 @@ import pytest
 
 TRAIN_CONFIGS = [
     {
+        "id": "bptt_rpft",
+        "module": "rl_diffsim.bptt.train_bptt_reachposft",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 180.0,
+    },
+    {
         "id": "bptt_f8ft",
         "module": "rl_diffsim.bptt.train_bptt_figure8ft",
         "train_fn": "train_bptt",
@@ -18,6 +25,13 @@ TRAIN_CONFIGS = [
         "train_fn": "train_bptt",
         "eval_fn": "evaluate_bptt",
         "min_reward": 450.0,
+    },
+    {
+        "id": "bptt_rp",
+        "module": "rl_diffsim.bptt.train_bptt_reachpos",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 180.0,
     },
     {
         "id": "bptt_rt",

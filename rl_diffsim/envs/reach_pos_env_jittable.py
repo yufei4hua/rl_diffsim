@@ -59,6 +59,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
+        sim_freq: int = 500,
         device: str = "cpu",
         reset_rotor: bool = False,
         pos_min: Array = jp.array([-1.0, -1.0, 1.0]),
@@ -75,6 +76,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
             control: Control interface.
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
+            sim_freq: Simulation frequency.
             device: Device to use for the simulation.
             n_samples: Number of next trajectory points to sample for observations.
             trajectory_time: Total time for completing the figure-eight trajectory in seconds.
@@ -95,8 +97,9 @@ class ReachPosJittableEnv(DroneJittableEnv):
             n_drones=1,
             drone_model=drone_model,
             physics=physics,
-            control=control if isinstance(control, Control) else Control.default,
+            control=control if control in [c.value for c in Control] else Control.default,
             device=device,
+            freq=sim_freq,
         )
 
         # Modify the step pipeline if needed

@@ -1,4 +1,4 @@
-"""PPO agent implementation using Flax."""
+"""BPTT agent implementation using Flax."""
 
 from typing import Callable
 

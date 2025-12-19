@@ -37,13 +37,15 @@ class Args:
     """seed of the experiment"""
     jax_device: str = "gpu"
     """environment device"""
+    exp_name: str = "ppo_rp"
+    """the name of the experiment"""
     wandb_project_name: str = "rl-ppo-rp"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 3_000_000
+    total_timesteps: int = 4_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024 * 3
     """the number of parallel game environments"""
@@ -91,7 +93,7 @@ class Args:
     # Wrapper settings
     rpy_coef: float = 0.06
     act_coefs: tuple = (0.04, 0.04, 0.0, 0.04)
-    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
+    d_act_coefs: tuple = (1.5, 1.5, 0.0, 0.4)
     """reward coefficients for training"""
 
     @staticmethod
@@ -516,7 +518,7 @@ def evaluate_ppo(
         episode_lengths.append(steps)
         # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path="ppo_eval_plot.png") if render else None
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
     print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
 
@@ -536,7 +538,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
       render: whether to render the environment during evaluation
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/ppo_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / f"saves/{args.exp_name}_model.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training

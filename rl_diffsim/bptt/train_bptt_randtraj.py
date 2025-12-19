@@ -34,11 +34,11 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
-    exp_name: str = "bptt_randtraj"
+    exp_name: str = "bptt_rt"
     """the name of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
-    wandb_project_name: str = "rl-bptt-rand-traj"
+    wandb_project_name: str = "rl-bptt-rt"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
@@ -97,6 +97,7 @@ def make_jitted_envs(
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
+        reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
     env = NormalizeActionsJittable.create(env)

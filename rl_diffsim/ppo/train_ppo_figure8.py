@@ -45,7 +45,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 1_500_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -93,7 +93,7 @@ class Args:
     # Wrapper settings
     rpy_coef: float = 0.06
     act_coefs: tuple = (0.02, 0.02, 0.0, 0.04)
-    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
+    d_act_coefs: tuple = (1.5, 1.5, 0.0, 0.4)
     """reward coefficients for training"""
 
     @staticmethod
@@ -113,7 +113,11 @@ class Args:
 
 # region MakeEnvs
 def make_jitted_envs(
-    num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
+    num_envs: int = None,
+    jax_device: str = "cpu",
+    coefs: dict = {},
+    reset_rotor: bool = False,
+    reset_random: bool = False,
 ) -> FigureEightJittableEnv:
     """Make environments for training RL policy."""
     env: FigureEightJittableEnv = FigureEightJittableEnv.create(
@@ -124,6 +128,7 @@ def make_jitted_envs(
         physics="so_rpy_rotor_drag",
         device=jax_device,
         reset_rotor=reset_rotor,
+        reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
     env = NormalizeActionsJittable.create(env)

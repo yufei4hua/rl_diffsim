@@ -84,10 +84,7 @@ class Args:
 
 # region MakeEnvs
 def make_jitted_envs(
-    num_envs: int = None,
-    jax_device: str = "cpu",
-    coefs: dict = {},
-    reset_rotor: bool = False,
+    num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
 ) -> ReachPosJittableEnv:
     """Make environments for training RL policy."""
     env: ReachPosJittableEnv = ReachPosJittableEnv.create(
@@ -245,10 +242,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         "d_act_coefs": args.d_act_coefs,
     }
     envs = make_jitted_envs(
-        num_envs=args.num_envs,
-        jax_device=jax_device,
-        coefs=r_coefs,
-        reset_rotor=True,
+        num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
     )
 
     # setup annealing learning rate

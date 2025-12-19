@@ -41,7 +41,6 @@ def create_action_space(control_type: Control | str, drone_model: str) -> spaces
                 np.array([thrust_max, 1e-4, 1e-4, 1e-4], dtype=np.float32),
             )
         case "rotor_vel":
-            params = ForceTorqueParams.load(drone_model)
             rotor_vel_min, rotor_vel_max = (
                 np.sqrt(params.thrust_min / params.rpm2thrust[2]),
                 np.sqrt(params.thrust_max / params.rpm2thrust[2]),
@@ -74,6 +73,7 @@ class DroneJittableEnv(struct.PyTreeNode):
     num_envs: int = struct.field(pytree_node=False)
     max_episode_time: float = struct.field(pytree_node=False)
     physics: Physics = struct.field(pytree_node=False)
+    control: str = struct.field(pytree_node=False)
     drone_model: str = struct.field(pytree_node=False)
     freq: int = struct.field(pytree_node=False)
     device: str = struct.field(pytree_node=False)
@@ -109,6 +109,7 @@ class DroneJittableEnv(struct.PyTreeNode):
         max_episode_time: float = 10.0,
         physics: Literal["so_rpy_rotor_drag", "first_principles"]
         | Physics = Physics.so_rpy_rotor_drag,
+        control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
         device: str = "cpu",
@@ -120,6 +121,7 @@ class DroneJittableEnv(struct.PyTreeNode):
             num_envs: The number of environments to run in parallel.
             max_episode_time: The time horizon after which episodes are truncated (s).
             physics: The crazyflow physics simulation model.
+            control: Control interface to use.
             drone_model: Drone model of the environment.
             freq: The frequency at which the environment is run.
             device: The device of the environment and the simulation.
@@ -254,9 +256,10 @@ class DroneJittableEnv(struct.PyTreeNode):
             num_envs=num_envs,
             max_episode_time=max_episode_time,
             physics=physics,
+            control=control,
+            drone_model=drone_model,
             freq=freq,
             device=device,
-            drone_model=drone_model,
             single_action_space=single_action_space,
             action_space=action_space,
             single_observation_space=single_observation_space,

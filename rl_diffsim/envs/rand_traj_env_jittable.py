@@ -1,5 +1,6 @@
 """Jittable Drone Environment Implementation."""
 
+import functools
 import os
 from typing import Callable, Literal
 
@@ -7,9 +8,8 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
-
-os.environ["SCIPY_ARRAY_API"] = "1"
 import scipy
+from crazyflow.control.control import Control
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
@@ -77,14 +77,17 @@ class RandTrajJittableEnv(DroneJittableEnv):
         max_episode_time: float = 10.0,
         physics: Literal["so_rpy_rotor_drag", "first_principles"]
         | Physics = Physics.so_rpy_rotor_drag,
+        control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
+        sim_freq: int = 500,
         device: str = "cpu",
         num_waypoints: int = 7,
         n_samples: int = 10,
         trajectory_time: float = 10.0,
         samples_dt: float = 0.1,
         reset_rotor: bool = False,
+        reset_randomization: Callable[[SimData, Array], SimData] | None = None,
     ) -> "RandTrajJittableEnv":
         """Create a jittable drone environment without render support.
 
@@ -92,14 +95,18 @@ class RandTrajJittableEnv(DroneJittableEnv):
             num_envs: Number of parallel environments.
             max_episode_time: Maximum episode time in seconds.
             physics: Physics backend to use.
+            control: Control interface to use.
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
+            sim_freq: Simulation frequency.
             device: Device to use for the simulation.
             num_waypoints: Number of random sampled waypoints for the random trajectory.
             n_samples: Number of next trajectory points to sample for observations.
             trajectory_time: Total time for completing the random trajectory in seconds.
             samples_dt: Time between trajectory sample points in seconds.
             reset_rotor: Whether to reset rotor speeds on environment reset.
+            reset_randomization: A function that randomizes the initial state of the simulation. If
+                None, the default randomization for pos and vel is used.
 
         Returns:
             An instance of RandTrajJittableEnv with jittable functions and data.
@@ -107,43 +114,75 @@ class RandTrajJittableEnv(DroneJittableEnv):
         # Initialize the simulation
         jax_device = jax.devices(device)[0]
         sim = Sim(
-            n_worlds=num_envs, n_drones=1, drone_model=drone_model, device=device, physics=physics
+            n_worlds=num_envs,
+            n_drones=1,
+            drone_model=drone_model,
+            physics=physics,
+            control=control if control in [c.value for c in Control] else Control.default,
+            device=device,
+            freq=sim_freq,
         )
 
+        # Modify the step pipeline if needed
+        if control == "rotor_vel":
+            sim.step_pipeline = sim.step_pipeline[2:]  # remove all controllers
+            sim.build_step_fn()
+
         # Override reset randomization function
-        def build_reset_randomization_fn(physics: str) -> Callable[[SimData, Array], SimData]:
-            """Reset randomization."""
+        def build_reset_rotor_fn(physics: str) -> Callable[[SimData, Array], SimData]:
+            """Reset rotor."""
 
             # Spin up rotors to help takeoff
-            def _reset_randomization_so_rpy(data: SimData, mask: Array) -> SimData:
+            def _reset_rotor_so_rpy(data: SimData, mask: Array) -> SimData:
                 rotor_vel = 0.05 * jp.ones(
                     (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
                 )
                 data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
                 return data
 
-            def _reset_randomization_first_principles(data: SimData, mask: Array) -> SimData:
+            def _reset_rotor_first_principles(data: SimData, mask: Array) -> SimData:
                 rotor_vel = 10000.0 * jp.ones(
                     (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
                 )
                 data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
                 return data
 
-            def _reset_randomization_no_reset_rotor(data: SimData, mask: Array) -> SimData:
+            def _no_reset_rotor(data: SimData, mask: Array) -> SimData:
                 return data
 
             match physics:
                 case "first_principles":
-                    return _reset_randomization_first_principles
+                    return _reset_rotor_first_principles
                 case "so_rpy" | "so_rpy_rotor" | "so_rpy_rotor_drag":
-                    return _reset_randomization_so_rpy
+                    return _reset_rotor_so_rpy
                 case "no_reset_rotor":
-                    return _reset_randomization_no_reset_rotor
+                    return _no_reset_rotor
 
-        _reset_randomization = build_reset_randomization_fn(
+        reset_rotor_randomization = build_reset_rotor_fn(
             physics if reset_rotor else "no_reset_rotor"
         )
-        sim.reset_pipeline += (_reset_randomization,)
+
+        if reset_randomization is None:
+
+            def _reset_randomization(
+                data: SimData, mask: Array, pmin: Array, pmax: Array, vmin: float, vmax: float
+            ) -> SimData:
+                shape = (data.core.n_worlds, data.core.n_drones, 3)
+                key, pos_key, vel_key = jax.random.split(data.core.rng_key, 3)
+                data = data.replace(core=data.core.replace(rng_key=key))
+                original_pos = data.states.pos
+                pos = jax.random.uniform(
+                    key=pos_key, shape=shape, minval=original_pos - pmin, maxval=original_pos + pmax
+                )
+                vel = jax.random.uniform(key=vel_key, shape=shape, minval=vmin, maxval=vmax)
+                data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel))
+                return data
+
+            reset_randomization = functools.partial(
+                _reset_randomization, pmin=-0.1, pmax=0.1, vmin=-0.5, vmax=0.5
+            )
+
+        sim.reset_pipeline += (reset_randomization, reset_rotor_randomization)
         sim.build_reset_fn()
 
         # Prepare immutable constants
@@ -294,9 +333,10 @@ class RandTrajJittableEnv(DroneJittableEnv):
             num_envs=num_envs,
             max_episode_time=max_episode_time,
             physics=physics,
+            control=control,
+            drone_model=drone_model,
             freq=freq,
             device=device,
-            drone_model=drone_model,
             single_action_space=single_action_space,
             action_space=action_space,
             single_observation_space=single_observation_space,

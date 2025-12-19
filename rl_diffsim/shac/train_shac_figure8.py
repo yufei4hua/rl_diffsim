@@ -79,10 +79,8 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.0
-    d_act_th_coef: float = 2.0
-    d_act_xy_coef: float = 2.0
-    act_th_coef: float = 0.2
-    act_xy_coef: float = 0.2
+    act_coefs: tuple = (0.2, 0.2, 0.0, 0.2)
+    d_act_coefs: tuple = (2.0, 2.0, 0.0, 2.0)
     """reward coefficients for training"""
 
     @staticmethod
@@ -121,11 +119,9 @@ def make_jitted_envs(
     env = ActionPenaltyJittable.create(
         env,
         num_actions=1,
-        init_last_actions=jp.array([[0.0, 0.0, 0.0, -0.048]]),
-        act_th_coef=coefs.get("act_th_coef", 0.04),
-        act_xy_coef=coefs.get("act_xy_coef", 0.04),
-        d_act_th_coef=coefs.get("d_act_th_coef", 0.4),
-        d_act_xy_coef=coefs.get("d_act_xy_coef", 1.0),
+        init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
+        act_coefs=coefs.get("act_coefs", (0.0,) * 4),
+        d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )
     env = FlattenJaxObservationJittable.create(env)
     return env
@@ -361,10 +357,8 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     # make envs
     r_coefs = {
         "rpy_coef": args.rpy_coef,
-        "d_act_xy_coef": args.d_act_xy_coef,
-        "d_act_th_coef": args.d_act_th_coef,
-        "act_th_coef": args.act_th_coef,
-        "act_xy_coef": args.act_xy_coef,
+        "act_coefs": args.act_coefs,
+        "d_act_coefs": args.d_act_coefs,
     }
     envs = make_jitted_envs(
         num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
@@ -513,10 +507,8 @@ def evaluate_shac(
     """
     r_coefs = {
         "rpy_coef": args.rpy_coef,
-        "d_act_xy_coef": args.d_act_xy_coef,
-        "d_act_th_coef": args.d_act_th_coef,
-        "act_th_coef": args.act_th_coef,
-        "act_xy_coef": args.act_xy_coef,
+        "act_coefs": args.act_coefs,
+        "d_act_coefs": args.d_act_coefs,
     }
     eval_env = make_jitted_envs(
         num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True

@@ -71,7 +71,6 @@ class Args:
     d_act_coefs: tuple = (2.0, 2.0, 0.0, 2.0)
     """reward coefficients for training"""
 
-
     @staticmethod
     def create(**kwargs: Any) -> "Args":
         """Create arguments class."""

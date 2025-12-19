@@ -122,7 +122,7 @@ class AttitudeRL(Controller):
             info: Optional additional information as a dictionary.
 
         Returns:
-            The collective thrust and orientation [t_des, r_des, p_des, y_des] as a numpy array.
+            The collective thrust and orientation [r_des, p_des, y_des, t_des] as a numpy array.
         """
         i = min(self._tick, self.trajectory.shape[0] - 1)
         if i == self.trajectory.shape[0] - 1:  # Maximum duration reached

@@ -6,6 +6,13 @@ import pytest
 
 TRAIN_CONFIGS = [
     {
+        "id": "bptt_f8ft",
+        "module": "rl_diffsim.bptt.train_bptt_figure8ft",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 450.0,
+    },
+    {
         "id": "bptt_f8",
         "module": "rl_diffsim.bptt.train_bptt_figure8",
         "train_fn": "train_bptt",

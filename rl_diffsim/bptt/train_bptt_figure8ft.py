@@ -205,7 +205,6 @@ def update_policy(
         envs, data, next_discounts, next_obs, next_done, sum_rewards, key = collect_rollout(
             envs, actor_params, next_obs, next_done, sum_rewards, key
         )
-        # jax.debug.print("data losses: {}", data.losses)
         # compute loss as in SHAC paper Eq(5)
         losses = jp.sum(data.losses)
         return losses / (args.num_envs * args.num_steps), (
@@ -221,7 +220,6 @@ def update_policy(
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
         envs, agent.actor_states.params, next_obs, next_done, sum_rewards, key
     )
-    # jax.debug.print("grad: {}", g_actor)
 
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
     return (envs, agent, key), (p_loss, (data, next_obs, next_done, sum_rewards))
@@ -325,19 +323,6 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         jp.arange(args.num_iterations),
     )
 
-    # # DEBUG: use python loop
-    # from scipy.spatial.transform import Rotation as R
-    # for _ in range(args.num_iterations):
-    #     (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, data) = train_iteration(
-    #         (envs, agent, key, next_obs, next_done, sum_rewards), None
-    #     )
-    #     # post iter rendering
-    #     for obs in data.observations:
-    #         # print(f"pos: {obs[0, -10:-7]} quat: {obs[0, -7:-3]} euler: {R.from_quat(obs[0, -7:-3]).as_euler('xyz', degrees=True)}")
-    #         data4render = envs.unwrapped.data
-    #         envs.unwrapped.sim.data = data4render.replace(states=data4render.states.replace(pos=obs[:, None, -10:-7]))
-    #         envs.unwrapped.sim.render()
-
     next_obs.block_until_ready()
     training_time = time.time() - train_start_time
     total_steps = args.num_iterations * args.batch_size
@@ -415,16 +400,16 @@ def evaluate_bptt(
     episode_lengths = []
     ep_seed = args.seed
 
-    for episode in range(n_eval):
+    for _ in range(n_eval):
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
         done = False
         episode_reward = 0.0
         steps = 0
-        fps = 250
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             # if render:
+            #     fps = 250
             #     if ((steps * fps) % eval_env.unwrapped.freq) < fps:
             #         eval_env.render()
             done = terminated | truncated

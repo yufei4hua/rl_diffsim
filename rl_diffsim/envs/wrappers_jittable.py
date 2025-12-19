@@ -261,6 +261,7 @@ class ActionPenaltyJittable(JittableWrapper):
         base: struct.PyTreeNode | AngleRewardJittable,
         num_actions: int = 1,
         init_last_actions: Array | None = None,
+        hover_action: Array = jp.zeros((4,)),
         act_coefs: tuple = (0.0,) * 4,
         d_act_coefs: tuple = (0.0,) * 4,
     ) -> "ActionPenaltyJittable":
@@ -295,10 +296,11 @@ class ActionPenaltyJittable(JittableWrapper):
         ) -> tuple["ActionPenaltyJittable", tuple[Any, ...]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
-            action_diff = action - env.last_actions[:, 0, :]
             # energy
-            reward = reward - jp.sum(act_coefs * (action**2), axis=-1)
+            action_diviation = action - hover_action
+            reward = reward - jp.sum(act_coefs * (action_diviation**2), axis=-1)
             # smoothness
+            action_diff = action - env.last_actions[:, 0, :]
             reward = reward - jp.sum(d_act_coefs * (action_diff**2), axis=-1)
             # update action history
             new_last_actions = jp.roll(env.last_actions, shift=1, axis=1)
@@ -489,10 +491,12 @@ class RecordDataJittable(JittableWrapper):
         axes = axes.flatten()
 
         # Actions
-        if self.base.unwrapped.sim.control == "attitude":
+        if self.base.unwrapped.control == "attitude":
             action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
-        elif self.base.unwrapped.sim.control == "force_torque":
+        elif self.base.unwrapped.control == "force_torque":
             action_labels = ["Thrust", "Tx", "Ty", "Tz"]
+        elif self.base.unwrapped.control == "rotor_vel":
+            action_labels = ["Rotor 1", "Rotor 2", "Rotor 3", "Rotor 4"]
         else:
             raise ValueError(f"Unsupported control type: {self.base.unwrapped.sim.control}")
         for i in range(4):

@@ -33,9 +33,9 @@ from rl_diffsim.ppo.ppo_agent import Agent
 class Args:
     """Class to store configurations."""
 
-    seed: int = 4
+    seed: int = 42
     """seed of the experiment"""
-    jax_device: str = "gpu"
+    jax_device: str = "cpu"
     """environment device"""
     exp_name: str = "ppo_f8"
     """the name of the experiment"""
@@ -79,7 +79,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 64
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -93,7 +93,7 @@ class Args:
     # Wrapper settings
     rpy_coef: float = 0.06
     act_coefs: tuple = (0.02, 0.02, 0.0, 0.04)
-    d_act_coefs: tuple = (1.5, 1.5, 0.0, 0.4)
+    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
 
     @staticmethod

@@ -16,7 +16,7 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.bptt.bptt_agent_deterministic import Agent
+from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
     ActionPenaltyJittable,
@@ -44,7 +44,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 100_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -96,8 +96,8 @@ def make_jitted_envs(
         control="rotor_vel",
         device=jax_device,
         reset_rotor=reset_rotor,
-        vel_min=-0.0,
-        vel_max=0.0,
+        # vel_min=-0.0,
+        # vel_max=0.0,
     )
 
     env = NormalizeActionsJittable.create(env)

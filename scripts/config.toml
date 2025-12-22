@@ -1,6 +1,6 @@
 [controller]
-file = "attitude_rl_f8_flax.py"
-# file = "attitude_controller.py"
+# file = "attitude_rl_f8.py"
+file = "rotvel_rl_rp.py"
 
 [deploy]
 
@@ -28,7 +28,7 @@ id = "DroneDefault-v0"   # "DroneEnv-v0" for single races, "MultiDroneRacing-v0"
 seed = 42               # Either "random" for a random behavior or an integer for reproducibility
 freq = 50               # Frequency of the environment's step function, in Hz
 sensor_range = 0.7      # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
-control_mode = "attitude"  # Control mode of the environment. Can be either "state" or "attitude"
+control_mode = "rotor_vel"  # Control mode of the environment. Can be "state" or "attitude" or "rotor_vel"
 
 [env.disturbances.action]
 fn = "normal"

@@ -50,7 +50,7 @@ class RealDroneCoreEnv:
         freq: int,
         pos_limit_low: list[float] | None = None,
         pos_limit_high: list[float] | None = None,
-        control_mode: Literal["state", "attitude"] = "state",
+        control_mode: Literal["state", "attitude", "rotor_vel"] = "state",
     ):
         """Create a deployable version of the drone environment.
 
@@ -74,9 +74,15 @@ class RealDroneCoreEnv:
         self.rank = rank
         self.freq = freq
         self.device = jax.devices("cpu")[0]
-        assert control_mode in ["state", "attitude"], f"Invalid control mode {control_mode}"
+        assert control_mode in ["state", "attitude", "rotor_vel"], (
+            f"Invalid control mode {control_mode}"
+        )
         self.control_mode = control_mode
         self.drone_parameters = load_params("first_principles", drones[rank]["drone_model"])
+        self.rotor_vel_min, self.rotor_vel_max = (
+            np.sqrt(self.drone_parameters.thrust_min / self.drone_parameters.rpm2thrust[2]),
+            np.sqrt(self.drone_parameters.thrust_max / self.drone_parameters.rpm2thrust[2]),
+        )
         # Establish drone connection
         self._drone_healthy = mp.Event()
         self._drone_healthy.set()
@@ -169,6 +175,19 @@ class RealDroneCoreEnv:
             action = (*np.rad2deg(action[:3]), int(pwm))
             self.drone.commander.send_setpoint(*action)
             self._ros_connector.publish_cmd(action)
+        elif self.control_mode == "rotor_vel":
+            # convert rotor velocity (RPM) to PWM
+            rotor_vel = action
+            forces = (
+                self.controller_parameters.rpm2thrust[..., 0]
+                + self.controller_parameters.rpm2thrust[..., 1] * rotor_vel
+                + self.controller_parameters.rpm2thrust[..., 2] * rotor_vel**2
+            )
+            pwms_normalized = forces / self.drone_parameters["thrust_max"]  # [0.0, 1.0]
+            pwms = np.clip(pwms_normalized, 0.0, 1.0)
+            # use position setpoint UI for PWM command
+            print("pwms:", pwms * 65535)
+            self.drone.commander.send_position_setpoint(*pwms)
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
             # TODO: We currently limit ourselves to yaw rotation only because the simulation is
@@ -182,7 +201,6 @@ class RealDroneCoreEnv:
             )
             # TODO: The estimators can't handle state commands, so we simply don't send anything
             # Make sure to use the legacy estimator with the state interface
-        # TODO: Implement action sending for force_torque/rotor_vel interface
 
     def _connect_to_drone(self, radio_id: int, radio_channel: int, drone_id: int) -> Crazyflie:
         cflib.crtp.init_drivers()
@@ -280,6 +298,10 @@ class RealDroneCoreEnv:
         target_pos = self.takeoff_pos[self.rank]  # Default start position
         self.drone.high_level_commander.go_to(*target_pos, 0, MOVE_DURATION)
         wait_for_action(MOVE_DURATION)
+
+        if self.control_mode == "rotor_vel":
+            self.drone.param.set_value("stabilizer.estimator", 1)
+            self.drone.param.set_value("stabilizer.controller", 6)
 
     def _return_to_start(self):
         # Enable high-level functions of the drone and disable low-level control access

@@ -76,7 +76,7 @@ class AttitudeRL(Controller):
 
         # Load RL policy
         self.algo_name = "bptt"
-        self.exp_name = "rp"
+        self.exp_name = "f8"
         model_path = (
             Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
         )

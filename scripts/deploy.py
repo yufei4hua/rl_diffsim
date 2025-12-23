@@ -16,6 +16,7 @@ import fire
 import rclpy
 from utils import load_config, load_controller
 
+from rl_diffsim.control.attitude_controller import AttitudeController
 from rl_diffsim.gym_envs.real_drone_env import RealDroneEnv
 
 logger = logging.getLogger(__name__)
@@ -40,10 +41,12 @@ def main(config: str = "config.toml", controller: str | None = None):
         controller_cls = load_controller(controller_path)
         obs, info = env.reset()
         controller = controller_cls(obs, info, config, None)
+        att_controller = AttitudeController(
+            obs, info, config, None
+        )  # used for flying to start point
 
         print("Moving to start position...")
-        env._move_to_start()
-        next_obs = env.obs()  # Set next_obs to avoid errors when the loop never enters
+        env._move_to_start(start_controller=att_controller)
 
         print("Starting controller...")
         start_time = time.perf_counter()

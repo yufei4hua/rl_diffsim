@@ -377,6 +377,7 @@ class FlattenJaxObservationJittable(JittableWrapper):
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
+
 # region ActionNoise
 @struct.dataclass
 class ActionNoiseJittable(JittableWrapper):
@@ -393,7 +394,13 @@ class ActionNoiseJittable(JittableWrapper):
     reset: Callable = struct.field(pytree_node=False)
 
     @classmethod
-    def create(cls, base: struct.PyTreeNode, seed: int | None = None, bias_range: float = 0.1, noise_std: float = 0.01) -> "ActionNoiseJittable":
+    def create(
+        cls,
+        base: struct.PyTreeNode,
+        seed: int | None = None,
+        bias_range: float = 0.1,
+        noise_std: float = 0.01,
+    ) -> "ActionNoiseJittable":
         """Create an ActionNoiseJittable around `base`.
 
         Parameters:
@@ -422,7 +429,9 @@ class ActionNoiseJittable(JittableWrapper):
         ) -> tuple["ActionNoiseJittable", tuple[Any, ...]]:
             rng_key, subkey = jax.random.split(env.rng_key)
             # 1. sample noise (bias + additive gaussian)
-            action_bias, additive_noise = _sample_noise(subkey, env.action_bias, bias_range, noise_std, env.unwrapped._marked_for_reset)
+            action_bias, additive_noise = _sample_noise(
+                subkey, env.action_bias, bias_range, noise_std, env.unwrapped._marked_for_reset
+            )
             # 2. apply noise and step env
             actions = actions + jax.lax.stop_gradient(action_bias + additive_noise)
             base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
@@ -430,16 +439,27 @@ class ActionNoiseJittable(JittableWrapper):
             )
             env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
             return env, (obs, rewards, terminations, truncations, infos)
-        
-        def _sample_noise(key: Array, action_bias: Array, bias_range: Array, noise_std: Array, mask: Array | None) -> Array:
+
+        def _sample_noise(
+            key: Array, action_bias: Array, bias_range: Array, noise_std: Array, mask: Array | None
+        ) -> Array:
             key1, key2 = jax.random.split(key)
-            new_bias = jax.random.uniform(key1, shape=action_bias.shape, minval=-bias_range, maxval=bias_range)
+            new_bias = jax.random.uniform(
+                key1, shape=action_bias.shape, minval=-bias_range, maxval=bias_range
+            )
             new_additive = jax.random.normal(key2, shape=action_bias.shape) * noise_std
-            if mask is not None: # update action bias upon reset
+            if mask is not None:  # update action bias upon reset
                 new_bias = jp.where(mask[..., None], new_bias, action_bias)
             return new_bias, new_additive
 
-        return cls(base=base, rng_key=rng_key, action_bias=action_bias, step=jax.jit(_step), reset=jax.jit(_reset))
+        return cls(
+            base=base,
+            rng_key=rng_key,
+            action_bias=action_bias,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
 
 # region RecordData
 @struct.dataclass

@@ -140,6 +140,8 @@ class AttitudeRL(Controller):
         act = np.array(act)
         self.last_action = act.squeeze(0)
 
+        # act = jp.array([[0.2, 0.2, 0.2, 0.2]])
+
         act = self._scale_actions(act.squeeze(0)).astype(np.float32)
 
         # self._render()
@@ -150,9 +152,10 @@ class AttitudeRL(Controller):
         """Extract the relevant parts of the observation for the RL policy."""
         obs_rl_key = ["pos", "quat", "vel", "ang_vel"]
         obs_rl = {k: obs[k] for k in obs_rl_key}
-        idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
-        dpos = self.trajectory[idx] - obs["pos"]  # (n_samples, 3)
-        obs_rl["difference_to_goal"] = dpos.reshape(-1)  # (n_samples*3,)
+        # idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
+        # dpos = self.trajectory[idx] - obs["pos"]  # (n_samples, 3)
+        # obs_rl["difference_to_goal"] = dpos.reshape(-1)  # (n_samples*3,)
+        obs_rl["difference_to_goal"] = self.trajectory[0] - obs["pos"]  # (3,)
         obs_rl["last_action"] = self.last_action  # (4,)
         # alphabetical key order: important for flax policy
         ordered_keys = sorted(obs_rl.keys())

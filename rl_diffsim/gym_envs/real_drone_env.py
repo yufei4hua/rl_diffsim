@@ -80,8 +80,8 @@ class RealDroneCoreEnv:
         self.control_mode = control_mode
         self.drone_parameters = load_params("first_principles", drones[rank]["drone_model"])
         self.rotor_vel_min, self.rotor_vel_max = (
-            np.sqrt(self.drone_parameters.thrust_min / self.drone_parameters.rpm2thrust[2]),
-            np.sqrt(self.drone_parameters.thrust_max / self.drone_parameters.rpm2thrust[2]),
+            np.sqrt(self.drone_parameters["thrust_min"] / self.drone_parameters["rpm2thrust"][2]),
+            np.sqrt(self.drone_parameters["thrust_max"] / self.drone_parameters["rpm2thrust"][2]),
         )
         # Establish drone connection
         self._drone_healthy = mp.Event()
@@ -179,14 +179,14 @@ class RealDroneCoreEnv:
             # convert rotor velocity (RPM) to PWM
             rotor_vel = action
             forces = (
-                self.controller_parameters.rpm2thrust[..., 0]
-                + self.controller_parameters.rpm2thrust[..., 1] * rotor_vel
-                + self.controller_parameters.rpm2thrust[..., 2] * rotor_vel**2
+                self.drone_parameters["rpm2thrust"][..., 0]
+                + self.drone_parameters["rpm2thrust"][..., 1] * rotor_vel
+                + self.drone_parameters["rpm2thrust"][..., 2] * rotor_vel**2
             )
             pwms_normalized = forces / self.drone_parameters["thrust_max"]  # [0.0, 1.0]
             pwms = np.clip(pwms_normalized, 0.0, 1.0)
             # use position setpoint UI for PWM command
-            print("pwms:", pwms * 65535)
+            # print("pwms:", pwms)
             self.drone.commander.send_position_setpoint(*pwms)
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
@@ -300,7 +300,6 @@ class RealDroneCoreEnv:
         wait_for_action(MOVE_DURATION)
 
         if self.control_mode == "rotor_vel":
-            self.drone.param.set_value("stabilizer.estimator", 1)
             self.drone.param.set_value("stabilizer.controller", 6)
 
     def _return_to_start(self):

@@ -19,6 +19,7 @@ import wandb
 from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
+    ActionNoiseJittable,
     ActionPenaltyJittable,
     AngleRewardJittable,
     FlattenJaxObservationJittable,
@@ -44,7 +45,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 300_000
+    total_timesteps: int = 500_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -89,8 +90,8 @@ def make_jitted_envs(
     """Make environments for training RL policy."""
     env: ReachPosJittableEnv = ReachPosJittableEnv.create(
         num_envs=num_envs,
-        freq=50,
-        sim_freq=250,
+        freq=100,
+        sim_freq=500,
         drone_model="cf21B_500",
         physics="first_principles",
         control="rotor_vel",
@@ -102,6 +103,7 @@ def make_jitted_envs(
 
     env = NormalizeActionsJittable.create(env)
     env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.0))
+    env = ActionNoiseJittable.create(env, seed=42, bias_range=0.1, noise_std=0.0)
     env = ActionPenaltyJittable.create(
         env,
         num_actions=1,
@@ -402,7 +404,7 @@ def evaluate_bptt(
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             if render:
-                fps = 250
+                fps = 500
                 if ((steps * fps) % eval_env.unwrapped.freq) < fps:
                     eval_env.render()
             done = terminated | truncated

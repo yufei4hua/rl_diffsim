@@ -16,10 +16,7 @@ from typing import TYPE_CHECKING
 import fire
 import jax.numpy as jp
 import numpy as np
-from gymnasium.wrappers.vector.jax_to_numpy import JaxToNumpy
-from utils import load_config, load_controller
-
-from rl_diffsim.gym_envs.figure_8_env import FigureEightEnv
+from utils import load_config, load_controller, load_environment
 
 if TYPE_CHECKING:
     from rl_diffsim.control.controller import Controller
@@ -53,38 +50,27 @@ def simulate(
     controller_path = control_path / (controller or config.controller.file)
     controller_cls = load_controller(controller_path)  # This returns a class, not an instance
     # Create the drone environment
-    env: FigureEightEnv = FigureEightEnv(
-        physics=config.sim.physics,
-        drone_model=config.sim.drone_model,
-        freq=config.env.freq,
-        state_freq=config.sim.state_freq,
-        attitude_freq=config.sim.attitude_freq,
-        force_torque_freq=config.sim.force_torque_freq,
-    )
-    env = JaxToNumpy(env)
+    env_cls = load_environment(Path(__file__).parents[1] / "rl_diffsim/envs" / config.env.file)
+    env = env_cls.create(**config.sim)
 
     ep_times = []
     ep_rewards = []
-    for _ in range(n_runs):  # Run n_runs episodes with the controller
-        obs, info = env.reset()
-        obs = {k: v[0] for k, v in obs.items()}
+    for ep in range(n_runs):  # Run n_runs episodes with the controller
+        env, (obs, info) = env.reset(env, seed=config.env.seed + ep)
+        obs = {k: np.asarray(v[0]) for k, v in obs.items()}
         info = {k: v[0] for k, v in info.items()}
-        controller: Controller = controller_cls(obs, info, config, sim=env.unwrapped.sim)
+        controller: Controller = controller_cls(obs, info, config, sim=env.sim)
         i = 0
         fps = 60
         total_reward = 0.0
 
         while True:
-            curr_time = i / config.env.freq
-
+            curr_time = i / config.sim.freq
             action = controller.compute_control(obs, info)
-            # Convert to a buffer that meets XLA's alginment restrictions to prevent warnings. See
-            # https://github.com/jax-ml/jax/discussions/6055
-            # Tracking issue:
-            # https://github.com/jax-ml/jax/issues/29810
             action = np.asarray(jp.asarray(action), copy=True)
-            obs, reward, terminated, truncated, info = env.step(action[None, :])
-            obs = {k: v[0] for k, v in obs.items()}
+            print(action)
+            env, (obs, reward, terminated, truncated, info) = env.step(env, action[None, None, :])
+            obs = {k: np.asarray(v[0]) for k, v in obs.items()}
             info = {k: v[0] for k, v in info.items()}
             reward = float(reward[0])
             terminated = bool(terminated[0])
@@ -98,7 +84,7 @@ def simulate(
             if terminated or truncated or controller_finished:
                 break
             if render:  # Render the sim if selected.
-                if ((i * fps) % config.env.freq) < fps:
+                if ((i * fps) % config.sim.freq) < fps:
                     env.render()
             i += 1
 

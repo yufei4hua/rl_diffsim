@@ -20,6 +20,7 @@ import matplotlib
 from scipy.spatial.transform import Rotation as R
 
 from rl_diffsim.control.controller import Controller
+from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv
 
 matplotlib.use("Agg")  # render to raster images
 from pathlib import Path
@@ -30,7 +31,8 @@ if TYPE_CHECKING:
     from typing import Any
 
     from numpy.typing import NDArray
-    from rl_diffsim.envs.race_core import RaceCoreEnv
+
+    from rl_diffsim.gym_envs.race_core import RaceCoreEnv
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,35 @@ def load_controller(path: Path) -> Type[Controller]:
         return controller_module.Controller
     except ImportError as e:
         raise e
+
+
+def load_environment(path: Path) -> "DroneJittableEnv":
+    """Load the environment module from the given path and return the RaceCoreEnv class."""
+    assert path.exists(), f"Environment file not found: {path}"
+    assert path.is_file(), f"Environment path is not a file: {path}"
+    spec = importlib.util.spec_from_file_location("environment", path)
+    environment_module = importlib.util.module_from_spec(spec)
+    sys.modules["environment"] = environment_module
+    spec.loader.exec_module(environment_module)
+
+    def filter(mod: Any) -> bool:
+        """Filter function to identify valid environment classes.
+
+        Args:
+            mod: Any attribute of the environment module to be checked.
+        """
+        subcls = inspect.isclass(mod) and issubclass(mod, DroneJittableEnv)
+        return subcls and mod.__module__ == environment_module.__name__
+
+    environments = inspect.getmembers(environment_module, filter)
+    environments = [c for _, c in environments if issubclass(c, DroneJittableEnv)]
+    assert len(environments) > 0, (
+        f"No environment found in {path}. Have you subclassed DroneJittableEnv?"
+    )
+    assert len(environments) == 1, f"Multiple environments found in {path}. Only one is allowed."
+    environment_module.DroneJittableEnv = environments[0]
+    assert issubclass(environment_module.DroneJittableEnv, DroneJittableEnv)
+    return environment_module.DroneJittableEnv
 
 
 def load_config(path: Path) -> ConfigDict:

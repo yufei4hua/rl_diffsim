@@ -33,13 +33,13 @@ if TYPE_CHECKING:
 from scripts.utils import EvalRecorder
 
 
-class AttitudeRL(Controller):
-    """Example of a controller using the collective thrust and attitude interface."""
+class RotvelRL(Controller):
+    """Example of a controller using the collective thrust and rotor_vel interface."""
 
     def __init__(
         self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
     ):
-        """Initialize the attitude controller.
+        """Initialize the rotor_vel controller.
 
         Args:
             obs: The initial observation of the environment's state. See the environment's
@@ -49,7 +49,7 @@ class AttitudeRL(Controller):
             sim: For visualization purposes.
         """
         super().__init__(obs, info, config)
-        self.freq = config.env.freq
+        self.freq = config.sim.freq
 
         drone_params = load_params(config.sim.physics, config.sim.drone_model)
         self.drone_mass = drone_params["mass"]  # alternatively from sim.drone_mass

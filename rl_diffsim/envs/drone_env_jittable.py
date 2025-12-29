@@ -112,6 +112,10 @@ class DroneJittableEnv(struct.PyTreeNode):
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
+        sim_freq: int = 500,
+        state_freq: int = 100,
+        attitude_freq: int = 500,
+        force_torque_freq: int = 500,
         device: str = "cpu",
         reset_randomization: Callable[[SimData, Array], SimData] | None = None,
     ) -> "DroneJittableEnv":
@@ -124,6 +128,10 @@ class DroneJittableEnv(struct.PyTreeNode):
             control: Control interface to use.
             drone_model: Drone model of the environment.
             freq: The frequency at which the environment is run.
+            sim_freq: Simulation frequency.
+            state_freq: The frequency of the state controller.
+            attitude_freq: The frequency of the attitude controller.
+            force_torque_freq: The frequency of the force/torque controller.
             device: The device of the environment and the simulation.
             reset_randomization: A function that randomizes the initial state of the simulation. If
                 None, the default randomization for pos and vel is used.
@@ -137,7 +145,15 @@ class DroneJittableEnv(struct.PyTreeNode):
         # Initialize the simulation
         jax_device = jax.devices(device)[0]
         sim = Sim(
-            n_worlds=num_envs, n_drones=1, drone_model=drone_model, device=device, physics=physics
+            n_worlds=num_envs,
+            n_drones=1,
+            drone_model=drone_model,
+            device=device,
+            physics=physics,
+            freq=sim_freq,
+            state_freq=state_freq,
+            attitude_freq=attitude_freq,
+            force_torque_freq=force_torque_freq,
         )
 
         def _reset_randomization(data: SimData, mask: Array) -> SimData:

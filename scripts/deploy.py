@@ -33,7 +33,7 @@ def main(config: str = "config.toml", controller: str | None = None):
     rclpy.init()
     config = load_config(Path(__file__).parents[1] / "scripts" / config)
     env: RealDroneEnv = RealDroneEnv(
-        drones=config.deploy.drones, freq=config.env.freq, control_mode=config.env.control_mode
+        drones=config.deploy.drones, freq=config.sim.freq, control_mode=config.sim.control
     )
     try:
         control_path = Path(__file__).parents[1] / "rl_diffsim/control"
@@ -61,10 +61,10 @@ def main(config: str = "config.toml", controller: str | None = None):
             )
             if terminated or truncated or controller_finished:
                 break
-            if (dt := (time.perf_counter() - t_loop)) < (1 / config.env.freq):
-                time.sleep(1 / config.env.freq - dt)
+            if (dt := (time.perf_counter() - t_loop)) < (1 / config.sim.freq):
+                time.sleep(1 / config.sim.freq - dt)
             else:
-                exc = dt - 1 / config.env.freq
+                exc = dt - 1 / config.sim.freq
                 logger.warning(f"Controller execution time exceeded loop frequency by {exc:.3f}s.")
         ep_time = time.perf_counter() - start_time
         finished_track = True

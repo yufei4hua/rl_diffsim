@@ -35,12 +35,12 @@ from scripts.utils import EvalRecorder
 
 
 class MellingerController(Controller):
-    """Example of a controller using the collective thrust and attitude interface."""
+    """A copy of the onboard Mellinger controller for testing."""
 
     def __init__(
         self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
     ):
-        """Initialize the attitude controller.
+        """Initialize the Mellinger controller.
 
         Args:
             obs: The initial observation of the environment's state. See the environment's
@@ -50,7 +50,7 @@ class MellingerController(Controller):
             sim: For visualization purposes.
         """
         super().__init__(obs, info, config)
-        self.freq = config.env.freq
+        self.freq = config.sim.freq
         self.algo_name = "mellinger"
         self.exp_name = "f8"
 
@@ -98,9 +98,9 @@ class MellingerController(Controller):
             state_freq=self.state_freq,
             attitude_freq=self.attitude_freq,
             force_torque_freq=self.force_torque_freq,
-        ) # Initialize sim data for controllers
+        )  # Initialize sim data for controllers
         self.data = foo_sim.data
-        self.control_pipeline = build_control_fns(Control.attitude, Physics.first_principles)
+        self.control_pipeline = build_control_fns(Control.state, Physics.first_principles)
         self.control_pipeline += (increment_steps,)
 
         @jax.jit
@@ -112,7 +112,7 @@ class MellingerController(Controller):
         self._ctrl_step = ctrl_step
 
         # warm up jax controllers
-        for _ in range(4):
+        for _ in range(2):
             self._ctrl_step(self.data)
 
         self._finished = False
@@ -148,16 +148,11 @@ class MellingerController(Controller):
         quat = jp.array(obs["quat"][None, None, :], dtype=jp.float32)
         vel = jp.array(obs["vel"][None, None, :], dtype=jp.float32)
         ang_vel = jp.array(obs["ang_vel"][None, None, :], dtype=jp.float32)
-        # 2. Set desired position command
         states = states.replace(pos=pos, quat=quat, vel=vel, ang_vel=ang_vel)
+        # 2. Set desired position command
         cmd = jp.broadcast_to(
-            jp.concatenate(
-                [
-                    jp.array(des_pos, dtype=jp.float32),
-                    jp.zeros(10, dtype=jp.float32),
-                ]
-            ), 
-            self.data.controls.state.cmd.shape
+            jp.concatenate([jp.array(des_pos, dtype=jp.float32), jp.zeros(10, dtype=jp.float32)]),
+            self.data.controls.state.cmd.shape,
         )
         controls = controls.replace(state=controls.state.replace(staged_cmd=cmd))
         # # test cmd on attitude

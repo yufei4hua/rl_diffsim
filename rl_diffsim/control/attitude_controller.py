@@ -38,7 +38,7 @@ class AttitudeController(Controller):
             sim: The simulation instance only for rendering.
         """
         super().__init__(obs, info, config)
-        self.freq = config.env.freq
+        self.freq = config.sim.freq
 
         drone_params = load_params(config.sim.physics, config.sim.drone_model)
         self.drone_mass = drone_params["mass"]  # alternatively from sim.drone_mass

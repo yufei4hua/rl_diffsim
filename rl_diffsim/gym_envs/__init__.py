@@ -13,16 +13,7 @@ Note:
     design.
 """
 
-from gymnasium import register
-
-from rl_diffsim.gym_envs.figure_8_env import FigureEightEnv
-from rl_diffsim.gym_envs.rand_traj import RandTrajEnv
-
-# region SimEnvs
-
-register(id="DroneRandTraj-v0", vector_entry_point=RandTrajEnv)
-
-register(id="DroneFigureEight-v0", vector_entry_point=FigureEightEnv)
+# from gymnasium import register
 
 # register(
 #     id="DroneRacing-v0",

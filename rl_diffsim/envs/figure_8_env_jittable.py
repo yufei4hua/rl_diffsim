@@ -79,6 +79,9 @@ class FigureEightJittableEnv(DroneJittableEnv):
         drone_model: str = "cf21B_500",
         freq: int = 500,
         sim_freq: int = 500,
+        state_freq: int = 100,
+        attitude_freq: int = 500,
+        force_torque_freq: int = 500,
         device: str = "cpu",
         n_samples: int = 10,
         trajectory_time: float = 10.0,
@@ -96,6 +99,9 @@ class FigureEightJittableEnv(DroneJittableEnv):
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
             sim_freq: Simulation frequency.
+            state_freq: The frequency of the state controller.
+            attitude_freq: The frequency of the attitude controller.
+            force_torque_freq: The frequency of the force/torque controller.
             device: Device to use for the simulation.
             n_samples: Number of next trajectory points to sample for observations.
             trajectory_time: Total time for completing the figure-eight trajectory in seconds.
@@ -117,6 +123,9 @@ class FigureEightJittableEnv(DroneJittableEnv):
             control=control if control in [c.value for c in Control] else Control.default,
             device=device,
             freq=sim_freq,
+            state_freq=state_freq,
+            attitude_freq=attitude_freq,
+            force_torque_freq=force_torque_freq,
         )
 
         # Modify the step pipeline if needed

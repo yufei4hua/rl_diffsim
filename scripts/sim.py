@@ -54,7 +54,12 @@ def simulate(
     controller_cls = load_controller(controller_path)  # This returns a class, not an instance
     # Create the drone environment
     env: FigureEightEnv = FigureEightEnv(
-        physics=config.sim.physics, drone_model=config.sim.drone_model, freq=config.env.freq
+        physics=config.sim.physics,
+        drone_model=config.sim.drone_model,
+        freq=config.env.freq,
+        state_freq=config.sim.state_freq,
+        attitude_freq=config.sim.attitude_freq,
+        force_torque_freq=config.sim.force_torque_freq,
     )
     env = JaxToNumpy(env)
 

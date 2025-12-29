@@ -35,6 +35,9 @@ class FigureEightEnv(DroneEnv):
         | Physics = Physics.first_principles,
         drone_model: str = "cf21B_500",
         freq: int = 500,
+        state_freq: int = 100,
+        attitude_freq: int = 500,
+        force_torque_freq: int = 500,
         device: str = "cpu",
         reset_rotor: bool = False,
     ):
@@ -49,6 +52,9 @@ class FigureEightEnv(DroneEnv):
             physics: Physics backend to use.
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
+            state_freq: The frequency of the state controller.
+            attitude_freq: The frequency of the attitude controller.
+            force_torque_freq: The frequency of the force/torque controller.
             device: Device to use for the simulation.
             reset_rotor: Whether to reset rotor speeds on environment reset.
         """
@@ -64,6 +70,9 @@ class FigureEightEnv(DroneEnv):
             drone_model=drone_model,
             freq=freq,
             device=device,
+            state_freq=state_freq,
+            attitude_freq=attitude_freq,
+            force_torque_freq=force_torque_freq,
         )
         if trajectory_time < self.max_episode_time:
             raise ValueError("Trajectory time must be greater than max episode time")

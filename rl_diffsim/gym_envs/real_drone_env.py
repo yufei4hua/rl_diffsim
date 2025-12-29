@@ -302,7 +302,6 @@ class RealDroneCoreEnv:
             obs = self.obs()
             obs = {k: v[0] for k, v in obs.items()}
             action = start_controller.compute_control(obs, None)
-            print(action)
             next_obs, _, terminated, truncated, _ = self._step(action)
             next_obs, terminated, truncated = (
                 {k: v[0, ...] for k, v in next_obs.items()},

@@ -45,15 +45,15 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1500_000
+    total_timesteps: int = 200_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
     num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
-    anneal_actor_lr: bool = True
+    anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 4e-2
+    actor_lr: float = 3e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
@@ -70,8 +70,8 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.1
-    act_coefs: tuple = (0.0, 0.0, 0.0, 0.0)
-    d_act_coefs: tuple = (0.0, 0.0, 0.0, 0.0)
+    act_coefs: tuple = (0.2, 0.2, 0.2, 0.2)
+    d_act_coefs: tuple = (0.05, 0.05, 0.05, 0.05)
     """reward coefficients for training"""
 
     @staticmethod
@@ -407,10 +407,10 @@ def evaluate_bptt(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            if render:
-                fps = 500
-                if ((steps * fps) % eval_env.unwrapped.freq) < fps:
-                    eval_env.render()
+            # if render:
+            #     fps = 500
+            #     if ((steps * fps) % eval_env.unwrapped.freq) < fps:
+            #         eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

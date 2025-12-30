@@ -191,7 +191,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
         sim.build_reset_fn()
 
         # Prepare immutable constants
-        single_action_space = create_action_space(sim.control, sim.drone_model)
+        single_action_space = create_action_space(control, sim.drone_model)
         action_space = batch_space(single_action_space, sim.n_worlds)
         single_observation_space = spaces.Dict(
             {

@@ -181,12 +181,6 @@ class MellingerController(Controller):
         rotor_vel = jp.zeros_like(data.controls.rotor_vel)
         return data.replace(controls=data.controls.replace(rotor_vel=rotor_vel))
 
-    def _scale_actions(self, actions: NDArray) -> NDArray:
-        """Rescale and clip actions from [-1, 1] to [action_sim_low, action_sim_high]."""
-        scale = np.array([(self.rotor_vel_max - self.rotor_vel_min) / 2.0] * 4, dtype=np.float32)
-        mean = np.array([(self.rotor_vel_max + self.rotor_vel_min) / 2.0] * 4, dtype=np.float32)
-        return np.clip(actions, -1.0, 1.0) * scale + mean
-
     def step_callback(
         self,
         action: NDArray[np.floating],

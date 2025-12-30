@@ -52,7 +52,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
         next_trajectory = np.array(next_trajectory)
         draw_line(
             self.sim,
-            trajectories[world, 0:-1:4, :],
+            trajectories[world, 0:-1:8, :],
             rgba=jp.array([1, 1, 1, 0.4]),
             start_size=2.0,
             end_size=2.0,
@@ -292,7 +292,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
 
         def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
             low, high = action_space.low, action_space.high
-            action = _sanitize_action_STE(action, low, high)
+            action = _sanitize_action(action, low, high)
             match control:
                 case Control.state:
                     raise NotImplementedError("State control currently not supported")

@@ -59,7 +59,7 @@ class Args:
     """the discount factor gamma"""
     num_layers: int = 2
     """the number of layers of actor networks"""
-    hidden_size: int = 64
+    hidden_size: int = 32
     """the hidden size of actor networks"""
 
     # to be filled in runtime
@@ -70,7 +70,7 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.1
-    act_coefs: tuple = (0.2, 0.2, 0.2, 0.2)
+    act_coefs: tuple = (0.15, 0.15, 0.15, 0.15)
     d_act_coefs: tuple = (0.05, 0.05, 0.05, 0.05)
     """reward coefficients for training"""
 

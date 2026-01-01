@@ -38,7 +38,7 @@ class MellingerController(Controller):
     """A copy of the onboard Mellinger controller for testing."""
 
     def __init__(
-        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
+        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None, _ros_connector: object = None
     ):
         """Initialize the Mellinger controller.
 
@@ -54,10 +54,10 @@ class MellingerController(Controller):
         self.algo_name = "mellinger"
         self.exp_name = "f8"
 
-        drone_params = load_params(config.sim.physics, config.sim.drone_model)
-        self.drone_mass = drone_params["mass"]  # alternatively from sim.drone_mass
-        self.thrust_min = drone_params["thrust_min"] * 4  # min total thrust
-        self.thrust_max = drone_params["thrust_max"] * 4  # max total thrust
+        self.drone_params = load_params(config.sim.physics, config.sim.drone_model)
+        self.drone_mass = self.drone_params["mass"]  # alternatively from sim.drone_mass
+        self.thrust_min = self.drone_params["thrust_min"] * 4  # min total thrust
+        self.thrust_max = self.drone_params["thrust_max"] * 4  # max total thrust
         params = ForceTorqueParams.load(config.sim.drone_model)
         self.rotor_vel_min, self.rotor_vel_max = (
             np.sqrt(params.thrust_min / params.rpm2thrust[2]),
@@ -85,8 +85,8 @@ class MellingerController(Controller):
 
         # build controller functions
         self.state_freq = 50
-        self.attitude_freq = 500
-        self.force_torque_freq = 500
+        self.attitude_freq = 250
+        self.force_torque_freq = 250
         foo_sim = Sim(
             n_worlds=1,
             n_drones=1,
@@ -102,6 +102,7 @@ class MellingerController(Controller):
         self.data = foo_sim.data
         self.control_pipeline = build_control_fns(Control.state, Physics.first_principles)
         self.control_pipeline += (increment_steps,)
+        self._ros_connector = _ros_connector
 
         @jax.jit
         def ctrl_step(data: SimData) -> SimData:
@@ -112,7 +113,7 @@ class MellingerController(Controller):
         self._ctrl_step = ctrl_step
 
         # warm up jax controllers
-        for _ in range(2):
+        for _ in range(4):
             self._ctrl_step(self.data)
 
         self._finished = False
@@ -167,12 +168,15 @@ class MellingerController(Controller):
         # 3. Step controllers
         self.data = self._ctrl_step(self.data)
         # 4. Extract command outputs
-        # rpyt_cmd = self.data.controls.attitude.cmd[0, 0, :] # TODO: publish this action to estimator, or use legacy
+        rpyt_cmd = self.data.controls.attitude.cmd[0, 0, :] # TODO: publish this action to estimator, or use legacy
+        # if self._ros_connector is not None:
+        #     self._ros_connector.publish_cmd(rpyt_cmd)
+        force_torque = self.data.controls.force_torque.cmd[0, 0, :]
         rotor_vel = self.data.controls.rotor_vel[0, 0, :]
         # print(f"Rotor Vel: {rotor_vel}")
         # print(f"Onboard: {self.sim.data.controls.rotor_vel}")
         # print(f"Diff : {rotor_vel - self.sim.data.controls.rotor_vel}")
-        actions = rotor_vel
+        actions = force_torque
         return np.array(actions, dtype=np.float32)
 
     @staticmethod

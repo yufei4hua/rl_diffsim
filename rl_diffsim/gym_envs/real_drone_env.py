@@ -76,7 +76,7 @@ class RealDroneCoreEnv:
         self.rank = rank
         self.freq = freq
         self.device = jax.devices("cpu")[0]
-        assert control_mode in ["state", "attitude", "rotor_vel"], (
+        assert control_mode in ["state", "attitude", "force_torque", "rotor_vel"], (
             f"Invalid control mode {control_mode}"
         )
         self.control_mode = control_mode
@@ -188,8 +188,24 @@ class RealDroneCoreEnv:
             pwms_normalized = forces / self.drone_parameters["thrust_max"]  # [0.0, 1.0]
             pwms = np.clip(pwms_normalized, 0.0, 1.0)
             # use position setpoint UI for PWM command
-            # print("pwms:", pwms)
             self.drone.commander.send_position_setpoint(*pwms)
+        elif self.control_mode == "force_torque":
+            # thrust in N -> thrust in PWM
+            thrust_pwm = force2pwm(
+                action[0], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
+            )
+            thrust_pwm = np.clip(thrust_pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"])
+            # torque in Nm -> torque in PWM
+            L = self.drone_parameters["L"]
+            thrust2torque = self.drone_parameters["thrust2torque"]
+            tau_x, tau_y, tau_z = action[1], action[2], action[3]
+            roll_force = tau_x / L * 2.0
+            pitch_force = tau_y / L * 2.0
+            yaw_force = tau_z / thrust2torque
+            torque_force = np.array([roll_force, pitch_force, yaw_force])
+            torque_pwm = force2pwm(torque_force, self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"])
+            # use attitude setpoint UI for force_torque command
+            self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
             # TODO: We currently limit ourselves to yaw rotation only because the simulation is
@@ -261,7 +277,7 @@ class RealDroneCoreEnv:
         time.sleep(0.1)  # TODO: Maybe remove
         # enable/disable tumble control. Required 0 for agressive maneuvers
         self.drone.param.set_value("supervisor.tmblChckEn", 1)
-        # Choose controller: 1: PID; 2:Mellinger
+        # Choose controller: 1: PID; 2:Mellinger 6: Rotor Velocity; 7: Force Torque
         self.drone.param.set_value("stabilizer.controller", 2)
         # rate: 0, angle: 1
         self.drone.param.set_value("flightmode.stabModeRoll", 1)
@@ -276,6 +292,7 @@ class RealDroneCoreEnv:
         self.drone.commander.send_setpoint(0, 0, 0, 0)
         # Move the drone to the start position
         pos = self._ros_connector.pos[self.drone_name]
+        FREQ = 50  # Hz
         START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
         TAKEOFF_DURATION = max(START_HEIGHT / 0.5, 0.5)  # s
         MOVE_DURATION = max(
@@ -286,9 +303,9 @@ class RealDroneCoreEnv:
         p1 = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
         p2 = np.asarray(self.takeoff_pos[self.rank], dtype=np.float32)
 
-        takeoff_steps = int(np.ceil(TAKEOFF_DURATION * self.freq))
-        move_steps = int(np.ceil(MOVE_DURATION * self.freq))
-        hover_steps = int(np.ceil(HOVER_DURATION * self.freq))
+        takeoff_steps = int(np.ceil(TAKEOFF_DURATION * FREQ))
+        move_steps = int(np.ceil(MOVE_DURATION * FREQ))
+        hover_steps = int(np.ceil(HOVER_DURATION * FREQ))
 
         seg_takeoff = np.linspace(p0, p1, num=takeoff_steps, endpoint=True)
         seg_move = np.linspace(p1, p2, num=move_steps, endpoint=True)
@@ -311,15 +328,17 @@ class RealDroneCoreEnv:
             controller_finished = start_controller.step_callback(None, None, None, None, None, None)
             if terminated or truncated or controller_finished:
                 break
-            if (dt := (time.perf_counter() - t_loop)) < (1 / self.freq):
-                time.sleep(1 / self.freq - dt)
+            if (dt := (time.perf_counter() - t_loop)) < (1 / FREQ):
+                time.sleep(1 / FREQ - dt)
             else:
-                exc = dt - 1 / self.freq
+                exc = dt - 1 / FREQ
                 logger.warning(f"Controller execution time exceeded loop frequency by {exc:.3f}s.")
 
         self.control_mode = save_control_mode
         if self.control_mode == "rotor_vel":
             self.drone.param.set_value("stabilizer.controller", 6)
+        elif self.control_mode == "force_torque":
+            self.drone.param.set_value("stabilizer.controller", 7)
 
     def _return_to_start(self):
         # Enable high-level functions of the drone and disable low-level control access

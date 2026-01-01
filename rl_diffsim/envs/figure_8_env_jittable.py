@@ -146,7 +146,7 @@ class FigureEightJittableEnv(DroneJittableEnv):
                 return data
 
             def _reset_rotor_first_principles(data: SimData, mask: Array) -> SimData:
-                rotor_vel = 10000.0 * jp.ones(
+                rotor_vel = 15900.0 * jp.ones(
                     (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
                 )
                 data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))

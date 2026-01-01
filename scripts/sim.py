@@ -68,7 +68,6 @@ def simulate(
             curr_time = i / config.sim.freq
             action = controller.compute_control(obs, info)
             action = np.asarray(jp.asarray(action), copy=True)
-            print(action)
             env, (obs, reward, terminated, truncated, info) = env.step(env, action[None, None, :])
             obs = {k: np.asarray(v[0]) for k, v in obs.items()}
             info = {k: v[0] for k, v in info.items()}

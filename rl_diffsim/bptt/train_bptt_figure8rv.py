@@ -19,7 +19,6 @@ import wandb
 from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
 from rl_diffsim.envs.wrappers_jittable import (
-    ActionNoiseJittable,
     ActionPenaltyJittable,
     AngleRewardJittable,
     FlattenJaxObservationJittable,

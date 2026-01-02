@@ -131,8 +131,9 @@ class StateController(Controller):
         idx = min(self._tick, self.trajectory.shape[0] - 1)
         goal = self.trajectory[idx].copy()
         rpy = R.from_quat(obs["quat"]).as_euler("xyz")
+        action = info.get("actions", np.zeros((4,)))
         self.eval_recorder.record_step(
-            action=np.zeros((1, 4)),  # Placeholder for action
+            action=action[None, :],
             position=obs["pos"].copy()[None, :],
             goal=goal[None, :],
             rpy=rpy[None, :],

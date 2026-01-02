@@ -19,6 +19,7 @@ import jax
 import numpy as np
 import rclpy
 from cflib.crazyflie import Crazyflie, Localization
+from cflib.crazyflie.log import LogConfig
 from cflib.crtp.crtpstack import CRTPPacket, CRTPPort
 from cflib.utils.power_switch import PowerSwitch
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector
@@ -91,6 +92,8 @@ class RealDroneCoreEnv:
         self.drone = self._connect_to_drone(
             radio_id=rank, radio_channel=drones[rank]["channel"], drone_id=drones[rank]["id"]
         )
+        if self.control_mode == "rl_state":
+            self._setup_rl_logging(self.drone)
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
 
         self._ros_connector = ROSConnector(
@@ -165,6 +168,8 @@ class RealDroneCoreEnv:
 
     def info(self) -> dict:
         """Return an info dictionary containing additional information about the environment."""
+        if getattr(self, "_rl_action", None) is not None:
+            return {"actions": self._rl_action}
         return {}
 
     def send_action(self, action: NDArray):
@@ -264,6 +269,37 @@ class RealDroneCoreEnv:
 
         return drone
 
+    def _setup_rl_logging(self, drone: Crazyflie) -> None:
+        self._rl_log_ts_ms = None
+        self._rl_action = None
+        self._rl_log_started = False
+
+        period_ms = 10  # largest logging rate 100Hz
+
+        lg = LogConfig(name="ctrlRL", period_in_ms=period_ms)
+        lg.add_variable("ctrlRL.action_1", "float")
+        lg.add_variable("ctrlRL.action_2", "float")
+        lg.add_variable("ctrlRL.action_3", "float")
+        lg.add_variable("ctrlRL.action_4", "float")
+
+        def _on_log(ts_ms: int, data: dict[str, float], _logconf):
+            self._rl_log_ts_ms = ts_ms
+            self._rl_action = np.array(
+                [
+                    float(data["ctrlRL.action_1"]),
+                    float(data["ctrlRL.action_2"]),
+                    float(data["ctrlRL.action_3"]),
+                    float(data["ctrlRL.action_4"]),
+                ]
+            )
+
+        drone.log.add_config(lg)
+        lg.data_received_cb.add_callback(_on_log)
+        lg.start()
+
+        self._rl_log_cfg = lg
+        self._rl_log_started = True
+
     def _reset_drone(self):
         # Arm the drone
         self.drone.platform.send_arming_request(True)
@@ -292,14 +328,14 @@ class RealDroneCoreEnv:
         # enable/disable tumble control. Required 0 for agressive maneuvers
         self.drone.param.set_value("supervisor.tmblChckEn", 1)
         # Choose controller: 1: PID 2:Mellinger 6: Rotor Velocity 7: Force Torque 8: RL State
-        self.drone.param.set_value("stabilizer.controller", 8)
+        self.drone.param.set_value("stabilizer.controller", 2)
         # rate: 0, angle: 1
         self.drone.param.set_value("flightmode.stabModeRoll", 1)
         self.drone.param.set_value("flightmode.stabModePitch", 1)
         self.drone.param.set_value("flightmode.stabModeYaw", 1)
         time.sleep(0.1)  # Wait for settings to be applied
 
-    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = False):
+    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = True):
         """Move the drone to the start position."""
         # Trajectory settings
         pos = self._ros_connector.pos[self.drone_name]

@@ -78,11 +78,11 @@ class RotvelRL(Controller):
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
         y = np.zeros_like(t)  # y is 0 everywhere
         z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
-        self.trajectory = np.array([x, y, z]).T # (n_steps, 3)
+        self.trajectory = np.array([x, y, z]).T  # (n_steps, 3)
         d_x = radius * np.cos(t) * (2 * np.pi / self.trajectory_time)
         d_y = np.zeros_like(t)
         d_z = radius * np.cos(2 * t) * (2 * np.pi / self.trajectory_time)
-        self.trajectory_vel = np.array([d_x, d_y, d_z]).T # (n_steps, 3)
+        self.trajectory_vel = np.array([d_x, d_y, d_z]).T  # (n_steps, 3)
 
         # Load RL policy
         self.algo_name = "bptt"
@@ -152,7 +152,9 @@ class RotvelRL(Controller):
 
         return act
 
-    def _obs_rl(self, goal_pos: NDArray, goal_vel: NDArray, obs: dict[str, NDArray[np.floating]]) -> NDArray[np.floating]:
+    def _obs_rl(
+        self, goal_pos: NDArray, goal_vel: NDArray, obs: dict[str, NDArray[np.floating]]
+    ) -> NDArray[np.floating]:
         """Extract the relevant parts of the observation for the RL policy."""
         obs_rl_key = ["pos", "quat", "vel", "ang_vel"]
         obs_rl = {k: obs[k] for k in obs_rl_key}

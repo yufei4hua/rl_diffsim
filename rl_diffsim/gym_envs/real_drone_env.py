@@ -194,7 +194,9 @@ class RealDroneCoreEnv:
             thrust_pwm = force2pwm(
                 action[0], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
             )
-            thrust_pwm = np.clip(thrust_pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"])
+            thrust_pwm = np.clip(
+                thrust_pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"]
+            )
             # torque in Nm -> torque in PWM
             L = self.drone_parameters["L"]
             thrust2torque = self.drone_parameters["thrust2torque"]
@@ -203,14 +205,18 @@ class RealDroneCoreEnv:
             pitch_force = tau_y / L * 2.0
             yaw_force = tau_z / thrust2torque
             torque_force = np.array([roll_force, pitch_force, yaw_force])
-            torque_pwm = force2pwm(torque_force, self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"])
+            torque_pwm = force2pwm(
+                torque_force,
+                self.drone_parameters["thrust_max"] * 4,
+                self.drone_parameters["pwm_max"],
+            )
             # use attitude setpoint UI for force_torque command
             self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
         elif self.control_mode == "rl_state":
-            pos, vel= action[:3], action[3:6]
-            acc = np.zeros(3) # currently we don't have acc command for RL policy
-            quat = np.array([0., 0., 0., 1.]) # currently no orientation command for RL policy
-            rollrate, pitchrate, yawrate = 0., 0., 0. # currently no rate command for RL policy
+            pos, vel = action[:3], action[3:6]
+            acc = np.zeros(3)  # currently we don't have acc command for RL policy
+            quat = np.array([0.0, 0.0, 0.0, 1.0])  # currently no orientation command for RL policy
+            rollrate, pitchrate, yawrate = 0.0, 0.0, 0.0  # currently no rate command for RL policy
             self.drone.commander.send_full_state_setpoint(
                 pos, vel, acc, quat, rollrate, pitchrate, yawrate
             )
@@ -286,19 +292,16 @@ class RealDroneCoreEnv:
         # enable/disable tumble control. Required 0 for agressive maneuvers
         self.drone.param.set_value("supervisor.tmblChckEn", 1)
         # Choose controller: 1: PID 2:Mellinger 6: Rotor Velocity 7: Force Torque 8: RL State
-        self.drone.param.set_value("stabilizer.controller", 2)
+        self.drone.param.set_value("stabilizer.controller", 8)
         # rate: 0, angle: 1
         self.drone.param.set_value("flightmode.stabModeRoll", 1)
         self.drone.param.set_value("flightmode.stabModePitch", 1)
         self.drone.param.set_value("flightmode.stabModeYaw", 1)
         time.sleep(0.1)  # Wait for settings to be applied
 
-    def _move_to_start(self, start_controller: Controller):
-        # use attitude interface to fly to start
-        save_control_mode = self.control_mode  # TODO: this is ugly
-        self.control_mode = "attitude"
-        self.drone.commander.send_setpoint(0, 0, 0, 0)
-        # Move the drone to the start position
+    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = False):
+        """Move the drone to the start position."""
+        # Trajectory settings
         pos = self._ros_connector.pos[self.drone_name]
         FREQ = 50  # Hz
         START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
@@ -307,42 +310,71 @@ class RealDroneCoreEnv:
             np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0
         )  # s
         HOVER_DURATION = 2.0  # get ready for episode
-        p0 = np.asarray(pos, dtype=np.float32)
-        p1 = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
-        p2 = np.asarray(self.takeoff_pos[self.rank], dtype=np.float32)
+        if use_attitude_interface:
+            # use attitude interface to be compatible with UKF estimator
+            self.drone.param.set_value("stabilizer.controller", 2)
+            # create a trajectory
+            p0 = np.asarray(pos, dtype=np.float32)
+            p1 = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
+            p2 = np.asarray(self.takeoff_pos[self.rank], dtype=np.float32)
 
-        takeoff_steps = int(np.ceil(TAKEOFF_DURATION * FREQ))
-        move_steps = int(np.ceil(MOVE_DURATION * FREQ))
-        hover_steps = int(np.ceil(HOVER_DURATION * FREQ))
+            takeoff_steps = int(np.ceil(TAKEOFF_DURATION * FREQ))
+            move_steps = int(np.ceil(MOVE_DURATION * FREQ))
+            hover_steps = int(np.ceil(HOVER_DURATION * FREQ))
 
-        seg_takeoff = np.linspace(p0, p1, num=takeoff_steps, endpoint=True)
-        seg_move = np.linspace(p1, p2, num=move_steps, endpoint=True)
-        seg_hover = np.broadcast_to(p2, (hover_steps, 3))
+            seg_takeoff = np.linspace(p0, p1, num=takeoff_steps, endpoint=True)
+            seg_move = np.linspace(p1, p2, num=move_steps, endpoint=True)
+            seg_hover = np.broadcast_to(p2, (hover_steps, 3))
 
-        traj = np.concatenate([seg_takeoff, seg_move, seg_hover], axis=0)  # (T, 3)
-        start_controller.trajectory = traj
+            traj = np.concatenate([seg_takeoff, seg_move, seg_hover], axis=0)  # (T, 3)
+            start_controller.trajectory = traj
+            self.drone.commander.send_setpoint(0, 0, 0, 0)
+            while rclpy.ok() and not start_controller._finished:
+                obs = self.obs()
+                obs = {k: v[self.rank] for k, v in obs.items()}
+                action = start_controller.compute_control(obs, None)
+                pwm = force2pwm(
+                    action[3],
+                    self.drone_parameters["thrust_max"] * 4,
+                    self.drone_parameters["pwm_max"],
+                )
+                pwm = np.clip(
+                    pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"]
+                )
+                action = (*np.rad2deg(action[:3]), int(pwm))
+                self.drone.commander.send_setpoint(*action)
+                self._ros_connector.publish_cmd(action)
+                self.drone.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                start_controller.step_callback(action, obs, 0.0, False, False, {})
+                time.sleep(1 / FREQ)
+        else:
+            # use high-level commander
+            def wait_for_action(dt: float):
+                tstart = time.perf_counter()
+                # Wait for the action to be completed and send the current position to the drone
+                while time.perf_counter() - tstart < dt:
+                    if not rclpy.ok():
+                        raise RuntimeError("ROS has already stopped")
+                    if not self._drone_healthy.is_set():
+                        raise RuntimeError("Drone connection lost")
+                    obs = self.obs()
+                    self.drone.extpos.send_extpose(*obs["pos"][self.rank], *obs["quat"][self.rank])
+                    time.sleep(1 / FREQ)
 
-        while rclpy.ok():
-            t_loop = time.perf_counter()
-            obs = self.obs()
-            obs = {k: v[0] for k, v in obs.items()}
-            action = start_controller.compute_control(obs, None)
-            next_obs, _, terminated, truncated, _ = self._step(action)
-            next_obs, terminated, truncated = (
-                {k: v[0, ...] for k, v in next_obs.items()},
-                terminated[0],
-                truncated[0],
-            )
-            controller_finished = start_controller.step_callback(None, None, None, None, None, None)
-            if terminated or truncated or controller_finished:
-                break
-            if (dt := (time.perf_counter() - t_loop)) < (1 / FREQ):
-                time.sleep(1 / FREQ - dt)
-            else:
-                exc = dt - 1 / FREQ
-                logger.warning(f"Controller execution time exceeded loop frequency by {exc:.3f}s.")
+            self.drone.commander.send_stop_setpoint()
+            self.drone.commander.send_notify_setpoint_stop()
+            self.drone.param.set_value("commander.enHighLevel", "1")
+            self.drone.platform.send_arming_request(True)
+            takeoff_pos = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
+            self.drone.high_level_commander.go_to(*takeoff_pos, 0, TAKEOFF_DURATION)
+            wait_for_action(TAKEOFF_DURATION)
+            target_pos = self.takeoff_pos[self.rank]  # Default start position
+            self.drone.high_level_commander.go_to(*target_pos, 0, MOVE_DURATION)
+            wait_for_action(MOVE_DURATION)
+            self.drone.high_level_commander.go_to(*target_pos, 0, HOVER_DURATION)
+            wait_for_action(HOVER_DURATION)
+            self.drone.param.set_value("commander.enHighLevel", "0")
 
-        self.control_mode = save_control_mode
         if self.control_mode == "rotor_vel":
             self.drone.param.set_value("stabilizer.controller", 6)
         elif self.control_mode == "force_torque":
@@ -356,7 +388,7 @@ class RealDroneCoreEnv:
         self.drone.commander.send_stop_setpoint()
         self.drone.commander.send_notify_setpoint_stop()
         self.drone.param.set_value("commander.enHighLevel", "1")
-        self.drone.param.set_value("stabilizer.controller", 2) # switch back to mellinger for return
+        self.drone.param.set_value("stabilizer.controller", 2)  # switch back to mellinger
         self.drone.platform.send_arming_request(True)
         # Fly back to the start position
         pos = self._ros_connector.pos[self.drone_name]

@@ -195,7 +195,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
                 "ang_vel": data.states.ang_vel[:, 0, :],
             }
             # obs["difference_to_goal"] = goal_pos - data.states.pos[:, 0, :] # legacy approach
-            obs["pos"] = data.states.pos[:, 0, :] - goal_pos # agent only sees relative position
+            obs["pos"] = data.states.pos[:, 0, :] - goal_pos  # agent only sees relative position
             return obs
 
         def _sample_goal(key: Array, goal: Array, mask: Array | None) -> Array:

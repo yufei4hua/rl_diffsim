@@ -14,6 +14,7 @@ from __future__ import annotations  # Python 3.10 type hints
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy.interpolate import CubicSpline  # noqa: F401
 from scipy.spatial.transform import Rotation as R
 
 from rl_diffsim.control import Controller
@@ -26,7 +27,9 @@ if TYPE_CHECKING:
 class StateController(Controller):
     """State controller following a pre-defined trajectory."""
 
-    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None):
+    def __init__(
+        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
+    ):
         """Initialization of the controller.
 
         Args:
@@ -35,10 +38,10 @@ class StateController(Controller):
             info: The initial environment information from the reset.
             config: The race configuration. See the config files for details. Contains additional
                 information such as disturbance configurations, randomizations, etc.
+            sim: The simulator object, if applicable.
         """
         super().__init__(obs, info, config)
         self.freq = config.sim.freq
-
 
         self.algo_name = "bptt"
         self.exp_name = "f8state"
@@ -57,6 +60,29 @@ class StateController(Controller):
         d_y = np.zeros_like(t)
         d_z = radius * np.cos(2 * t) * (2 * np.pi / self.trajectory_time)
         self.trajectory_vel = np.array([d_x, d_y, d_z]).T
+
+        # # Racing trajectory
+        # waypoints = np.array(
+        #     [
+        #         [-1.5, 0.75, 0.05],
+        #         [-1.0, 0.55, 0.4],
+        #         [0.2, 0.20, 0.7],
+        #         [1.3, -0.15, 0.9],
+        #         [0.85, 0.85, 1.2],
+        #         [-0.5, -0.05, 0.7],
+        #         [-1.2, -0.2, 0.8],
+        #         [-1.2, -0.2, 1.2],
+        #         [-0.0, -0.7, 1.2],
+        #         [0.5, -0.75, 1.2],
+        #     ]
+        # )
+        # self._t_total = 10  # s
+        # t = np.linspace(0, self._t_total, len(waypoints))
+        # self._des_pos_spline = CubicSpline(t, waypoints)
+        # # Sample racing trajectory and velocity at controller frequency
+        # t_samples = np.linspace(0, self._t_total, int(np.ceil(self._t_total * self.freq)))
+        # self.trajectory = self._des_pos_spline(t_samples)
+        # self.trajectory_vel = self._des_pos_spline(t_samples, 1)
 
         self._tick = 0
         self._finished = False
@@ -106,7 +132,7 @@ class StateController(Controller):
         goal = self.trajectory[idx].copy()
         rpy = R.from_quat(obs["quat"]).as_euler("xyz")
         self.eval_recorder.record_step(
-            action=np.zeros((1, 4)), # Placeholder for action
+            action=np.zeros((1, 4)),  # Placeholder for action
             position=obs["pos"].copy()[None, :],
             goal=goal[None, :],
             rpy=rpy[None, :],

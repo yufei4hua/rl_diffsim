@@ -38,7 +38,12 @@ class MellingerController(Controller):
     """A copy of the onboard Mellinger controller for testing."""
 
     def __init__(
-        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None, _ros_connector: object = None
+        self,
+        obs: dict[str, NDArray[np.floating]],
+        info: dict,
+        config: dict,
+        sim: object = None,
+        _ros_connector: object = None,
     ):
         """Initialize the Mellinger controller.
 
@@ -168,10 +173,10 @@ class MellingerController(Controller):
         # 3. Step controllers
         self.data = self._ctrl_step(self.data)
         # 4. Extract command outputs
-        rpyt_cmd = self.data.controls.attitude.cmd[0, 0, :] # TODO: publish this action to estimator, or use legacy
+        # rpyt_cmd = self.data.controls.attitude.cmd[0, 0, :] # TODO: publish this action to estimator, or use legacy
         # if self._ros_connector is not None:
         #     self._ros_connector.publish_cmd(rpyt_cmd)
-        force_torque = self.data.controls.force_torque.cmd[0, 0, :]
+        # force_torque = self.data.controls.force_torque.cmd[0, 0, :]
         rotor_vel = self.data.controls.rotor_vel[0, 0, :]
         # print(f"Rotor Vel: {rotor_vel}")
         # print(f"Onboard: {self.sim.data.controls.rotor_vel}")

@@ -38,6 +38,7 @@ import numpy as np
 def _dense_names_in_actor(actor_tree: Dict[str, Any]) -> List[str]:
     """Return sorted dense module names present."""
     dense_names = [k for k in actor_tree.keys() if k.startswith("Dense_")]
+
     # Sort by the integer suffix
     def _idx(name: str) -> int:
         try:
@@ -49,9 +50,7 @@ def _dense_names_in_actor(actor_tree: Dict[str, Any]) -> List[str]:
     return dense_names
 
 
-def _extract_dense_params(
-    actor_tree: Dict[str, Any],
-) -> List[Tuple[np.ndarray, np.ndarray]]:
+def _extract_dense_params(actor_tree: Dict[str, Any]) -> List[Tuple[np.ndarray, np.ndarray]]:
     """Extract list of (kernel, bias) from Dense_0..Dense_N in order."""
     dense_names = _dense_names_in_actor(actor_tree)
     if not dense_names:
@@ -64,7 +63,7 @@ def _extract_dense_params(
             raise ValueError(f"Module {name} missing kernel/bias keys: {node.keys()}")
 
         k = np.asarray(node["kernel"], dtype=np.float32)  # (in, out)
-        b = np.asarray(node["bias"], dtype=np.float32)    # (out,)
+        b = np.asarray(node["bias"], dtype=np.float32)  # (out,)
         if k.ndim != 2:
             raise ValueError(f"{name}.kernel expected 2D, got {k.shape}")
         if b.ndim != 1 or b.shape[0] != k.shape[1]:
@@ -90,7 +89,7 @@ def _format_c_array_1d(name: str, arr: np.ndarray, cols: int = 8) -> str:
     flat = arr.reshape(-1).astype(np.float32)
     lines = []
     for i in range(0, flat.size, cols):
-        chunk = ", ".join(_c_float_literal(float(v)) for v in flat[i:i+cols])
+        chunk = ", ".join(_c_float_literal(float(v)) for v in flat[i : i + cols])
         lines.append("  " + chunk + ("," if i + cols < flat.size else ""))
     body = "\n".join(lines)
     return f"static const float {name}[{flat.size}] = {{\n{body}\n}};\n"
@@ -111,10 +110,7 @@ def _format_dense_layer(layer_idx: int, k: np.ndarray, b: np.ndarray) -> str:
 
 
 def export_header(
-    ckpt_path: Path,
-    out_path: Path,
-    header_guard: str,
-    prefix_comment: str | None = None,
+    ckpt_path: Path, out_path: Path, header_guard: str, prefix_comment: str | None = None
 ) -> None:
     """Export actor Dense params from Flax checkpoint to C header."""
     with open(ckpt_path, "rb") as f:
@@ -136,10 +132,10 @@ def export_header(
     if len(layers) < 1:
         raise ValueError("No Dense layers found; cannot export header.")
 
-    input_size = int(layers[0][0].shape[0])         # first kernel in-dim
-    output_size = int(layers[-1][0].shape[1])       # last kernel out-dim
-    num_dense = int(len(layers))                    # total Dense modules
-    num_hidden_layers = max(num_dense - 1, 0)       # hidden Dense count
+    input_size = int(layers[0][0].shape[0])  # first kernel in-dim
+    output_size = int(layers[-1][0].shape[1])  # last kernel out-dim
+    num_dense = int(len(layers))  # total Dense modules
+    num_hidden_layers = max(num_dense - 1, 0)  # hidden Dense count
     hidden_size = int(layers[0][0].shape[1]) if num_hidden_layers > 0 else 0
 
     # Validate hidden layers have consistent hidden_size (optional but recommended)
@@ -198,7 +194,7 @@ def export_header(
     lines.append(f"#ifndef {guard}\n")
     lines.append(f"#define {guard}\n\n")
 
-    lines.append("#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
+    lines.append('#ifdef __cplusplus\nextern "C" {\n#endif\n\n')
 
     # --- Export metadata as C constants too (useful for asserts / tooling) ---
     lines.append(f"static const int ACTOR_INPUT_SIZE  = {input_size};\n")
@@ -220,14 +216,26 @@ def export_header(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("".join(lines), encoding="utf-8")
 
+
 def main() -> None:
     """Main."""
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exp_name", type=str, default="bptt_rprv", help="Experiment name to locate the pickle ckpt (your .ckpt file)")
-    ap.add_argument("--out", type=str, default="actor_params.h", help="Output header path, e.g. actor_params.h")
+    ap.add_argument(
+        "--exp_name",
+        type=str,
+        default="bptt_rprv",
+        help="Experiment name to locate the pickle ckpt (your .ckpt file)",
+    )
+    ap.add_argument(
+        "--out", type=str, default="actor_params.h", help="Output header path, e.g. actor_params.h"
+    )
     ap.add_argument("--guard", type=str, default="ACTOR_PARAMS_H", help="Header guard macro")
-    ap.add_argument("--comment", type=str, default="ActorNet params for deterministic inference (mean only).",
-                    help="Extra comment line in header")
+    ap.add_argument(
+        "--comment",
+        type=str,
+        default="ActorNet params for deterministic inference (mean only).",
+        help="Extra comment line in header",
+    )
     args = ap.parse_args()
 
     model_path = Path(__file__).parents[1] / f"saves/{args.exp_name}_model.ckpt"
@@ -240,6 +248,7 @@ def main() -> None:
         prefix_comment=args.comment,
     )
     print(f"Wrote header: {out_path}")
+
 
 if __name__ == "__main__":
     main()

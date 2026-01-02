@@ -80,9 +80,15 @@ class Args:
         args = Args(**kwargs)
         batch_size = int(args.num_envs * args.num_steps)
         num_iterations = args.total_timesteps // batch_size
-        act_coefs = (args.act_coefs[0],) * 4 # make sure all four coefficients are the same
+        act_coefs = (args.act_coefs[0],) * 4  # make sure all four coefficients are the same
         d_act_coefs = (args.d_act_coefs[0],) * 4
-        return replace(args, batch_size=batch_size, num_iterations=num_iterations, act_coefs=act_coefs, d_act_coefs=d_act_coefs)
+        return replace(
+            args,
+            batch_size=batch_size,
+            num_iterations=num_iterations,
+            act_coefs=act_coefs,
+            d_act_coefs=d_act_coefs,
+        )
 
 
 # region MakeEnvs

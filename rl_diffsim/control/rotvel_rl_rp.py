@@ -76,9 +76,13 @@ class RotvelRL(Controller):
         t = np.linspace(0, 2 * np.pi, n_steps)
         radius = 1  # Radius for the circles
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
-        y = np.zeros_like(t)  # x is 0 everywhere
+        y = np.zeros_like(t)  # y is 0 everywhere
         z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
-        self.trajectory = np.array([x, y, z]).T
+        self.trajectory = np.array([x, y, z]).T # (n_steps, 3)
+        d_x = radius * np.cos(t) * (2 * np.pi / self.trajectory_time)
+        d_y = np.zeros_like(t)
+        d_z = radius * np.cos(2 * t) * (2 * np.pi / self.trajectory_time)
+        self.trajectory_vel = np.array([d_x, d_y, d_z]).T # (n_steps, 3)
 
         # Load RL policy
         self.algo_name = "bptt"
@@ -105,7 +109,7 @@ class RotvelRL(Controller):
         self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         # warm up jax policy
-        obs_rl = self._obs_rl(obs)
+        obs_rl = self._obs_rl(self.trajectory[0], self.trajectory_vel[0], obs)
         obs_rl = jp.array([obs_rl])
         for _ in range(4):
             self.agent.get_action_mean(self.agent.actor_states.params, obs_rl)
@@ -134,13 +138,13 @@ class RotvelRL(Controller):
         if i == self.trajectory.shape[0] - 1:  # Maximum duration reached
             self._finished = True
 
-        obs_rl = self._obs_rl(obs)
+        goal_pos = self.trajectory[i]
+        goal_vel = self.trajectory_vel[i]
+        obs_rl = self._obs_rl(goal_pos, goal_vel, obs)
         obs_rl = jp.array([obs_rl])
         act = self.agent.get_action_mean(self.agent.actor_states.params, obs_rl)
         act = np.array(act)
         self.last_action = act.squeeze(0)
-
-        # act = jp.array([[0.2, 0.2, 0.2, 0.2]])
 
         act = self._scale_actions(act.squeeze(0)).astype(np.float32)
 
@@ -148,14 +152,12 @@ class RotvelRL(Controller):
 
         return act
 
-    def _obs_rl(self, obs: dict[str, NDArray[np.floating]]) -> NDArray[np.floating]:
+    def _obs_rl(self, goal_pos: NDArray, goal_vel: NDArray, obs: dict[str, NDArray[np.floating]]) -> NDArray[np.floating]:
         """Extract the relevant parts of the observation for the RL policy."""
         obs_rl_key = ["pos", "quat", "vel", "ang_vel"]
         obs_rl = {k: obs[k] for k in obs_rl_key}
-        # idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
-        # dpos = self.trajectory[idx] - obs["pos"]  # (n_samples, 3)
-        # obs_rl["difference_to_goal"] = dpos.reshape(-1)  # (n_samples*3,)
-        obs_rl["difference_to_goal"] = self.trajectory[0] - obs["pos"]  # (3,)
+        obs_rl["pos"] = obs["pos"] - goal_pos  # (3,)
+        obs_rl["vel"] = obs_rl["vel"] - goal_vel  # (3,)
         obs_rl["last_action"] = self.last_action  # (4,)
         # alphabetical key order: important for flax policy
         ordered_keys = sorted(obs_rl.keys())

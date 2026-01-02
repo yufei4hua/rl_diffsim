@@ -76,7 +76,7 @@ class RealDroneCoreEnv:
         self.rank = rank
         self.freq = freq
         self.device = jax.devices("cpu")[0]
-        assert control_mode in ["state", "attitude", "force_torque", "rotor_vel"], (
+        assert control_mode in ["state", "attitude", "force_torque", "rotor_vel", "rl_state"], (
             f"Invalid control mode {control_mode}"
         )
         self.control_mode = control_mode
@@ -206,6 +206,14 @@ class RealDroneCoreEnv:
             torque_pwm = force2pwm(torque_force, self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"])
             # use attitude setpoint UI for force_torque command
             self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
+        elif self.control_mode == "rl_state":
+            pos, vel= action[:3], action[3:6]
+            acc = np.zeros(3) # currently we don't have acc command for RL policy
+            quat = np.array([0., 0., 0., 1.]) # currently no orientation command for RL policy
+            rollrate, pitchrate, yawrate = 0., 0., 0. # currently no rate command for RL policy
+            self.drone.commander.send_full_state_setpoint(
+                pos, vel, acc, quat, rollrate, pitchrate, yawrate
+            )
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
             # TODO: We currently limit ourselves to yaw rotation only because the simulation is
@@ -277,8 +285,8 @@ class RealDroneCoreEnv:
         time.sleep(0.1)  # TODO: Maybe remove
         # enable/disable tumble control. Required 0 for agressive maneuvers
         self.drone.param.set_value("supervisor.tmblChckEn", 1)
-        # Choose controller: 1: PID; 2:Mellinger 6: Rotor Velocity; 7: Force Torque
-        self.drone.param.set_value("stabilizer.controller", 2)
+        # Choose controller: 1: PID 2:Mellinger 6: Rotor Velocity 7: Force Torque 8: RL State
+        self.drone.param.set_value("stabilizer.controller", 8)
         # rate: 0, angle: 1
         self.drone.param.set_value("flightmode.stabModeRoll", 1)
         self.drone.param.set_value("flightmode.stabModePitch", 1)
@@ -339,12 +347,16 @@ class RealDroneCoreEnv:
             self.drone.param.set_value("stabilizer.controller", 6)
         elif self.control_mode == "force_torque":
             self.drone.param.set_value("stabilizer.controller", 7)
+        elif self.control_mode == "rl_state":
+            self.drone.param.set_value("stabilizer.controller", 8)
+            print("Running RL state controller")
 
     def _return_to_start(self):
         # Enable high-level functions of the drone and disable low-level control access
         self.drone.commander.send_stop_setpoint()
         self.drone.commander.send_notify_setpoint_stop()
         self.drone.param.set_value("commander.enHighLevel", "1")
+        self.drone.param.set_value("stabilizer.controller", 2) # switch back to mellinger for return
         self.drone.platform.send_arming_request(True)
         # Fly back to the start position
         pos = self._ros_connector.pos[self.drone_name]

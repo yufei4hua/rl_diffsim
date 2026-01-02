@@ -59,7 +59,7 @@ class Args:
     """the discount factor gamma"""
     num_layers: int = 2
     """the number of layers of actor networks"""
-    hidden_size: int = 32
+    hidden_size: int = 8
     """the hidden size of actor networks"""
 
     # to be filled in runtime
@@ -69,9 +69,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.1
-    act_coefs: tuple = (0.15, 0.15, 0.15, 0.15)
-    d_act_coefs: tuple = (0.05, 0.05, 0.05, 0.05)
+    rpy_coef: float = 0.15
+    act_coefs: tuple = (0.05,) * 4
+    d_act_coefs: tuple = (0.05,) * 4
     """reward coefficients for training"""
 
     @staticmethod
@@ -80,7 +80,9 @@ class Args:
         args = Args(**kwargs)
         batch_size = int(args.num_envs * args.num_steps)
         num_iterations = args.total_timesteps // batch_size
-        return replace(args, batch_size=batch_size, num_iterations=num_iterations)
+        act_coefs = (args.act_coefs[0],) * 4 # make sure all four coefficients are the same
+        d_act_coefs = (args.d_act_coefs[0],) * 4
+        return replace(args, batch_size=batch_size, num_iterations=num_iterations, act_coefs=act_coefs, d_act_coefs=d_act_coefs)
 
 
 # region MakeEnvs
@@ -404,7 +406,7 @@ def evaluate_bptt(
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             if render:
-                fps = 500
+                fps = 50
                 if ((steps * fps) % eval_env.unwrapped.freq) < fps:
                     eval_env.render()
             done = terminated | truncated

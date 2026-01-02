@@ -172,9 +172,9 @@ class ReachPosJittableEnv(DroneJittableEnv):
         n_substeps = sim.freq // freq
 
         # Update observation space
-        spec = {k: v for k, v in single_observation_space.items()}
-        spec["difference_to_goal"] = spaces.Box(-np.inf, np.inf, shape=(3,))
-        single_observation_space = spaces.Dict(spec)
+        # spec = {k: v for k, v in single_observation_space.items()}
+        # spec["difference_to_goal"] = spaces.Box(-np.inf, np.inf, shape=(3,))
+        # single_observation_space = spaces.Dict(spec)
         observation_space = batch_space(single_observation_space, sim.n_worlds)
 
         # Build jittable functions
@@ -194,7 +194,8 @@ class ReachPosJittableEnv(DroneJittableEnv):
                 "vel": data.states.vel[:, 0, :],
                 "ang_vel": data.states.ang_vel[:, 0, :],
             }
-            obs["difference_to_goal"] = goal_pos - data.states.pos[:, 0, :]
+            # obs["difference_to_goal"] = goal_pos - data.states.pos[:, 0, :] # legacy approach
+            obs["pos"] = data.states.pos[:, 0, :] - goal_pos # agent only sees relative position
             return obs
 
         def _sample_goal(key: Array, goal: Array, mask: Array | None) -> Array:

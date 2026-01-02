@@ -51,34 +51,6 @@ class AttitudeController(Controller):
         self.g = 9.81
         self._tick = 0
 
-        # # Same waypoints as in the trajectory controller. Determined by trial and error.
-        # waypoints = np.array(
-        #     [
-        #         [-1.5, 1.0, 0.05],
-        #         [-1.0, 0.8, 0.2],
-        #         [0.3, 0.55, 0.5],
-        #         [1.3, 0.2, 0.65],
-        #         [0.85, 1.1, 1.1],
-        #         [-0.5, 0.2, 0.65],
-        #         [-1.15, 0.0, 0.52],
-        #         [-1.15, 0.0, 1.1],
-        #         [-0.0, -0.4, 1.1],
-        #         [0.5, -0.4, 1.1],
-        #     ]
-        # )
-        # # Scale trajectory between 0 and 1
-        # ts = np.linspace(0, 1, np.shape(waypoints)[0])
-        # cs_x = CubicSpline(ts, waypoints[:, 0])
-        # cs_y = CubicSpline(ts, waypoints[:, 1])
-        # cs_z = CubicSpline(ts, waypoints[:, 2])
-
-        # des_completion_time = 15
-        # ts = np.linspace(0, 1, int(self.freq * des_completion_time))
-
-        # self.x_des = cs_x(ts)
-        # self.y_des = cs_y(ts)
-        # self.z_des = cs_z(ts)
-
         # Figure-8 trajectory
         # Create the figure eight trajectory
         self.trajectory_time = 10.0

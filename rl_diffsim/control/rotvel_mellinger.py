@@ -67,7 +67,7 @@ class MellingerController(Controller):
         # # Set trajectory parameters
         self.n_samples = 1
         self.samples_dt = 0.1
-        self.trajectory_time = 5.0
+        self.trajectory_time = 10.0
         self.sample_offsets = np.array(
             np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
         )
@@ -140,7 +140,7 @@ class MellingerController(Controller):
         if i == self.trajectory.shape[0] - 1:  # Maximum duration reached
             self._finished = True
 
-        des_pos = self.trajectory[0]
+        des_pos = self.trajectory[i]
 
         # 1. Write in obs data
         states = self.data.states
@@ -176,7 +176,7 @@ class MellingerController(Controller):
         # print(f"Rotor Vel: {rotor_vel}")
         # print(f"Onboard: {self.sim.data.controls.rotor_vel}")
         # print(f"Diff : {rotor_vel - self.sim.data.controls.rotor_vel}")
-        actions = force_torque
+        actions = rotor_vel
         return np.array(actions, dtype=np.float32)
 
     @staticmethod

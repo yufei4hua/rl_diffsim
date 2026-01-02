@@ -286,7 +286,7 @@ class RealDroneCoreEnv:
         # enable/disable tumble control. Required 0 for agressive maneuvers
         self.drone.param.set_value("supervisor.tmblChckEn", 1)
         # Choose controller: 1: PID 2:Mellinger 6: Rotor Velocity 7: Force Torque 8: RL State
-        self.drone.param.set_value("stabilizer.controller", 8)
+        self.drone.param.set_value("stabilizer.controller", 2)
         # rate: 0, angle: 1
         self.drone.param.set_value("flightmode.stabModeRoll", 1)
         self.drone.param.set_value("flightmode.stabModePitch", 1)
@@ -306,7 +306,7 @@ class RealDroneCoreEnv:
         MOVE_DURATION = max(
             np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0
         )  # s
-        HOVER_DURATION = 1.0  # get ready for episode
+        HOVER_DURATION = 2.0  # get ready for episode
         p0 = np.asarray(pos, dtype=np.float32)
         p1 = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
         p2 = np.asarray(self.takeoff_pos[self.rank], dtype=np.float32)

@@ -45,15 +45,15 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 500_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 64
+    num_steps: int = 72
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = True
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 3e-2
+    actor_lr: float = 4e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""

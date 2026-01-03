@@ -501,8 +501,8 @@ class RealDroneCoreEnv:
         pos = self._ros_connector.pos[self.drone_name]
         vel = self._ros_connector.vel[self.drone_name]
         RETURN_HEIGHT = 1.75  # m
-        BREAKING_DISTANCE = 1.0  # m
-        BREAKING_DURATION = 3.0  # s
+        BREAKING_DISTANCE = 0.0  # m
+        BREAKING_DURATION = 1.0  # s
         RETURN_DURATION = max(
             np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0
         )  # s

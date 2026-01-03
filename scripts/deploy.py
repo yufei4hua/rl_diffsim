@@ -17,7 +17,7 @@ import rclpy
 from utils import load_config, load_controller
 
 from rl_diffsim.control.attitude_controller import AttitudeController
-from rl_diffsim.gym_envs.real_drone_env import RealDroneEnv
+from rl_diffsim.envs.real_drone_env import RealDroneEnv
 
 logger = logging.getLogger(__name__)
 

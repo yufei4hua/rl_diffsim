@@ -135,10 +135,7 @@ class StateController(Controller):
 
         action = info.get("actions", np.zeros((4,)))
         self.eval_recorder.record_step(
-            action=action[None, :],
-            position=position[None, :],
-            goal=goal[None, :],
-            rpy=rpy[None, :],
+            action=action[None, :], position=position[None, :], goal=goal[None, :], rpy=rpy[None, :]
         )
 
         self._tick += 1

@@ -245,7 +245,7 @@ class ActionPenaltyJittable(JittableWrapper):
         """Return the base single_observation_space augmented with action_history."""
         spec = {k: v for k, v in self.base.single_observation_space.items()}
         act_dim = self.base.action_space.shape[-1]
-        spec["action_history"] = spaces.Box(
+        spec["last_actions"] = spaces.Box(
             -np.inf, np.inf, shape=(self.num_actions, act_dim), dtype=np.float32
         )
         return spaces.Dict(spec)

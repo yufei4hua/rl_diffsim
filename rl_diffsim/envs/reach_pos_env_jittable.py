@@ -248,7 +248,7 @@ class ReachPosJittableEnv(DroneJittableEnv):
 
         def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
             low, high = action_space.low, action_space.high
-            action = _sanitize_action(action, low, high)
+            action = _sanitize_action_STE(action, low, high)
             match control:
                 case Control.state:
                     raise NotImplementedError("State control currently not supported")

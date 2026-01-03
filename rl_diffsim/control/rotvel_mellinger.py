@@ -154,8 +154,8 @@ class MellingerController(Controller):
         quat = jp.array(obs["quat"][None, None, :], dtype=jp.float32)
         vel = jp.array(obs["vel"][None, None, :], dtype=jp.float32)
         ang_vel = jp.array(obs["ang_vel"][None, None, :], dtype=jp.float32)
-        vel = info.get("obs", obs).get("vel", vel) # override with onboard sensor data
-        ang_vel = info.get("obs", obs).get("ang_vel", ang_vel) # override with onboard sensor data
+        vel = info.get("obs", obs).get("vel", vel)  # override with onboard sensor data
+        ang_vel = info.get("obs", obs).get("ang_vel", ang_vel)  # override with onboard sensor data
         states = states.replace(pos=pos, quat=quat, vel=vel, ang_vel=ang_vel)
         # 2. Set desired position command
         cmd = jp.broadcast_to(

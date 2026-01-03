@@ -75,6 +75,74 @@ class JittableWrapper(struct.PyTreeNode):
         return self.base.close(**kwargs)
 
 
+# region ActionTransform
+@struct.dataclass
+class ActionTransformJittable(JittableWrapper):
+    """Jittable wrapper that interprets policy orientation output as normalized rot_vec."""
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @property
+    def single_action_space(self) -> spaces.Space:
+        """Expose normalized action space in [-1, 1]."""
+        shape = self.base.single_action_space.shape
+        dtype = getattr(self.base.single_action_space, "dtype", np.float32)
+        return spaces.Box(low=-1.0, high=1.0, shape=shape, dtype=dtype)
+
+    @property
+    def action_space(self) -> spaces.Space:
+        """Batched normalized action space."""
+        return batch_space(self.single_action_space, self.num_envs)
+
+    @classmethod
+    def create(
+        cls, base: struct.PyTreeNode, action_scale: float = 1
+    ) -> "ActionTransformJittable":
+        """Create wrapper.
+
+        Parameters:
+            base: Underlying jittable env expecting [rpy(3), thrust].
+            action_scale: Rotvec per-component bound in radians.
+        """
+        a_scale = jp.array(action_scale, dtype=jp.float32)
+
+        base_low = jp.array(base.single_action_space.low, dtype=jp.float32)
+        base_high = jp.array(base.single_action_space.high, dtype=jp.float32)
+        scale = (base_high - base_low) / 2.0
+        mean = (base_high + base_low) / 2.0
+        scale = scale.at[:3].set(a_scale)
+        mean = mean.at[:3].set(0.0)
+
+        def _step(
+            env: "ActionTransformJittable", actions: Array
+        ) -> tuple["ActionTransformJittable", tuple[Any, ...]]:
+            # Normalize -> physical rotvec + thrust.
+            actions = actions * scale + mean
+
+            # # delta rotvec (recommended for your use-case)
+            # quat = env.unwrapped.data.states.quat[:, 0, :]  # (num_envs, 4)
+            # rpy = (R.from_quat(quat) * R.from_rotvec(actions[..., :3])).as_euler("xyz")
+
+            # abs rotvec (for ablation/debug)
+            rpy = R.from_rotvec(actions[..., :3]).as_euler("xyz")
+
+            act = jp.concatenate([rpy, actions[..., 3:]], axis=-1)
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, act)
+            env = env.replace(base=base_env)
+            return env, (obs, reward, terminated, truncated, info)
+
+        def _reset(
+            env: "ActionTransformJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["ActionTransformJittable", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
+
 # region NormAct
 @struct.dataclass
 class NormalizeActionsJittable(JittableWrapper):
@@ -228,6 +296,89 @@ class AngleRewardJittable(JittableWrapper):
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
+# region ActionNoise
+@struct.dataclass
+class ActionNoiseJittable(JittableWrapper):
+    """Jittable wrapper to apply random disturbances on action.
+
+    Apply this wrapper after NormalizeActions and before ActionPenalty.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+    rng_key: Array = struct.field(pytree_node=True)
+    action_bias: Array = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(
+        cls,
+        base: struct.PyTreeNode,
+        seed: int | None = None,
+        bias_range: float = 0.1,
+        noise_std: float = 0.01,
+    ) -> "ActionNoiseJittable":
+        """Create an ActionNoiseJittable around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+            seed: Random seed for noise generation.
+            noise_std: Standard deviation of the Gaussian noise to apply to actions.
+
+        Returns:
+            ActionNoiseJittable: A configured wrapper with jitted step/reset.
+        """
+        rng_key = jax.random.PRNGKey(seed) if seed is not None else 0
+        action_bias = jp.zeros(base.action_space.shape)
+
+        def _reset(
+            env: "ActionNoiseJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["ActionNoiseJittable", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            rng_key = jax.random.PRNGKey(seed) if seed is not None else 0
+            rng_key, subkey = jax.random.split(rng_key)
+            action_bias, _ = _sample_noise(subkey, env.action_bias, bias_range, noise_std, None)
+            env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
+            return env, (obs, info)
+
+        def _step(
+            env: "ActionNoiseJittable", actions: Array
+        ) -> tuple["ActionNoiseJittable", tuple[Any, ...]]:
+            rng_key, subkey = jax.random.split(env.rng_key)
+            # 1. sample noise (bias + additive gaussian)
+            action_bias, additive_noise = _sample_noise(
+                subkey, env.action_bias, bias_range, noise_std, env.unwrapped._marked_for_reset
+            )
+            # 2. apply noise and step env
+            actions = actions + jax.lax.stop_gradient(action_bias + additive_noise)
+            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
+                env.base, actions
+            )
+            env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
+            return env, (obs, rewards, terminations, truncations, infos)
+
+        def _sample_noise(
+            key: Array, action_bias: Array, bias_range: Array, noise_std: Array, mask: Array | None
+        ) -> Array:
+            key1, key2 = jax.random.split(key)
+            new_bias = jax.random.uniform(
+                key1, shape=action_bias.shape, minval=-bias_range, maxval=bias_range
+            )
+            new_additive = jax.random.normal(key2, shape=action_bias.shape) * noise_std
+            if mask is not None:  # update action bias upon reset
+                new_bias = jp.where(mask[..., None], new_bias, action_bias)
+            return new_bias, new_additive
+
+        return cls(
+            base=base,
+            rng_key=rng_key,
+            action_bias=action_bias,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
+
 # region ActionPenalty
 @struct.dataclass
 class ActionPenaltyJittable(JittableWrapper):
@@ -320,6 +471,93 @@ class ActionPenaltyJittable(JittableWrapper):
         )
 
 
+# region StackObs
+@struct.dataclass
+class StackObsJittable(JittableWrapper):
+    """Jittable wrapper to stack history observations.
+
+    This wrapper appends `prev_obs` to the observation dict. `prev_obs` contains the last
+    `n_obs` basic observations concatenated in chronological order.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+    n_obs: int = struct.field(pytree_node=False)
+    prev_obs: Array = struct.field(pytree_node=True)  # (num_envs, n_obs, 13)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @property
+    def single_observation_space(self) -> spaces.Space:
+        """Base single_observation_space augmented with `prev_obs`."""
+        spec = {k: v for k, v in self.base.single_observation_space.items()}
+        spec["prev_obs"] = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(13 * self.n_obs,), dtype=np.float32
+        )
+        return spaces.Dict(spec)
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        """Batched observation space matching the wrapper's num_envs."""
+        return batch_space(self.single_observation_space, self.num_envs)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode, n_obs: int = 1) -> "StackObsJittable":
+        """Create a StackObsJittable around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+            n_obs: Number of historical observations to stack. Must be >= 1.
+
+        Returns:
+            StackObsJittable: Configured wrapper instance.
+        """
+        if n_obs < 1:
+            raise ValueError(f"StackObsJittable requires n_obs >= 1, got {n_obs}.")
+
+        prev_obs = jp.zeros((base.num_envs, n_obs, 13), dtype=jp.float32)
+
+        def _basic_obs(obs: dict[str, Array]) -> Array:
+            """Extract the 13D basic observation [pos, quat, vel, ang_vel]."""
+            basic_keys = ("pos", "quat", "vel", "ang_vel")
+            return jp.concatenate(
+                [jp.reshape(obs[k], (obs[k].shape[0], -1)) for k in basic_keys], axis=-1
+            )
+
+        @jax.jit
+        def _update_prev_obs(prev_obs: Array, obs: dict[str, Array]) -> Array:
+            """Roll history and write current basic obs into the last slot."""
+            basic = _basic_obs(obs)  # (num_envs, 13)
+            prev_obs = jp.roll(prev_obs, shift=1, axis=1)
+            prev_obs = prev_obs.at[:, 0, :].set(basic)
+            return prev_obs
+
+        def _reset(
+            env: "StackObsJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["StackObsJittable", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            basic = _basic_obs(obs)  # (num_envs, 13)
+            init_prev = jp.broadcast_to(basic[:, None, :], env.prev_obs.shape)
+            env = env.replace(base=base_env, prev_obs=init_prev)
+            obs["prev_obs"] = env.prev_obs.reshape(env.num_envs, -1)
+            return env, (obs, info)
+
+        def _step(
+            env: "StackObsJittable", action: Array
+        ) -> tuple["StackObsJittable", tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+
+            obs["prev_obs"] = env.prev_obs.reshape(env.num_envs, -1)
+            new_prev = _update_prev_obs(env.prev_obs, obs)
+
+            env = env.replace(base=base_env, prev_obs=new_prev)
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(
+            base=base, n_obs=n_obs, prev_obs=prev_obs, step=jax.jit(_step), reset=jax.jit(_reset)
+        )
+
+
 # region FlattenObs
 @struct.dataclass
 class FlattenJaxObservationJittable(JittableWrapper):
@@ -378,84 +616,71 @@ class FlattenJaxObservationJittable(JittableWrapper):
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
-# region ActionNoise
+# region ObsNoise
 @struct.dataclass
-class ActionNoiseJittable(JittableWrapper):
-    """Jittable wrapper to apply random disturbances on action.
+class ObsNoiseJittable(JittableWrapper):
+    """Jittable wrapper to add Gaussian noise to observations.
 
-    Apply this wrapper after NormalizeActions and before ActionPenalty.
+    Apply this wrapper after FlattenJaxObservationJittable.
     """
 
     base: struct.PyTreeNode = struct.field(pytree_node=True)
+    noise_std: float = struct.field(pytree_node=False)
     rng_key: Array = struct.field(pytree_node=True)
-    action_bias: Array = struct.field(pytree_node=True)
 
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
 
     @classmethod
     def create(
-        cls,
-        base: struct.PyTreeNode,
-        seed: int | None = None,
-        bias_range: float = 0.1,
-        noise_std: float = 0.01,
-    ) -> "ActionNoiseJittable":
-        """Create an ActionNoiseJittable around `base`.
+        cls, base: struct.PyTreeNode, noise_std: float = 0.01, seed: int | None = 0
+    ) -> "ObsNoiseJittable":
+        """Create an ObsNoiseJittable around `base`.
 
         Parameters:
             base: The jittable base environment to wrap.
+            noise_std: Standard deviation of Gaussian noise.
             seed: Random seed for noise generation.
-            noise_std: Standard deviation of the Gaussian noise to apply to actions.
 
         Returns:
-            ActionNoiseJittable: A configured wrapper with jitted step/reset.
+            ObsNoiseJittable: Configured wrapper instance.
         """
-        rng_key = jax.random.PRNGKey(seed) if seed is not None else 0
-        action_bias = jp.zeros(base.action_space.shape)
+        rng_key = jax.random.PRNGKey(seed if seed is not None else 0)
+
+        def _add_noise(key: Array, obs: Array, std: Array) -> Array:
+            """Add noise to array obs."""
+            noise = jax.random.normal(key, shape=obs.shape) * std
+            return obs + noise
 
         def _reset(
-            env: "ActionNoiseJittable", *, seed: int | None = None, options: dict | None = None
-        ) -> tuple["ActionNoiseJittable", tuple[Any, Any]]:
+            env: "ObsNoiseJittable", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["ObsNoiseJittable", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
-            rng_key = jax.random.PRNGKey(seed) if seed is not None else 0
+
+            rng_key = env.rng_key
+            if seed is not None:
+                rng_key = jax.random.PRNGKey(seed)
             rng_key, subkey = jax.random.split(rng_key)
-            action_bias, _ = _sample_noise(subkey, env.action_bias, bias_range, noise_std, None)
-            env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
+
+            obs = _add_noise(subkey, obs, jp.array(env.noise_std, dtype=jp.float32))
+            env = env.replace(base=base_env, rng_key=rng_key)
             return env, (obs, info)
 
         def _step(
-            env: "ActionNoiseJittable", actions: Array
-        ) -> tuple["ActionNoiseJittable", tuple[Any, ...]]:
-            rng_key, subkey = jax.random.split(env.rng_key)
-            # 1. sample noise (bias + additive gaussian)
-            action_bias, additive_noise = _sample_noise(
-                subkey, env.action_bias, bias_range, noise_std, env.unwrapped._marked_for_reset
-            )
-            # 2. apply noise and step env
-            actions = actions + jax.lax.stop_gradient(action_bias + additive_noise)
-            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
-                env.base, actions
-            )
-            env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
-            return env, (obs, rewards, terminations, truncations, infos)
+            env: "ObsNoiseJittable", action: Array
+        ) -> tuple["ObsNoiseJittable", tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
-        def _sample_noise(
-            key: Array, action_bias: Array, bias_range: Array, noise_std: Array, mask: Array | None
-        ) -> Array:
-            key1, key2 = jax.random.split(key)
-            new_bias = jax.random.uniform(
-                key1, shape=action_bias.shape, minval=-bias_range, maxval=bias_range
-            )
-            new_additive = jax.random.normal(key2, shape=action_bias.shape) * noise_std
-            if mask is not None:  # update action bias upon reset
-                new_bias = jp.where(mask[..., None], new_bias, action_bias)
-            return new_bias, new_additive
+            rng_key, subkey = jax.random.split(env.rng_key)
+            obs = _add_noise(subkey, obs, jp.array(env.noise_std, dtype=jp.float32))
+
+            env = env.replace(base=base_env, rng_key=rng_key)
+            return env, (obs, reward, terminated, truncated, info)
 
         return cls(
             base=base,
+            noise_std=noise_std,
             rng_key=rng_key,
-            action_bias=action_bias,
             step=jax.jit(_step),
             reset=jax.jit(_reset),
         )

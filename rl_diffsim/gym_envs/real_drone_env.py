@@ -94,6 +94,7 @@ class RealDroneCoreEnv:
         )
         if self.control_mode == "rl_state":
             self._setup_rl_logging(self.drone)
+        self._setup_sensor_logging(self.drone)
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
 
         self._ros_connector = ROSConnector(
@@ -114,6 +115,7 @@ class RealDroneCoreEnv:
 
         return self.obs(), self.info()
 
+    # region Step
     def _step(self, action: NDArray) -> tuple[dict, float, bool, bool, dict]:
         """Perform a step in the environment."""
         # Note: We do not send the action to the drone here.
@@ -166,12 +168,17 @@ class RealDroneCoreEnv:
         """Check if the episode is truncated."""
         return np.zeros(self.n_drones, dtype=bool)
 
+    # region Info
     def info(self) -> dict:
         """Return an info dictionary containing additional information about the environment."""
+        info = {}
         if getattr(self, "_rl_action", None) is not None:
-            return {"actions": self._rl_action}
-        return {}
+            info["actions"] = self._rl_action
+        # if getattr(self, "_state_log_data", None) is not None:
+        #     info["obs"] = self._state_log_data
+        return info
 
+    # region Action
     def send_action(self, action: NDArray):
         """Send the action to the drone."""
         if self.control_mode == "attitude":
@@ -269,6 +276,7 @@ class RealDroneCoreEnv:
 
         return drone
 
+    # region Logging
     def _setup_rl_logging(self, drone: Crazyflie) -> None:
         self._rl_log_ts_ms = None
         self._rl_action = None
@@ -300,6 +308,68 @@ class RealDroneCoreEnv:
         self._rl_log_cfg = lg
         self._rl_log_started = True
 
+    def _setup_sensor_logging(self, drone: Crazyflie) -> None:
+        """Setup logging for state estimator data (stateEstimateZ)."""
+        self._state_log_ts_ms = None
+        self._state_log_data = None
+        self._state_log_started = False
+
+        period_ms = 10  # largest logging rate 100Hz
+
+        lg = LogConfig(name="stateEstimateZ", period_in_ms=period_ms)
+        # # Position [mm]
+        # lg.add_variable("stateEstimateZ.x", "int16_t")
+        # lg.add_variable("stateEstimateZ.y", "int16_t")
+        # lg.add_variable("stateEstimateZ.z", "int16_t")
+        # Velocity [mm/s]
+        lg.add_variable("stateEstimateZ.vx", "int16_t")
+        lg.add_variable("stateEstimateZ.vy", "int16_t")
+        lg.add_variable("stateEstimateZ.vz", "int16_t")
+        # # Acceleration [mm/s²]
+        # lg.add_variable("stateEstimateZ.ax", "int16_t")
+        # lg.add_variable("stateEstimateZ.ay", "int16_t")
+        # lg.add_variable("stateEstimateZ.az", "int16_t")
+        # # Attitude (compressed quaternion)
+        # lg.add_variable("stateEstimateZ.quat", "uint32_t")
+        # Angular velocity [mrad/s]
+        lg.add_variable("stateEstimateZ.rateRoll", "int16_t")
+        lg.add_variable("stateEstimateZ.ratePitch", "int16_t")
+        lg.add_variable("stateEstimateZ.rateYaw", "int16_t")
+
+        def _on_state_log(ts_ms: int, data: dict, _logconf):
+            self._state_log_ts_ms = ts_ms
+            self._state_log_data = {
+                # "pos": np.array([data["stateEstimateZ.x"], data["stateEstimateZ.y"], data["stateEstimateZ.z"]], dtype=np.float32) / 1000.0,  # mm -> m
+                "vel": np.array(
+                    [
+                        data["stateEstimateZ.vx"],
+                        data["stateEstimateZ.vy"],
+                        data["stateEstimateZ.vz"],
+                    ],
+                    dtype=np.float32,
+                )
+                / 1000.0,  # mm/s -> m/s
+                # "acc": np.array([data["stateEstimateZ.ax"], data["stateEstimateZ.ay"], data["stateEstimateZ.az"]], dtype=np.float32) / 1000.0,  # mm/s² -> m/s²
+                # "quat": data["stateEstimateZ.quat"],  # compressed quaternion
+                "ang_vel": np.array(
+                    [
+                        data["stateEstimateZ.rateRoll"],
+                        data["stateEstimateZ.ratePitch"],
+                        data["stateEstimateZ.rateYaw"],
+                    ],
+                    dtype=np.float32,
+                )
+                / 1000.0,  # mrad/s -> rad/s
+            }
+
+        drone.log.add_config(lg)
+        lg.data_received_cb.add_callback(_on_state_log)
+        lg.start()
+
+        self._state_log_cfg = lg
+        self._state_log_started = True
+
+    # region Drone Params
     def _reset_drone(self):
         # Arm the drone
         self.drone.platform.send_arming_request(True)
@@ -335,7 +405,8 @@ class RealDroneCoreEnv:
         self.drone.param.set_value("flightmode.stabModeYaw", 1)
         time.sleep(0.1)  # Wait for settings to be applied
 
-    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = True):
+    # region Start/Return
+    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = False):
         """Move the drone to the start position."""
         # Trajectory settings
         pos = self._ros_connector.pos[self.drone_name]

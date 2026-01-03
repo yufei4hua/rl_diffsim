@@ -90,8 +90,8 @@ class MellingerController(Controller):
 
         # build controller functions
         self.state_freq = 50
-        self.attitude_freq = 250
-        self.force_torque_freq = 250
+        self.attitude_freq = 100
+        self.force_torque_freq = 100
         foo_sim = Sim(
             n_worlds=1,
             n_drones=1,
@@ -145,7 +145,7 @@ class MellingerController(Controller):
         if i == self.trajectory.shape[0] - 1:  # Maximum duration reached
             self._finished = True
 
-        des_pos = self.trajectory[i]
+        des_pos = self.trajectory[0]
 
         # 1. Write in obs data
         states = self.data.states
@@ -154,6 +154,8 @@ class MellingerController(Controller):
         quat = jp.array(obs["quat"][None, None, :], dtype=jp.float32)
         vel = jp.array(obs["vel"][None, None, :], dtype=jp.float32)
         ang_vel = jp.array(obs["ang_vel"][None, None, :], dtype=jp.float32)
+        vel = info.get("obs", obs).get("vel", vel) # override with onboard sensor data
+        ang_vel = info.get("obs", obs).get("ang_vel", ang_vel) # override with onboard sensor data
         states = states.replace(pos=pos, quat=quat, vel=vel, ang_vel=ang_vel)
         # 2. Set desired position command
         cmd = jp.broadcast_to(
@@ -161,14 +163,6 @@ class MellingerController(Controller):
             self.data.controls.state.cmd.shape,
         )
         controls = controls.replace(state=controls.state.replace(staged_cmd=cmd))
-        # # test cmd on attitude
-        # att_cmd = jp.broadcast_to(
-        #     jp.array(
-        #         [0.0, 0.0, 0.0, self.drone_mass * 9.86], dtype=jp.float32
-        #     ),
-        #     self.data.controls.attitude.cmd.shape,
-        # )
-        # controls = controls.replace(attitude=controls.attitude.replace(staged_cmd=att_cmd))
         self.data = self.data.replace(states=states, controls=controls)
         # 3. Step controllers
         self.data = self._ctrl_step(self.data)

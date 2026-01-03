@@ -106,7 +106,7 @@ class RotvelRL(Controller):
             num_layers=num_layers,
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
-        self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        self.last_action = np.array([0.25, 0.25, 0.25, 0.25], dtype=np.float32)
 
         # warm up jax policy
         obs_rl = self._obs_rl(self.trajectory[0], self.trajectory_vel[0], obs)
@@ -138,8 +138,11 @@ class RotvelRL(Controller):
         if i == self.trajectory.shape[0] - 1:  # Maximum duration reached
             self._finished = True
 
-        goal_pos = self.trajectory[i]
-        goal_vel = self.trajectory_vel[i]
+        # obs["vel"] = info.get("obs", obs).get("vel", obs["vel"]) # override with onboard sensor data
+        # obs["ang_vel"] = info.get("obs", obs).get("ang_vel", obs["ang_vel"]) # override with onboard sensor data
+
+        goal_pos = self.trajectory[0]
+        goal_vel = np.zeros_like(self.trajectory_vel[i])
         obs_rl = self._obs_rl(goal_pos, goal_vel, obs)
         obs_rl = jp.array([obs_rl])
         act = self.agent.get_action_mean(self.agent.actor_states.params, obs_rl)

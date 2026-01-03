@@ -129,12 +129,14 @@ class StateController(Controller):
         """
         # Record data with batch dimension (1, dim)
         idx = min(self._tick, self.trajectory.shape[0] - 1)
+        position = obs["pos"].copy()
         goal = self.trajectory[idx].copy()
         rpy = R.from_quat(obs["quat"]).as_euler("xyz")
+
         action = info.get("actions", np.zeros((4,)))
         self.eval_recorder.record_step(
             action=action[None, :],
-            position=obs["pos"].copy()[None, :],
+            position=position[None, :],
             goal=goal[None, :],
             rpy=rpy[None, :],
         )

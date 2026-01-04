@@ -6,17 +6,12 @@ import jax.numpy as jp
 import pytest
 from crazyflow.sim.physics import Physics
 
-from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv
-from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
-from rl_diffsim.envs.rand_traj_env_jittable import RandTrajJittableEnv
-from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
+from rl_diffsim.envs.drone_env import DroneEnv
+from rl_diffsim.envs.figure_8_env import FigureEightEnv
+from rl_diffsim.envs.rand_traj_env import RandTrajEnv
+from rl_diffsim.envs.reach_pos_env import ReachPosEnv
 
-available_envs = [
-    DroneJittableEnv,
-    FigureEightJittableEnv,
-    ReachPosJittableEnv,
-    RandTrajJittableEnv,
-]
+available_envs = [DroneEnv, FigureEightEnv, ReachPosEnv, RandTrajEnv]
 
 
 @pytest.fixture(params=available_envs)
@@ -58,7 +53,7 @@ def test_pytree_metadata_flags(EnvClass: struct.PyTreeNode):
     ]
 
     for name in non_pytree_fields:
-        assert name in fields, f"Field {name} not found on DroneJittableEnv"
+        assert name in fields, f"Field {name} not found on DroneEnv"
         meta = fields[name].metadata
         # flax.struct.field stores this as metadata["pytree_node"]
         assert meta.get("pytree_node", True) is False, f"{name} should have pytree_node=False"
@@ -67,19 +62,19 @@ def test_pytree_metadata_flags(EnvClass: struct.PyTreeNode):
     pytree_fields = ["data", "steps", "_marked_for_reset"]
 
     for name in pytree_fields:
-        assert name in fields, f"Field {name} not found on DroneJittableEnv"
+        assert name in fields, f"Field {name} not found on DroneEnv"
         meta = fields[name].metadata
         assert meta.get("pytree_node", True) is True, f"{name} should have pytree_node=True"
 
 
-def test_variable_data_exist(env: DroneJittableEnv):
+def test_variable_data_exist(env: DroneEnv):
     """Sanity check that dynamic variable data actually exist on instances."""
     assert hasattr(env, "data")
     assert hasattr(env, "steps")
     assert hasattr(env, "_marked_for_reset")
 
 
-def test_callables_exist(env: DroneJittableEnv):
+def test_callables_exist(env: DroneEnv):
     """Ensure reset and step functions exist and are callable."""
     assert hasattr(env, "reset")
     assert hasattr(env, "step")

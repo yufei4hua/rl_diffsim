@@ -20,7 +20,7 @@ import matplotlib
 from scipy.spatial.transform import Rotation as R
 
 from rl_diffsim.control.controller import Controller
-from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv
+from rl_diffsim.envs.drone_env import DroneEnv
 
 matplotlib.use("Agg")  # render to raster images
 from pathlib import Path
@@ -73,7 +73,7 @@ def load_controller(path: Path) -> Type[Controller]:
         raise e
 
 
-def load_environment(path: Path) -> "DroneJittableEnv":
+def load_environment(path: Path) -> "DroneEnv":
     """Load the environment module from the given path and return the RaceCoreEnv class."""
     assert path.exists(), f"Environment file not found: {path}"
     assert path.is_file(), f"Environment path is not a file: {path}"
@@ -88,18 +88,16 @@ def load_environment(path: Path) -> "DroneJittableEnv":
         Args:
             mod: Any attribute of the environment module to be checked.
         """
-        subcls = inspect.isclass(mod) and issubclass(mod, DroneJittableEnv)
+        subcls = inspect.isclass(mod) and issubclass(mod, DroneEnv)
         return subcls and mod.__module__ == environment_module.__name__
 
     environments = inspect.getmembers(environment_module, filter)
-    environments = [c for _, c in environments if issubclass(c, DroneJittableEnv)]
-    assert len(environments) > 0, (
-        f"No environment found in {path}. Have you subclassed DroneJittableEnv?"
-    )
+    environments = [c for _, c in environments if issubclass(c, DroneEnv)]
+    assert len(environments) > 0, f"No environment found in {path}. Have you subclassed DroneEnv?"
     assert len(environments) == 1, f"Multiple environments found in {path}. Only one is allowed."
-    environment_module.DroneJittableEnv = environments[0]
-    assert issubclass(environment_module.DroneJittableEnv, DroneJittableEnv)
-    return environment_module.DroneJittableEnv
+    environment_module.DroneEnv = environments[0]
+    assert issubclass(environment_module.DroneEnv, DroneEnv)
+    return environment_module.DroneEnv
 
 
 def load_config(path: Path) -> ConfigDict:

@@ -1,4 +1,4 @@
-"""Jittable Drone Environment Implementation."""
+"""Drone Environment Implementation."""
 
 import functools
 from typing import Callable, Literal
@@ -7,7 +7,6 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
-import scipy
 from crazyflow.control.control import Control
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
@@ -18,33 +17,33 @@ from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 from jax import Array
 
-from rl_diffsim.envs.drone_env_jittable import DroneJittableEnv, create_action_space
+from rl_diffsim.envs.drone_env import DroneEnv, create_action_space
 
 
-class RandTrajJittableEnv(DroneJittableEnv):
-    """Jittable Random Trajectory Environment.
+class FigureEightEnv(DroneEnv):
+    """Figure Eight Environment.
 
-    This class defines a subclass of DroneJittableEnv that contains environment data and jittable functions,
+    This class defines a subclass of DroneEnv that contains environment data and jittable functions,
     allowing for efficient execution with JAX's JIT compilation. Pass env as an argument to jitted functions.
 
     Attributes:
         num_envs: Number of parallel environments.
         max_episode_steps: Maximum number of steps per episode.
-        obs_space: Observation space of the random trajectory environment.
-        act_space: Action space of the random trajectory environment.
-        reset_fn: Jittable reset function.
-        step_fn: Jittable step function.
-        obs_fn: Jittable observation extraction function.
+        obs_space: Observation space of the figure-eight environment.
+        act_space: Action space of the figure-eight environment.
+        reset_fn:  reset function.
+        step_fn:  step function.
+        obs_fn:  observation extraction function.
         data: Simulation data structure.
     """
 
-    # Random trajectory parameters
+    # Immutable figure-eight parameters
     trajectories: Array = struct.field(pytree_node=False)
     sample_offsets: Array = struct.field(pytree_node=False)
 
     # Non-jittable functions
-    def render(self, world: int = 0, **kwargs: dict) -> None:
-        """Override base class render to show random trajectory."""
+    def render(self, world: int = 0) -> None:
+        """Override base class render to show figure-eight trajectory."""
         idx = jp.clip(
             self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
         )
@@ -53,7 +52,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
         next_trajectory = np.array(next_trajectory)
         draw_line(
             self.sim,
-            trajectories[world, 0:-1:2, :],
+            trajectories[world, 0:-1:8, :],
             rgba=jp.array([1, 1, 1, 0.4]),
             start_size=2.0,
             end_size=2.0,
@@ -67,7 +66,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
         )
         draw_points(self.sim, next_trajectory[world], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.data = self.data
-        return self.sim.render(world=world, **kwargs)
+        self.sim.render(world=world)
 
     @classmethod
     def create(
@@ -80,14 +79,16 @@ class RandTrajJittableEnv(DroneJittableEnv):
         drone_model: str = "cf21B_500",
         freq: int = 500,
         sim_freq: int = 500,
+        state_freq: int = 100,
+        attitude_freq: int = 500,
+        force_torque_freq: int = 500,
         device: str = "cpu",
-        num_waypoints: int = 7,
         n_samples: int = 10,
         trajectory_time: float = 10.0,
         samples_dt: float = 0.1,
         reset_rotor: bool = False,
         reset_randomization: Callable[[SimData, Array], SimData] | None = None,
-    ) -> "RandTrajJittableEnv":
+    ) -> "FigureEightEnv":
         """Create a jittable drone environment without render support.
 
         Args:
@@ -98,17 +99,19 @@ class RandTrajJittableEnv(DroneJittableEnv):
             drone_model: Drone model of the environment.
             freq: Frequency of the simulation.
             sim_freq: Simulation frequency.
+            state_freq: The frequency of the state controller.
+            attitude_freq: The frequency of the attitude controller.
+            force_torque_freq: The frequency of the force/torque controller.
             device: Device to use for the simulation.
-            num_waypoints: Number of random sampled waypoints for the random trajectory.
             n_samples: Number of next trajectory points to sample for observations.
-            trajectory_time: Total time for completing the random trajectory in seconds.
+            trajectory_time: Total time for completing the figure-eight trajectory in seconds.
             samples_dt: Time between trajectory sample points in seconds.
             reset_rotor: Whether to reset rotor speeds on environment reset.
             reset_randomization: A function that randomizes the initial state of the simulation. If
                 None, the default randomization for pos and vel is used.
 
         Returns:
-            An instance of RandTrajJittableEnv with jittable functions and data.
+            An instance of FigureEightEnv with jittable functions and data.
         """
         # Initialize the simulation
         jax_device = jax.devices(device)[0]
@@ -120,6 +123,9 @@ class RandTrajJittableEnv(DroneJittableEnv):
             control=control if control in [c.value for c in Control] else Control.default,
             device=device,
             freq=sim_freq,
+            state_freq=state_freq,
+            attitude_freq=attitude_freq,
+            force_torque_freq=force_torque_freq,
         )
 
         # Modify the step pipeline if needed
@@ -140,7 +146,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
                 return data
 
             def _reset_rotor_first_principles(data: SimData, mask: Array) -> SimData:
-                rotor_vel = 10000.0 * jp.ones(
+                rotor_vel = 15900.0 * jp.ones(
                     (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
                 )
                 data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
@@ -185,7 +191,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
         sim.build_reset_fn()
 
         # Prepare immutable constants
-        single_action_space = create_action_space(sim.control, sim.drone_model)
+        single_action_space = create_action_space(control, sim.drone_model)
         action_space = batch_space(single_action_space, sim.n_worlds)
         single_observation_space = spaces.Dict(
             {
@@ -197,21 +203,17 @@ class RandTrajJittableEnv(DroneJittableEnv):
         )
         n_substeps = sim.freq // freq
 
-        # Create a random trajectory based on spline interpolation
+        # Create the figure eight trajectory
         sample_offsets = jp.array(jp.arange(n_samples) * freq * samples_dt, dtype=int)
-        n_steps = int(np.ceil(trajectory_time * freq))
-        t = np.linspace(0, trajectory_time, n_steps)
-        # Random control points
-        scale = np.array([0.7, 0.7, 0.5])
-        waypoints = np.random.uniform(-1, 1, size=(sim.n_worlds, num_waypoints, 3)) * scale
-        waypoints[:, 0, :] = np.zeros(3)  # set start point to [0, 0, 0]
-        waypoints[:, -1, :] = np.zeros(3)  # set end point to [0, 0, 0]
-        waypoints = waypoints + np.array([0, 0, 2])  # shift up in z direction
-        spline = scipy.interpolate.CubicSpline(
-            np.linspace(0, trajectory_time, num_waypoints), waypoints, axis=1
-        )
-        trajectories = spline(t)  # (n_worlds, n_steps, 3)
-        trajectories = jp.array(trajectories, dtype=jp.float32)
+        n_steps = int(jp.ceil(trajectory_time * freq).item())
+        t = jp.linspace(0, 2 * jp.pi, n_steps)
+        offset = jp.linspace(0, 2 * jp.pi, num_envs, endpoint=False)
+        ts = t[None, :] + offset[:, None]  # random phase shift
+        radius = 1  # Radius for the circles
+        x = radius * jp.sin(ts)  # Scale amplitude for 1-meter diameter
+        y = jp.zeros_like(ts)  # y is 0 everywhere
+        z = radius / 2 * jp.sin(2 * ts) + 1.5  # Scale amplitude for 1-meter diameter
+        trajectories = jp.array([x.T, y.T, z.T]).T  # (num_envs, n_steps, 3)
 
         # Set takeoff position and build default reset position
         takeoff_pos = trajectories[:, :1, :]
@@ -256,7 +258,7 @@ class RandTrajJittableEnv(DroneJittableEnv):
             return obs
 
         def _reset(
-            env: "RandTrajJittableEnv", *, seed: int | None = None, options: dict | None = None
+            env: "FigureEightEnv", *, seed: int | None = None, options: dict | None = None
         ) -> tuple[tuple[SimData, Array, Array], tuple[dict[str, Array], dict]]:
             data = env.data
             _marked_for_reset = env._marked_for_reset
@@ -288,18 +290,38 @@ class RandTrajJittableEnv(DroneJittableEnv):
         def _done(terminated: Array, truncated: Array) -> Array:
             return terminated | truncated
 
+        def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
+            low, high = action_space.low, action_space.high
+            action = _sanitize_action(action, low, high)
+            match control:
+                case Control.state:
+                    raise NotImplementedError("State control currently not supported")
+                case Control.attitude:
+                    data = data.replace(
+                        controls=data.controls.replace(
+                            attitude=data.controls.attitude.replace(staged_cmd=action)
+                        )
+                    )
+                case Control.force_torque:
+                    data = data.replace(
+                        controls=data.controls.replace(
+                            force_torque=data.controls.force_torque.replace(staged_cmd=action)
+                        )
+                    )
+                case "rotor_vel":
+                    data = data.replace(controls=data.controls.replace(rotor_vel=action))
+                case _:
+                    raise ValueError(f"Invalid control type {control}")
+            return data
+
+        _apply_action = functools.partial(_apply_action, control=control)
+
         def _step(
-            env: "RandTrajJittableEnv", action: Array
+            env: "FigureEightEnv", action: Array
         ) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
-            low, high = action_space.low, action_space.high
-            action = _sanitize_action(action, low, high)
-            data = data.replace(
-                controls=data.controls.replace(
-                    attitude=data.controls.attitude.replace(staged_cmd=action)
-                )
-            )
+            data = _apply_action(data, action)
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)
             # 3. handle autoreset & update mask
@@ -356,7 +378,7 @@ if __name__ == "__main__":
 
     """Test the jittable drone environment implementation."""
     # Create the jittable environment
-    env = RandTrajJittableEnv.create(
+    env = FigureEightEnv.create(
         num_envs=1024,
         max_episode_time=10.0,
         physics=Physics.so_rpy_rotor_drag,
@@ -374,7 +396,7 @@ if __name__ == "__main__":
     print("Trajectories:", env.trajectories.shape)
     print("Initial Traj Obs:", obs["local_samples"].shape)
 
-    def step_once(env: RandTrajJittableEnv, _) -> tuple[RandTrajJittableEnv, tuple[Array, Array]]:
+    def step_once(env: FigureEightEnv, _) -> tuple[FigureEightEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
         base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
@@ -386,9 +408,7 @@ if __name__ == "__main__":
 
         return env, (pos, vel)
 
-    def rollout(
-        env: RandTrajJittableEnv, num_steps: int
-    ) -> tuple[RandTrajJittableEnv, tuple[Array, Array]]:
+    def rollout(env: FigureEightEnv, num_steps: int) -> tuple[FigureEightEnv, tuple[Array, Array]]:
         """Rollout for multiple steps using lax.scan."""
         env, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
         return env, (pos_traj, vel_traj)

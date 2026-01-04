@@ -8,9 +8,8 @@ import gymnasium
 from gymnasium import Env
 from gymnasium.vector import VectorEnv
 from gymnasium.vector.utils import batch_space
+from lsy_drone_racing.envs.race_core import RaceCoreEnv, build_action_space, build_observation_space
 from packaging.version import Version
-
-from rl_diffsim.gym_envs.race_core import RaceCoreEnv, build_action_space, build_observation_space
 
 if TYPE_CHECKING:
     from jax import Array
@@ -65,7 +64,7 @@ class DroneRaceEnv(RaceCoreEnv, Env):
             max_episode_steps=max_episode_steps,
             device=device,
         )
-        self.action_space = build_action_space(control_mode)
+        self.action_space = build_action_space(control_mode, sim_config.drone_model)
         n_gates, n_obstacles = len(track.gates), len(track.obstacles)
         self.observation_space = build_observation_space(n_gates, n_obstacles)
         self.autoreset = False
@@ -149,7 +148,7 @@ class VecDroneRaceEnv(RaceCoreEnv, VectorEnv):
             device=device,
         )
         self.num_envs = num_envs
-        self.single_action_space = build_action_space(control_mode)
+        self.single_action_space = build_action_space(control_mode, sim_config.drone_model)
         self.action_space = batch_space(self.single_action_space, num_envs)
         n_gates, n_obstacles = len(track.gates), len(track.obstacles)
         self.single_observation_space = build_observation_space(n_gates, n_obstacles)

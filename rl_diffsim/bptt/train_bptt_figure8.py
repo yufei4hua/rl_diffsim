@@ -17,13 +17,13 @@ from jax import Array
 
 import wandb
 from rl_diffsim.bptt.bptt_agent_deterministic import Agent
-from rl_diffsim.envs.figure_8_env_jittable import FigureEightJittableEnv
-from rl_diffsim.envs.wrappers_jittable import (
-    ActionPenaltyJittable,
-    FlattenJaxObservationJittable,
-    NormalizeActionsJittable,
-    RecordDataJittable,
-    ZeroYawJittable,
+from rl_diffsim.envs.figure_8_env import FigureEightEnv
+from rl_diffsim.envs.wrappers import (
+    ActionPenalty,
+    FlattenJaxObservation,
+    NormalizeActions,
+    RecordData,
+    ZeroYaw,
 )
 
 
@@ -87,9 +87,9 @@ def make_jitted_envs(
     coefs: dict = {},
     reset_rotor: bool = False,
     reset_random: bool = False,
-) -> FigureEightJittableEnv:
+) -> FigureEightEnv:
     """Make environments for training RL policy."""
-    env: FigureEightJittableEnv = FigureEightJittableEnv.create(
+    env: FigureEightEnv = FigureEightEnv.create(
         n_samples=10,
         num_envs=num_envs,
         freq=50,
@@ -100,17 +100,17 @@ def make_jitted_envs(
         reset_randomization=None if reset_random else lambda data, mask: data,
     )
 
-    env = NormalizeActionsJittable.create(env)
-    env = ZeroYawJittable.create(env)
-    # env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
-    env = ActionPenaltyJittable.create(
+    env = NormalizeActions.create(env)
+    env = ZeroYaw.create(env)
+    # env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = ActionPenalty.create(
         env,
         num_actions=1,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
         act_coefs=coefs.get("act_coefs", (0.0,) * 4),
         d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )
-    env = FlattenJaxObservationJittable.create(env)
+    env = FlattenJaxObservation.create(env)
     return env
 
 
@@ -378,7 +378,7 @@ def evaluate_bptt(
     eval_env = make_jitted_envs(
         num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
     )
-    eval_env = RecordDataJittable.create(eval_env)
+    eval_env = RecordData.create(eval_env)
 
     agent = Agent.create(
         key=jax.random.PRNGKey(0),

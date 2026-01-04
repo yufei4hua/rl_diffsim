@@ -16,14 +16,14 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.envs.reach_pos_env_jittable import ReachPosJittableEnv
-from rl_diffsim.envs.wrappers_jittable import (
-    ActionPenaltyJittable,
-    AngleRewardJittable,
-    FlattenJaxObservationJittable,
-    NormalizeActionsJittable,
-    RecordDataJittable,
-    ZeroYawJittable,
+from rl_diffsim.envs.reach_pos_env import ReachPosEnv
+from rl_diffsim.envs.wrappers import (
+    ActionPenalty,
+    AngleReward,
+    FlattenJaxObservation,
+    NormalizeActions,
+    RecordData,
+    ZeroYaw,
 )
 from rl_diffsim.ppo.ppo_agent import Agent
 
@@ -114,9 +114,9 @@ class Args:
 # region MakeEnvs
 def make_jitted_envs(
     num_envs: int = None, jax_device: str = "cpu", coefs: dict = {}, reset_rotor: bool = False
-) -> ReachPosJittableEnv:
+) -> ReachPosEnv:
     """Make environments for training RL policy."""
-    env: ReachPosJittableEnv = ReachPosJittableEnv.create(
+    env: ReachPosEnv = ReachPosEnv.create(
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",
@@ -125,17 +125,17 @@ def make_jitted_envs(
         reset_rotor=reset_rotor,
     )
 
-    env = NormalizeActionsJittable.create(env)
-    env = ZeroYawJittable.create(env)
-    env = AngleRewardJittable.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
-    env = ActionPenaltyJittable.create(
+    env = NormalizeActions.create(env)
+    env = ZeroYaw.create(env)
+    env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = ActionPenalty.create(
         env,
         num_actions=1,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
         act_coefs=coefs.get("act_coefs", (0.0,) * 4),
         d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )
-    env = FlattenJaxObservationJittable.create(env)
+    env = FlattenJaxObservation.create(env)
     return env
 
 
@@ -479,7 +479,7 @@ def evaluate_ppo(
         "d_act_coefs": args.d_act_coefs,
     }
     eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
-    eval_env = RecordDataJittable.create(eval_env)
+    eval_env = RecordData.create(eval_env)
 
     agent = Agent.create(
         key=jax.random.PRNGKey(0),

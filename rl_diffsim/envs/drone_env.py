@@ -1,4 +1,4 @@
-"""Jittable Drone Environment Implementation."""
+"""Drone Environment Implementation."""
 
 from typing import Callable, Literal
 
@@ -50,8 +50,8 @@ def create_action_space(control_type: Control | str, drone_model: str) -> spaces
             raise ValueError(f"Invalid control type {control_type}")
 
 
-class DroneJittableEnv(struct.PyTreeNode):
-    """Jittable Drone Environment.
+class DroneEnv(struct.PyTreeNode):
+    """Drone Environment.
 
     This class defines a subclass of PyTreeNode that contains environment data and jittable functions,
     allowing for efficient execution with JAX's JIT compilation. Pass env as an argument to jitted functions.
@@ -61,9 +61,9 @@ class DroneJittableEnv(struct.PyTreeNode):
         max_episode_steps: Maximum number of steps per episode.
         obs_space: Observation space of the environment.
         act_space: Action space of the environment.
-        reset_fn: Jittable reset function.
-        step_fn: Jittable step function.
-        obs_fn: Jittable observation extraction function.
+        reset_fn:  reset function.
+        step_fn:  step function.
+        obs_fn:  observation extraction function.
         data: Simulation data structure.
     """
 
@@ -88,7 +88,7 @@ class DroneJittableEnv(struct.PyTreeNode):
     steps: Array = struct.field(pytree_node=True)
     _marked_for_reset: Array = struct.field(pytree_node=True)
 
-    # Jittable functions
+    #  functions
     reset: Callable = struct.field(pytree_node=False)
     step: Callable = struct.field(pytree_node=False)
 
@@ -118,7 +118,7 @@ class DroneJittableEnv(struct.PyTreeNode):
         force_torque_freq: int = 500,
         device: str = "cpu",
         reset_randomization: Callable[[SimData, Array], SimData] | None = None,
-    ) -> "DroneJittableEnv":
+    ) -> "DroneEnv":
         """Create a jittable drone environment without render support.
 
         Args:
@@ -137,7 +137,7 @@ class DroneJittableEnv(struct.PyTreeNode):
                 None, the default randomization for pos and vel is used.
 
         Returns:
-            An instance of DroneJittableEnv with jittable functions and data.
+            An instance of DroneEnv with jittable functions and data.
 
         Note:
             Override this create method to implement custom environments.
@@ -204,7 +204,7 @@ class DroneJittableEnv(struct.PyTreeNode):
             return {k: v[:, 0, :] for k, v in obs.items()}
 
         def _reset(
-            env: "DroneJittableEnv", *, seed: int | None = None, options: dict | None = None
+            env: "DroneEnv", *, seed: int | None = None, options: dict | None = None
         ) -> tuple[tuple[SimData, Array, Array], tuple[dict[str, Array], dict]]:
             data = env.data
             _marked_for_reset = env._marked_for_reset
@@ -228,7 +228,7 @@ class DroneJittableEnv(struct.PyTreeNode):
             return terminated | truncated
 
         def _step(
-            env: "DroneJittableEnv", action: Array
+            env: "DroneEnv", action: Array
         ) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control
@@ -294,7 +294,7 @@ if __name__ == "__main__":
 
     """Test the jittable drone environment implementation."""
     # Create the jittable environment
-    env = DroneJittableEnv.create(
+    env = DroneEnv.create(
         num_envs=1024,
         max_episode_time=10.0,
         physics=Physics.so_rpy_rotor_drag,
@@ -306,7 +306,7 @@ if __name__ == "__main__":
     # Reset the environment
     env, (obs, info) = env.reset(env, seed=42)
 
-    def step_once(env: DroneJittableEnv, _) -> tuple[DroneJittableEnv, tuple[Array, Array]]:
+    def step_once(env: DroneEnv, _) -> tuple[DroneEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
         base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
@@ -318,9 +318,7 @@ if __name__ == "__main__":
 
         return env, (pos, vel)
 
-    def rollout(
-        env: DroneJittableEnv, num_steps: int
-    ) -> tuple[DroneJittableEnv, tuple[Array, Array]]:
+    def rollout(env: DroneEnv, num_steps: int) -> tuple[DroneEnv, tuple[Array, Array]]:
         """Rollout for multiple steps using lax.scan."""
         env, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
         return env, (pos_traj, vel_traj)

@@ -31,10 +31,7 @@ class ActorNet(nn.Module):
         mean = nn.tanh(mean)
         # Actor logstd
         actor_logstd = self.param(
-            "actor_logstd",
-            # lambda rng, shape: jp.array([[-2.0, -2.0, -2.0, -1.5]], dtype=jp.float32),
-            lambda rng, shape: -1.0 * jp.array([[1.0, 1.0, 1.0, 1.0]], dtype=jp.float32),
-            (1, self.act_dim),
+            "actor_logstd", lambda rng, shape: jp.zeros(shape, dtype=jp.float32), (1, self.act_dim)
         )
         logstd = jp.broadcast_to(actor_logstd, (mean.shape[0], self.act_dim))
 
@@ -57,11 +54,14 @@ class Agent(struct.PyTreeNode):
         hidden_size: int = 64,
         num_layers: int = 2,
         actor_lr: float | optax.Schedule = 3e-4,
+        init_logstd: Array = jp.array([-1.0, -1.0, -1.0, -1.0], dtype=jp.float32),
     ) -> "Agent":
         """Initialize the SHAC agent's actor and critic networks."""
         actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim, num_layers=num_layers)
         dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
         actor_params = actor.init(key, dummy_obs)
+        init_logstd = jp.broadcast_to(init_logstd[None, :], (1, act_dim))
+        actor_params["params"]["actor_logstd"] = init_logstd
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
         actor_states = train_state.TrainState.create(
             apply_fn=actor.apply, params=actor_params, tx=actor_tx

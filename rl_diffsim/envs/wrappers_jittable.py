@@ -98,7 +98,7 @@ class ActionTransformJittable(JittableWrapper):
 
     @classmethod
     def create(
-        cls, base: struct.PyTreeNode, action_scale: float = 1
+        cls, base: struct.PyTreeNode, action_scale: float = 1.0
     ) -> "ActionTransformJittable":
         """Create wrapper.
 

@@ -74,6 +74,7 @@ class Agent(struct.PyTreeNode):
         hidden_size: int = 64,
         actor_lr: float | optax.Schedule = 3e-4,
         critic_lr: float | optax.Schedule = 1e-3,
+        init_logstd: Array = jp.array([-1.0, -1.0, -1.0, -1.0], dtype=jp.float32),
     ) -> dict:
         """Initialize the PPO agent's actor and critic networks."""
         actor = ActorNet(hidden_size=hidden_size, act_dim=act_dim)
@@ -81,6 +82,8 @@ class Agent(struct.PyTreeNode):
         k1, k2 = jax.random.split(key)
         dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
         actor_params = actor.init(k1, dummy_obs)
+        init_logstd = jp.broadcast_to(init_logstd[None, :], (1, act_dim))
+        actor_params["params"]["actor_logstd"] = init_logstd
         critic_params = critic.init(k2, dummy_obs)
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
         critic_tx = optax.adamw(learning_rate=critic_lr, eps=1e-5)

@@ -108,7 +108,7 @@ class DroneEnv(struct.PyTreeNode):
         num_envs: int = 1,
         max_episode_time: float = 10.0,
         physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.so_rpy_rotor_drag,
+        | Physics = Physics.first_principles,
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,

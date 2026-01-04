@@ -35,7 +35,7 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
-    jax_device: str = "cpu"
+    jax_device: str = "gpu"
     """environment device"""
     exp_name: str = "ppo_f8"
     """the name of the experiment"""

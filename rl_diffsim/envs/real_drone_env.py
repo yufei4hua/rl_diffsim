@@ -94,7 +94,7 @@ class RealDroneCoreEnv:
         )
         if self.control_mode == "rl_state":
             self._setup_rl_logging(self.drone)
-        self._setup_sensor_logging(self.drone)
+        # self._setup_sensor_logging(self.drone)
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
 
         self._ros_connector = ROSConnector(
@@ -174,8 +174,8 @@ class RealDroneCoreEnv:
         info = {}
         if getattr(self, "_rl_action", None) is not None:
             info["actions"] = self._rl_action
-        # if getattr(self, "_state_log_data", None) is not None:
-        #     info["obs"] = self._state_log_data
+        if getattr(self, "_state_log_data", None) is not None:
+            info["obs"] = self._state_log_data
         return info
 
     # region Action
@@ -354,7 +354,9 @@ class RealDroneCoreEnv:
                 "ang_vel": np.array(
                     [
                         data["stateEstimateZ.rateRoll"],
-                        data["stateEstimateZ.ratePitch"],
+                        -data[
+                            "stateEstimateZ.ratePitch"
+                        ],  # this data pack added a minus sign for pitch rate
                         data["stateEstimateZ.rateYaw"],
                     ],
                     dtype=np.float32,

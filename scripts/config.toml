@@ -1,7 +1,7 @@
 [controller]
 # file = "attitude_rl_f8.py"
-# file = "rotvel_rl_rp.py"
 # file = "attitude_controller.py"
+# file = "rotvel_rl_rp.py"
 # file = "rotvel_mellinger.py"
 file = "state_controller.py"
 
@@ -30,7 +30,7 @@ force_torque_freq = 500      # Force/torque frequency, in Hz.
 reset_rotor = true           # Whether to reset rotor velocities on env.reset()
 
 [env]
-file = "figure_8_env_jittable.py"  # env file name
+file = "figure_8_env.py"  # env file name
 seed = 42
 
 [env.disturbances.action]

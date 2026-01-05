@@ -258,10 +258,9 @@ class FigureEightEnv(DroneEnv):
             return obs
 
         def _reset(
-            env: "FigureEightEnv", *, seed: int | None = None, options: dict | None = None
+            env: FigureEightEnv, *, seed: int | None = None, options: dict | None = None
         ) -> tuple[tuple[SimData, Array, Array], tuple[dict[str, Array], dict]]:
             data = env.data
-            _marked_for_reset = env._marked_for_reset
             if seed is not None:
                 rng_key = jax.device_put(jax.random.key(seed), jax_device)
                 data = data.replace(core=data.core.replace(rng_key=rng_key))
@@ -273,7 +272,7 @@ class FigureEightEnv(DroneEnv):
             # distance to next trajectory point
             norm_distance = jp.linalg.norm(pos - goal, axis=-1)
             reward = jp.exp(-2.0 * norm_distance)
-            reward = jp.where(terminated, -1.0, reward)
+            reward += jp.where(terminated, -1.0, 0.0)
             return reward
 
         def _terminated(pos: Array) -> Array:
@@ -317,7 +316,7 @@ class FigureEightEnv(DroneEnv):
         _apply_action = functools.partial(_apply_action, control=control)
 
         def _step(
-            env: "FigureEightEnv", action: Array
+            env: FigureEightEnv, action: Array
         ) -> tuple[tuple[SimData, Array], tuple[Array, Array, Array, Array, dict]]:
             data, _marked_for_reset = env.data, env._marked_for_reset
             # 1. apply action: only attitude control

@@ -138,8 +138,8 @@ class RotvelRL(Controller):
         if i == self.trajectory.shape[0] - 1:  # Maximum duration reached
             self._finished = True
 
-        # obs["vel"] = info.get("obs", obs).get("vel", obs["vel"]) # override with onboard sensor data
-        # obs["ang_vel"] = info.get("obs", obs).get("ang_vel", obs["ang_vel"]) # override with onboard sensor data
+        # obs["vel"] = info["obs"]["vel"]  # override with onboard sensor data
+        # obs["ang_vel"] = info["obs"]["ang_vel"]  # override with onboard sensor data
 
         goal_pos = self.trajectory[0]
         goal_vel = np.zeros_like(self.trajectory_vel[i])
@@ -170,8 +170,8 @@ class RotvelRL(Controller):
 
     def _scale_actions(self, actions: NDArray) -> NDArray:
         """Rescale and clip actions from [-1, 1] to [action_sim_low, action_sim_high]."""
-        scale = np.array([(self.rotor_vel_max - self.rotor_vel_min) / 2.0] * 4, dtype=np.float32)
-        mean = np.array([(self.rotor_vel_max + self.rotor_vel_min) / 2.0] * 4, dtype=np.float32)
+        scale = (self.rotor_vel_max - self.rotor_vel_min) / 2.0
+        mean = (self.rotor_vel_max + self.rotor_vel_min) / 2.0
         return np.clip(actions, -1.0, 1.0) * scale + mean
 
     def _render(self):

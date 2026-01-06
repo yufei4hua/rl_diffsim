@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from typing import Any
 
     from numpy.typing import NDArray
-
     from rl_diffsim.gym_envs.race_core import RaceCoreEnv
 
 

@@ -5,7 +5,7 @@ seed = 42
 [controller]
 # file = "attitude_rl_f8.py"
 # file = "rotvel_rl_rp.py"
-file = "attitude_controller.py"
+file = "attitude_race.py"
 # file = "rotvel_mellinger.py"
 # file = "state_controller.py"
 
@@ -57,7 +57,7 @@ pos = [-1.5, -0.25, 1.55]
 pos = [-0.5, -0.75, 1.55]
 
 [[env.track.drones]]
-pos = [-1.5, 0.75, 0.01]
+pos = [-1.5, 0.75, 0.1]
 rpy = [0.0, 0.0, 0.0]
 vel = [0, 0, 0]
 ang_vel = [0, 0, 0]

@@ -234,17 +234,11 @@ class RealDroneCoreEnv:
             )
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
-            # TODO: We currently limit ourselves to yaw rotation only because the simulation is
-            # based on the old crazyswarm full_state command definition. Once the simulation does
-            # support the real full_state command, we can remove this limitation and use full
-            # quaternions as inputs
             quat = R.from_euler("z", action[9]).as_quat()
             rollrate, pitchrate, yawrate = action[10:]
             self.drone.commander.send_full_state_setpoint(
                 pos, vel, acc, quat, rollrate, pitchrate, yawrate
             )
-            # TODO: The estimators can't handle state commands, so we simply don't send anything
-            # Make sure to use the legacy estimator with the state interface
 
     def _connect_to_drone(self, radio_id: int, radio_channel: int, drone_id: int) -> Crazyflie:
         cflib.crtp.init_drivers()

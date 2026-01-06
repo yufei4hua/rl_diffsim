@@ -41,7 +41,7 @@ class StateController(Controller):
             sim: The simulator object, if applicable.
         """
         super().__init__(obs, info, config)
-        self.freq = config.sim.freq
+        self.freq = config.env.freq
 
         self.algo_name = "bptt"
         self.exp_name = "f8state"

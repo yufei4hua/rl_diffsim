@@ -49,13 +49,13 @@ class RotvelRL(Controller):
             sim: For visualization purposes.
         """
         super().__init__(obs, info, config)
-        self.freq = config.sim.freq
+        self.freq = config.env.freq
 
-        drone_params = load_params(config.sim.physics, config.sim.drone_model)
+        drone_params = load_params(config.env.physics, config.env.drone_model)
         self.drone_mass = drone_params["mass"]  # alternatively from sim.drone_mass
         self.thrust_min = drone_params["thrust_min"] * 4  # min total thrust
         self.thrust_max = drone_params["thrust_max"] * 4  # max total thrust
-        params = ForceTorqueParams.load(config.sim.drone_model)
+        params = ForceTorqueParams.load(config.env.drone_model)
         self.rotor_vel_min, self.rotor_vel_max = (
             np.sqrt(params.thrust_min / params.rpm2thrust[2]),
             np.sqrt(params.thrust_max / params.rpm2thrust[2]),

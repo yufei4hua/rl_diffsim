@@ -1,44 +1,28 @@
+[exp]
+file = "figure_8_env.py"  # env file name
+seed = 42
+
 [controller]
-# file = "attitude_rl_f8.py"
-# file = "attitude_controller.py"
+file = "attitude_rl_f8.py"
 # file = "rotvel_rl_rp.py"
+# file = "attitude_controller.py"
 # file = "rotvel_mellinger.py"
-file = "state_controller.py"
+# file = "state_controller.py"
 
 [deploy]
-
 [[deploy.drones]]
 id = 10
 channel = 100
-drone_model = "cf21B_500"  # Model of the drone, i.e., cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500. For this course, we use cf21B_500
+drone_model = "cf21B_500"    # cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500.
 takeoff_pos = [0.0, 0.0, 1.5]  # Takeoff position [x, y, z] in meters
 
-[sim]
-# Physics options:
-# "first_principles": first_principles (physics based) model
-# "so_rpy": Simplified identified model.
-# "so_rpy_rotor": Simplified identified model with rotor dynamics.
-# "so_rpy_rotor_drag": Simplified identified model with rotor dynamics and drag.
-physics = "first_principles"
-control = "rl_state"        # "state", "attitude", "force_torque", "rotor_vel", "rl_state"(only deploy)
+[env]
+physics = "first_principles" # "first_principles", "so_rpy_rotor_drag"
+control = "attitude"         # "state", "attitude", "force_torque", "rotor_vel", "rl_state"(only deploy)
 drone_model = "cf21B_500"    # cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500
-freq = 100                   # Environment frequency, in Hz.
+freq = 50                    # Environment frequency, in Hz.
 sim_freq = 500               # Simulation frequency, in Hz.
 state_freq = 50              # State estimation frequency, in Hz.
 attitude_freq = 500          # Controller frequency, in Hz.
 force_torque_freq = 500      # Force/torque frequency, in Hz.
 reset_rotor = true           # Whether to reset rotor velocities on env.reset()
-
-[env]
-file = "figure_8_env.py"  # env file name
-seed = 42
-
-[env.disturbances.action]
-fn = "normal"
-scale = 0.001
-
-[env.disturbances.dynamics]
-fn = "uniform"
-[env.disturbances.dynamics.kwargs]
-minval = [-0.1, -0.1, -0.1]
-maxval = [0.1, 0.1, 0.1]

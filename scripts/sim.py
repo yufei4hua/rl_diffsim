@@ -50,13 +50,13 @@ def simulate(
     controller_path = control_path / (controller or config.controller.file)
     controller_cls = load_controller(controller_path)  # This returns a class, not an instance
     # Create the drone environment
-    env_cls = load_environment(Path(__file__).parents[1] / "rl_diffsim/envs" / config.env.file)
-    env = env_cls.create(**config.sim)
+    env_cls = load_environment(Path(__file__).parents[1] / "rl_diffsim/envs" / config.exp.file)
+    env = env_cls.create(**config.env)
 
     ep_times = []
     ep_rewards = []
     for ep in range(n_runs):  # Run n_runs episodes with the controller
-        env, (obs, info) = env.reset(env, seed=config.env.seed + ep)
+        env, (obs, info) = env.reset(env, seed=config.exp.seed + ep)
         obs = {k: np.asarray(v[0]) for k, v in obs.items()}
         info = {k: v[0] for k, v in info.items()}
         controller: Controller = controller_cls(obs, info, config, sim=env.sim)
@@ -65,7 +65,7 @@ def simulate(
         total_reward = 0.0
 
         while True:
-            curr_time = i / config.sim.freq
+            curr_time = i / config.env.freq
             action = controller.compute_control(obs, info)
             action = np.asarray(jp.asarray(action), copy=True)
             env, (obs, reward, terminated, truncated, info) = env.step(env, action[None, None, :])
@@ -83,7 +83,7 @@ def simulate(
             if terminated or truncated or controller_finished:
                 break
             if render:  # Render the sim if selected.
-                if ((i * fps) % config.sim.freq) < fps:
+                if ((i * fps) % config.env.freq) < fps:
                     env.render()
             i += 1
 

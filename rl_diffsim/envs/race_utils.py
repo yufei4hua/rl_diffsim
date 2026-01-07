@@ -3,18 +3,36 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable
 
 import jax
 import jax.numpy as jnp
+import jax.numpy as jp
+import mujoco
 import numpy as np
+from crazyflow.utils import leaf_replace
 from jax.numpy import vectorize
 from jax.scipy.spatial.transform import Rotation as JR
 from ml_collections import ConfigDict
 from scipy.spatial.transform import Rotation as R
 
+from rl_diffsim.envs.randomize import (
+    randomize_drone_inertia_fn,
+    randomize_drone_mass_fn,
+    randomize_drone_pos_fn,
+    randomize_drone_quat_fn,
+    randomize_gate_pos_fn,
+    randomize_gate_rpy_fn,
+    randomize_obstacle_pos_fn,
+)
+
 if TYPE_CHECKING:
+    from crazyflow.sim import Sim
+    from crazyflow.sim.data import SimData
     from jax import Array
+    from mujoco import MjSpec
+    from mujoco.mjx import Data
 
 
 def load_track(track: ConfigDict) -> tuple[ConfigDict, ConfigDict, ConfigDict]:
@@ -95,6 +113,185 @@ def gate_passed(
     # Divide gate size by 2 to get the distance from the center to the edges
     in_box = (abs(y_intersect) < gate_size[0] / 2) & (abs(z_intersect) < gate_size[1] / 2)
     return passed_plane & in_box
+
+
+# region Utils
+def setup_sim(
+    sim: Sim,
+    gates: ConfigDict,
+    obstacles: ConfigDict,
+    drone: ConfigDict,
+    disturbances: dict,
+    randomizations: dict,
+):
+    """Setup the simulation data and build the reset and step functions with custom hooks."""
+    gate_spec_path = Path(__file__).parent / "assets/gate.xml"
+    obstacle_spec_path = Path(__file__).parent / "assets/obstacle.xml"
+    gate_spec = mujoco.MjSpec.from_file(str(gate_spec_path))
+    obstacle_spec = mujoco.MjSpec.from_file(str(obstacle_spec_path))
+    load_track_into_sim(sim, gates, obstacles, gate_spec, obstacle_spec)
+    # Set the initial drone states
+    pos = sim.data.states.pos.at[...].set(drone["pos"])
+    quat = sim.data.states.quat.at[...].set(drone["quat"])
+    vel = sim.data.states.vel.at[...].set(drone["vel"])
+    ang_vel = sim.data.states.ang_vel.at[...].set(drone["ang_vel"])
+    states = sim.data.states.replace(pos=pos, quat=quat, vel=vel, ang_vel=ang_vel)
+    sim.data = sim.data.replace(states=states)
+    sim.build_default_data()
+    # Build the reset randomizations and disturbances into the sim itself
+    sim.reset_pipeline = sim.reset_pipeline + (build_reset_fn(randomizations),)
+    sim.build_reset_fn()
+    if "dynamics" in disturbances:
+        disturbance_fn = build_dynamics_disturbance_fn(disturbances["dynamics"])
+        sim.step_pipeline = sim.step_pipeline[:2] + (disturbance_fn,) + sim.step_pipeline[2:]
+        sim.build_step_fn()
+
+
+def load_track_into_sim(
+    sim: Sim, gates: ConfigDict, obstacles: ConfigDict, gate_spec: MjSpec, obstacle_spec: MjSpec
+) -> None:
+    """Load the track into the simulation."""
+    frame = sim.spec.worldbody.add_frame()
+    n_gates, n_obstacles = len(gates["pos"]), len(obstacles["pos"])
+    for i in range(n_gates):
+        gate_body = gate_spec.body("gate")
+        if gate_body is None:
+            raise ValueError("Gate body not found in gate spec")
+        gate = frame.attach_body(gate_body, "", f":{i}")
+        gate.pos = gates["pos"][i]
+        gate.quat = gates["quat"][i][[3, 0, 1, 2]]  # scipy->mujoco
+        gate.mocap = True
+    for i in range(n_obstacles):
+        obstacle_body = obstacle_spec.body("obstacle")
+        if obstacle_body is None:
+            raise ValueError("Obstacle body not found in obstacle spec")
+        obstacle = frame.attach_body(obstacle_body, "", f":{i}")
+        obstacle.pos = obstacles["pos"][i]
+        obstacle.mocap = True
+
+    sim.build_mjx()  # Python call by object reference
+
+
+def load_contact_masks(sim: Sim) -> Array:
+    """Load contact masks for the simulation that zero out irrelevant contacts per drone."""
+    sim.contacts()  # Trigger initial contact information computation
+    contact = sim.mjx_data._impl.contact
+    n_contacts = len(contact.geom1[0])
+    masks = np.zeros((sim.n_drones, n_contacts), dtype=bool)
+    # We only need one world to create the mask
+    geom1, geom2 = (contact.geom1[0], contact.geom2[0])
+    for i in range(sim.n_drones):
+        geom_start = sim.mj_model.body_geomadr[sim.mj_model.body(f"drone:{i}").id]
+        geom_count = sim.mj_model.body_geomnum[sim.mj_model.body(f"drone:{i}").id]
+        geom1_valid = (geom1 >= geom_start) & (geom1 < geom_start + geom_count)
+        geom2_valid = (geom2 >= geom_start) & (geom2 < geom_start + geom_count)
+        masks[i, :] = geom1_valid | geom2_valid
+    geom_start = sim.mj_model.body_geomadr[sim.mj_model.body("world").id]
+    geom_count = sim.mj_model.body_geomnum[sim.mj_model.body("world").id]
+    geom1_valid = (geom1 >= geom_start) & (geom1 < geom_start + geom_count)
+    geom2_valid = (geom2 >= geom_start) & (geom2 < geom_start + geom_count)
+
+    masks = np.tile(masks[None, ...], (sim.n_worlds, 1, 1))
+    return masks
+
+
+# region Factories
+def rng_spec2fn(fn_spec: dict) -> Callable:
+    """Convert a function spec to a wrapped and scaled function from jax.random."""
+    offset, scale = np.array(fn_spec.get("offset", 0)), np.array(fn_spec.get("scale", 1))
+    kwargs = fn_spec.get("kwargs", {})
+    if "shape" in kwargs:
+        raise KeyError("Shape must not be specified for randomization functions.")
+    kwargs = {k: np.array(v) if isinstance(v, list) else v for k, v in kwargs.items()}
+    jax_fn = partial(getattr(jax.random, fn_spec["fn"]), **kwargs)
+
+    def random_fn(*args: Any, **kwargs: Any) -> Array:
+        return jax_fn(*args, **kwargs) * scale + offset
+
+    return random_fn
+
+
+def build_reset_fn(randomizations: dict) -> Callable[[SimData, Array], SimData]:
+    """Build the reset hook for the simulation."""
+    randomization_fns = ()
+    for target, rng in sorted(randomizations.items()):
+        match target:
+            case "drone_pos":
+                randomization_fns += (randomize_drone_pos_fn(rng),)
+            case "drone_rpy":
+                randomization_fns += (randomize_drone_quat_fn(rng),)
+            case "drone_mass":
+                randomization_fns += (randomize_drone_mass_fn(rng),)
+            case "drone_inertia":
+                randomization_fns += (randomize_drone_inertia_fn(rng),)
+            case "gate_pos" | "gate_rpy" | "obstacle_pos":
+                pass
+            case _:
+                raise ValueError(f"Invalid target: {target}")
+
+    def reset_fn(data: SimData, mask: Array) -> SimData:
+        for randomize_fn in randomization_fns:
+            data = randomize_fn(data, mask)
+        return data
+
+    return reset_fn
+
+
+def build_track_randomization_fn(
+    randomizations: dict, gate_mocap_ids: list[int], obstacle_mocap_ids: list[int]
+) -> Callable[[Data, Array, jax.random.PRNGKey], Data]:
+    """Build the track randomization function for the simulation."""
+    randomization_fns = ()
+    for target, rng in sorted(randomizations.items()):
+        match target:
+            case "gate_pos":
+                randomization_fns += (randomize_gate_pos_fn(rng, gate_mocap_ids),)
+            case "gate_rpy":
+                randomization_fns += (randomize_gate_rpy_fn(rng, gate_mocap_ids),)
+            case "obstacle_pos":
+                randomization_fns += (randomize_obstacle_pos_fn(rng, obstacle_mocap_ids),)
+            case "drone_pos" | "drone_rpy" | "drone_mass" | "drone_inertia":
+                pass
+            case _:
+                raise ValueError(f"Invalid target: {target}")
+
+    @jax.jit
+    def track_randomization(
+        data: Data,
+        mask: Array,
+        nominal_gate_pos: Array,
+        nominal_gate_quat: Array,
+        nominal_obstacle_pos: Array,
+        key: jax.random.PRNGKey,
+    ) -> Data:
+        gate_quat = jp.roll(nominal_gate_quat, 1, axis=-1)  # Convert from scipy to MuJoCo order
+
+        # Reset to default track positions first
+        nominal_mocap_pos = data.mocap_pos.at[:, gate_mocap_ids].set(nominal_gate_pos)
+        nominal_mocap_pos = nominal_mocap_pos.at[:, obstacle_mocap_ids].set(nominal_obstacle_pos)
+        nominal_mocap_quat = data.mocap_quat.at[:, gate_mocap_ids].set(gate_quat)
+        data = leaf_replace(data, mask, mocap_pos=nominal_mocap_pos, mocap_quat=nominal_mocap_quat)
+
+        keys = jax.random.split(key, len(randomization_fns))
+        for key, randomize_fn in zip(keys, randomization_fns, strict=True):
+            data = randomize_fn(data, mask, key)
+        return data
+
+    return track_randomization
+
+
+def build_dynamics_disturbance_fn(
+    fn: Callable[[jax.random.PRNGKey, tuple[int]], jax.Array],
+) -> Callable[[SimData], SimData]:
+    """Build the dynamics disturbance function for the simulation."""
+
+    def dynamics_disturbance(data: SimData) -> SimData:
+        key, subkey = jax.random.split(data.core.rng_key)
+        states = data.states
+        states = states.replace(force=fn(subkey, states.force.shape))  # World frame
+        return data.replace(states=states, core=data.core.replace(rng_key=key))
+
+    return dynamics_disturbance
 
 
 def generate_random_track(

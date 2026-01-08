@@ -102,6 +102,11 @@ class DroneEnv(struct.PyTreeNode):
         """Close the underlying sim."""
         self.sim.close()
 
+    @property
+    def unwrapped(self) -> struct.PyTreeNode:
+        """Return myself."""
+        return self
+
     @classmethod
     def create(
         cls,

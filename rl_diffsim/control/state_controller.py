@@ -48,18 +48,24 @@ class StateController(Controller):
 
         # Figure-8 trajectory
         # Create the figure eight trajectory
-        self.trajectory_time = 10.0
+        num_loops = 1
+        self.trajectory_time = 10.0 * num_loops
         n_steps = int(np.ceil(self.trajectory_time * self.freq))
-        t = np.linspace(0, 2 * np.pi, n_steps)
-        radius = 1  # Radius for the circles
+        t = np.linspace(0, 2 * np.pi * num_loops, n_steps)
+        radius = 0.5  # Radius for the circles
+        t_dot = 2 * np.pi * num_loops / self.trajectory_time
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
         y = np.zeros_like(t)  # y is 0 everywhere
         z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
         self.trajectory = np.array([x, y, z]).T
-        d_x = radius * np.cos(t) * (2 * np.pi / self.trajectory_time)
+        d_x = radius * np.cos(t) * t_dot
         d_y = np.zeros_like(t)
-        d_z = radius * np.cos(2 * t) * (2 * np.pi / self.trajectory_time)
+        d_z = radius * np.cos(2 * t) * t_dot
         self.trajectory_vel = np.array([d_x, d_y, d_z]).T
+        dd_x = -radius * np.sin(t) * t_dot**2
+        dd_y = np.zeros_like(t)
+        dd_z = -2 * radius * np.sin(2 * t) * t_dot**2
+        self.trajectory_acc = np.array([dd_x, dd_y, dd_z]).T
 
         # # Racing trajectory
         # waypoints = np.array(
@@ -110,7 +116,8 @@ class StateController(Controller):
 
         des_pos = self.trajectory[i]
         des_vel = self.trajectory_vel[i]
-        action = np.concatenate((des_pos, des_vel, np.zeros(7)), dtype=np.float32)
+        des_acc = np.zeros_like(self.trajectory_acc[i])
+        action = np.concatenate((des_pos, des_vel, des_acc, np.zeros(4)), dtype=np.float32)
         return action
 
     def step_callback(

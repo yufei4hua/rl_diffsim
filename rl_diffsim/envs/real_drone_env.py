@@ -402,7 +402,7 @@ class RealDroneCoreEnv:
         time.sleep(0.1)  # Wait for settings to be applied
 
     # region Start/Return
-    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = False):
+    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = True):
         """Move the drone to the start position."""
         # Trajectory settings
         pos = self._ros_connector.pos[self.drone_name]

@@ -16,14 +16,15 @@ import optax
 from jax import Array
 
 import wandb
-from rl_diffsim.bptt.bptt_agent_deterministic import Agent
-from rl_diffsim.envs.rand_traj_env import RandTrajEnv
+from rl_diffsim.bptt.bptt_agent import Agent
+from rl_diffsim.envs.rand_traj_state_env import RandTrajEnv
 from rl_diffsim.envs.wrappers import (
+    ActionNoise,
     ActionPenalty,
+    AngleReward,
     FlattenJaxObservation,
     NormalizeActions,
     RecordData,
-    ZeroYaw,
 )
 
 
@@ -34,30 +35,32 @@ class Args:
 
     seed: int = 42
     """seed of the experiment"""
-    exp_name: str = "bptt_rt"
+    exp_name: str = "bptt_rtrv"
     """the name of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
-    wandb_project_name: str = "rl-bptt-rt"
+    wandb_project_name: str = "rl-bptt-rtrv"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 50_000
+    total_timesteps: int = 500_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 40
+    num_steps: int = 72
     """the number of steps to run in each environment per policy rollout"""
-    anneal_actor_lr: bool = False
+    anneal_actor_lr: bool = True
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 4.6e-2
+    actor_lr: float = 3e-3
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
+    num_layers: int = 2
+    """the number of layers of actor networks"""
     hidden_size: int = 8
-    """the hidden size of actor and critic networks"""
+    """the hidden size of actor networks"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -66,9 +69,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.0
-    act_coefs: tuple = (0.1, 0.1, 0.0, 0.2)
-    d_act_coefs: tuple = (2.0, 2.0, 0.0, 2.0)
+    rpy_coef: float = 0.15
+    act_coefs: tuple = (0.05,) * 4
+    d_act_coefs: tuple = (0.05,) * 4
     """reward coefficients for training"""
 
     @staticmethod
@@ -77,7 +80,15 @@ class Args:
         args = Args(**kwargs)
         batch_size = int(args.num_envs * args.num_steps)
         num_iterations = args.total_timesteps // batch_size
-        return replace(args, batch_size=batch_size, num_iterations=num_iterations)
+        act_coefs = (args.act_coefs[0],) * 4  # make sure all four coefficients are the same
+        d_act_coefs = (args.d_act_coefs[0],) * 4
+        return replace(
+            args,
+            batch_size=batch_size,
+            num_iterations=num_iterations,
+            act_coefs=act_coefs,
+            d_act_coefs=d_act_coefs,
+        )
 
 
 # region MakeEnvs
@@ -90,7 +101,7 @@ def make_jitted_envs(
 ) -> RandTrajEnv:
     """Make environments for training RL policy."""
     env: RandTrajEnv = RandTrajEnv.create(
-        n_samples=10,
+        num_waypoints=6,
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",
@@ -101,12 +112,13 @@ def make_jitted_envs(
     )
 
     env = NormalizeActions.create(env)
-    env = ZeroYaw.create(env)
-    # env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.0))
+    env = ActionNoise.create(env, seed=42, bias_range=0.1, noise_std=0.0)
     env = ActionPenalty.create(
         env,
         num_actions=1,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
+        hover_action=jp.array([0.25, 0.25, 0.25, 0.25]),
         act_coefs=coefs.get("act_coefs", (0.0,) * 4),
         d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )

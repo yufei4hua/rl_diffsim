@@ -311,7 +311,7 @@ class RandTrajEnv(DroneEnv):
             )
             _marked_for_reset = _done(terminated, truncated)
             # 4. construct obs & rewards
-            steps = data.core.steps // (sim.freq // freq) - 1
+            steps = data.core.steps // (sim.freq // freq)
             pos = data.states.pos[:, 0, :]
             goal = trajectories[jp.arange(trajectories.shape[0])[:, None], steps][:, 0, :]
 

@@ -232,12 +232,12 @@ class ZeroYaw(Wrapper):
 
         def _step(env: "ZeroYaw", actions: Array) -> tuple["ZeroYaw", tuple[Any, ...]]:
             actions = actions.at[..., 2].set(0.0)
-            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(
                 env.base, actions
             )
 
             env = env.replace(base=base_env)
-            return env, (obs, rewards, terminations, truncations, infos)
+            return env, (obs, reward, terminated, truncated, info)
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
@@ -271,21 +271,21 @@ class AngleReward(Wrapper):
             env = env.replace(base=base_env)
             return env, (obs, info)
 
-        def _rewards(rewards: Array, observations: dict[str, Array]) -> Array:
+        def _reward(reward: Array, observations: dict[str, Array]) -> Array:
             """Additional angular rewards."""
             # apply rpy penalty
             rotvec_norm = jp.linalg.norm(R.from_quat(observations["quat"]).as_rotvec(), axis=-1)
-            rewards -= rpy_coef * rotvec_norm
-            return rewards
+            reward -= rpy_coef * rotvec_norm
+            return reward
 
         def _step(env: "AngleReward", actions: Array) -> tuple["AngleReward", tuple[Any, ...]]:
-            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(
                 env.base, actions
             )
-            rewards = _rewards(rewards, obs)
+            reward = _reward(reward, obs)
 
             env = env.replace(base=base_env)
-            return env, (obs, rewards, terminations, truncations, infos)
+            return env, (obs, reward, terminated, truncated, info)
 
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
@@ -344,11 +344,11 @@ class ActionNoise(Wrapper):
             )
             # 2. apply noise and step env
             actions = actions + jax.lax.stop_gradient(action_bias + additive_noise)
-            base_env, (obs, rewards, terminations, truncations, infos) = env.base.step(
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(
                 env.base, actions
             )
             env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
-            return env, (obs, rewards, terminations, truncations, infos)
+            return env, (obs, reward, terminated, truncated, info)
 
         def _sample_noise(
             key: Array, action_bias: Array, bias_range: Array, noise_std: Array, mask: Array | None

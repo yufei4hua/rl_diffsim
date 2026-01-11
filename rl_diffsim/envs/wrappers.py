@@ -708,16 +708,28 @@ class RecordData(Wrapper):
         empty_goal = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
         empty_rpy = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
 
+        def _extract_data(base: "RecordData") -> dict[str, Array]:
+            """Extract recorded data as a dict of arrays."""
+            raw = base.unwrapped
+            pos = raw.data.states.pos[:, 0, :]
+            if hasattr(raw, "trajectories"):
+                goal = raw.trajectories[jp.arange(raw.steps.shape[0]), raw.steps.squeeze(1)]
+            if hasattr(raw, "goal_pos"):
+                goal = raw.goal_pos
+            rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
+            return pos, goal, rpy
+
         def _reset(
             env: "RecordData", *, seed: int | None = None, options: dict | None = None
         ) -> tuple["RecordData", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            pos, goal, rpy = _extract_data(base_env)
             env = env.replace(
                 base=base_env,
                 _record_act=empty_act,
-                _record_pos=empty_pos,
-                _record_goal=empty_goal,
-                _record_rpy=empty_rpy,
+                _record_pos=empty_pos.at[0, ...].set(pos),
+                _record_goal=empty_goal.at[0, ...].set(goal),
+                _record_rpy=empty_rpy.at[0, ...].set(rpy),
             )
             return env, (obs, info)
 
@@ -725,22 +737,14 @@ class RecordData(Wrapper):
             # step the wrapped environment
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
-            # extract host-visible sim arrays from the advanced base_env
-            raw = base_env.unwrapped
-
             act = action  # shape: (num_envs, act_dim)
-            pos = raw.data.states.pos[:, 0, :]
-            if hasattr(raw, "trajectories"):
-                goal = raw.trajectories[jp.arange(raw.steps.shape[0]), raw.steps.squeeze(1)]
-            if hasattr(raw, "goal_pos"):
-                goal = raw.goal_pos
-            rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
+            pos, goal, rpy = _extract_data(base_env)
 
             # record data
-            new_act = env._record_act.at[raw.steps, ...].set(act)
-            new_pos = env._record_pos.at[raw.steps, ...].set(pos)
-            new_goal = env._record_goal.at[raw.steps, ...].set(goal)
-            new_rpy = env._record_rpy.at[raw.steps, ...].set(rpy)
+            new_act = env._record_act.at[env.steps, ...].set(act)
+            new_pos = env._record_pos.at[env.steps, ...].set(pos)
+            new_goal = env._record_goal.at[env.steps, ...].set(goal)
+            new_rpy = env._record_rpy.at[env.steps, ...].set(rpy)
 
             env = env.replace(
                 base=base_env,

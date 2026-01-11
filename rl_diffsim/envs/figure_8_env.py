@@ -206,7 +206,9 @@ class FigureEightEnv(DroneEnv):
         # Create the figure eight trajectory
         sample_offsets = jp.array(jp.arange(n_samples) * freq * samples_dt, dtype=int)
         n_steps = int(jp.ceil(trajectory_time * freq).item())
-        t = jp.linspace(0, 2 * jp.pi, n_steps)
+        n_steps = int(max_episode_time * freq)  # ensure enough steps for max episode time
+        n_loops = max_episode_time / trajectory_time
+        t = jp.linspace(0, 2 * jp.pi * n_loops, n_steps)
         offset = jp.linspace(0, 2 * jp.pi, num_envs, endpoint=False)
         ts = t[None, :] + offset[:, None]  # random phase shift
         radius = 1  # Radius for the circles

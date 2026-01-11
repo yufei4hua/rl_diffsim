@@ -67,8 +67,8 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.0
-    act_coefs: tuple = (0.1, 0.1, 0.0, 0.2)
-    d_act_coefs: tuple = (2.0, 2.0, 0.0, 2.0)
+    act_coefs: tuple = (0.05, 0.05, 0.0, 0.08)
+    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.05)
     """reward coefficients for training"""
 
     @staticmethod
@@ -90,6 +90,8 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
+        max_episode_time=18.0,
+        trajectory_time=6.0,
         n_samples=10,
         num_envs=num_envs,
         freq=50,

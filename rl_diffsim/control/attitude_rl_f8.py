@@ -66,8 +66,10 @@ class AttitudeRL(Controller):
 
         # Figure-8 trajectory
         # Create the figure eight trajectory
+        num_loops = 3
+        self.trajectory_time = 6.0 * num_loops
         n_steps = int(np.ceil(self.trajectory_time * self.freq))
-        t = np.linspace(0, 2 * np.pi, n_steps)
+        t = np.linspace(0, 2 * np.pi * num_loops, n_steps)
         radius = 1  # Radius for the circles
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
         y = np.zeros_like(t)  # x is 0 everywhere

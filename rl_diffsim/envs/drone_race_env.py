@@ -361,9 +361,13 @@ class DroneRaceEnv(DroneEnv):
             action = action + jax.lax.stop_gradient(action_clipped - action)
             return jp.array(action, device=jax_device).reshape((num_envs, num_drones, -1))
 
-        def _apply_action(data: SimData, action: Array, control: Control) -> SimData:
+        def _apply_action(data: SimData, action: Array, control: Control, disturbances: dict) -> SimData:
             low, high = action_space.low, action_space.high
             action = _sanitize_action(action, low, high)
+            if "action" in disturbances:
+                key, subkey = jax.random.split(data.core.rng_key)
+                action += disturbances["action"](subkey, action.shape)
+                data = data.replace(core=data.core.replace(rng_key=key))
             match control:
                 case Control.state:
                     raise NotImplementedError("State control currently not supported")
@@ -385,7 +389,7 @@ class DroneRaceEnv(DroneEnv):
                     raise ValueError(f"Invalid control type {control}")
             return data
 
-        _apply_action = functools.partial(_apply_action, control=control)
+        _apply_action = functools.partial(_apply_action, control=control, disturbances=disturbances)
 
         # region Obs
         def _race_obs(
@@ -650,11 +654,13 @@ if __name__ == "__main__":
     with open(config_path, "r") as f:
         config = ConfigDict(toml.load(f))
 
-    env = DroneRaceEnv.create(**config.env)
+    env = DroneRaceEnv.create(num_envs=1024, device="gpu",**config.env)
 
     # Reset the environment
     env, (obs, info) = env.reset(env, seed=42)
-    print("Initial Race Obs:", obs)
+    print("Initial Race Obs:")
+    for k, v in obs.items():
+        print(k, v.shape)
 
     def step_once(env: DroneRaceEnv, _) -> tuple[DroneRaceEnv, tuple[Array, Array]]:
         """Single env step for lax.scan."""
@@ -677,17 +683,20 @@ if __name__ == "__main__":
 
     # Warm-up rollout
     start_time = time.time()
-    env, (pos_traj, vel_traj) = rollout_jit(env, 8)
+    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
+    pos_traj.block_until_ready()
     end_time = time.time()
     print(f"Warm-up rollout took {end_time - start_time:.4f} seconds")
 
     # After jitting
     start_time = time.time()
-    env, (pos_traj, vel_traj) = rollout_jit(env, 8)
+    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
+    pos_traj.block_until_ready()
     end_time = time.time()
     print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
     start_time = time.time()
-    env, (pos_traj, vel_traj) = rollout_jit(env, 8)
+    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
+    pos_traj.block_until_ready()
     end_time = time.time()
     print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
 

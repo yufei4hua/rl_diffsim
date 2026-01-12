@@ -44,7 +44,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 25_000
+    total_timesteps: int = 30_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -67,8 +67,8 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.0
-    act_coefs: tuple = (0.05, 0.05, 0.0, 0.08)
-    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.05)
+    act_coefs: tuple = (0.35, 0.35, 0.0, 0.1)
+    d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
 
     @staticmethod
@@ -77,7 +77,15 @@ class Args:
         args = Args(**kwargs)
         batch_size = int(args.num_envs * args.num_steps)
         num_iterations = args.total_timesteps // batch_size
-        return replace(args, batch_size=batch_size, num_iterations=num_iterations)
+        act_coefs = (args.act_coefs[0],) * 2 + (0.0, args.act_coefs[3])
+        d_act_coefs = (args.d_act_coefs[0],) * 2 + (0.0, args.d_act_coefs[3])
+        return replace(
+            args,
+            batch_size=batch_size,
+            num_iterations=num_iterations,
+            act_coefs=act_coefs,
+            d_act_coefs=d_act_coefs,
+        )
 
 
 # region MakeEnvs
@@ -251,7 +259,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         jax_device=jax_device,
         coefs=r_coefs,
         reset_rotor=True,
-        reset_random=True,
+        reset_random=False,
     )
 
     # setup annealing learning rate

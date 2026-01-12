@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 import wandb
-from rl_diffsim.bptt.train_bptt_reachposrv import Args, evaluate_bptt, train_bptt
+from rl_diffsim.bptt.train_bptt_figure8 import Args, evaluate_bptt, train_bptt
 
 
 # 1: Define objective/training function
@@ -38,7 +38,7 @@ def train():
         )
         score = 0.0
         score += mean_rewards
-        score += -rmse_pos
+        score += -rmse_pos*1000
         # score += -10 * training_time
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})
@@ -49,24 +49,24 @@ def train():
 
 # 2: Define the search space
 sweep_configuration = {
-    "method": "random",  # "random", "bayes", "grid"
+    "method": "bayes",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
         # "num_envs": {"distribution": "int_uniform", "min": 4, "max": 32},
-        "num_steps": {"distribution": "int_uniform", "min": 48, "max": 72},
-        "actor_lr": {"distribution": "log_uniform_values", "min": 1e-2, "max": 4e-1},
+        "num_steps": {"distribution": "int_uniform", "min": 32, "max": 48},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 3e-2, "max": 1e-1},
         # "gamma": {"min": 0.90, "max": 1.0},
         # "hidden_size": {"distribution": "int_uniform", "min": 8, "max": 64},
-        "hidden_size": {"values": [8, 16]},
+        # "hidden_size": {"values": [8, 16]},
         # "rpy_coef": {"distribution": "uniform", "min": 0.01, "max": 1.0},
-        # "act_coefs_0": {"distribution": "uniform", "min": 0.01, "max": 1.0},
+        "act_coefs_0": {"distribution": "uniform", "min": 0.01, "max": 1.0},
         # "act_coefs_1": {"distribution": "uniform", "min": 0.1, "max": 1.0},
         # "act_coefs_2": {"distribution": "uniform", "min": 0.1, "max": 1.0},
-        # "act_coefs_3": {"distribution": "uniform", "min": 0.1, "max": 1.0},
-        # "d_act_coefs_0": {"distribution": "uniform", "min": 0.01, "max": 1.0},
+        "act_coefs_3": {"distribution": "uniform", "min": 0.1, "max": 1.0},
+        "d_act_coefs_0": {"distribution": "uniform", "min": 0.01, "max": 1.0},
         # "d_act_coefs_1": {"distribution": "uniform", "min": 0.1, "max": 1.0},
         # "d_act_coefs_2": {"distribution": "uniform", "min": 0.1, "max": 1.0},
-        # "d_act_coefs_3": {"distribution": "uniform", "min": 0.1, "max": 1.0},
+        "d_act_coefs_3": {"distribution": "uniform", "min": 0.1, "max": 1.0},
     },
 }
 

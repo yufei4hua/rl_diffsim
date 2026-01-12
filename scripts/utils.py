@@ -241,8 +241,15 @@ class EvalRecorder:
 
         # compute RMSE for position
         rmse_pos = np.sqrt(np.mean(pos_err**2))
-        axes[11].text(0.1, 0.5, f"Position RMSE: {rmse_pos * 1000:.3f} mm", fontsize=14)
-        axes[11].axis("off")
+        # XZ plane trajectory plot (Figure-8 view)
+        axes[11].plot(pos[:, 0, 0], pos[:, 0, 2], label="Actual")
+        axes[11].plot(goal[:, 0, 0], goal[:, 0, 2], linestyle="--", linewidth=0.5, label="Goal")
+        axes[11].set_title(f"XZ Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
+        axes[11].set_xlabel("X Position (m)")
+        axes[11].set_ylabel("Z Position (m)")
+        axes[11].grid(True)
+        axes[11].legend()
+        axes[11].axis("equal")
 
         plt.tight_layout()
         plt.savefig(

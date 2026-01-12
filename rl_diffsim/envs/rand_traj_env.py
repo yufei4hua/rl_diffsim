@@ -251,7 +251,7 @@ class RandTrajEnv(DroneEnv):
                 "vel": data.states.vel[:, 0, :],
                 "ang_vel": data.states.ang_vel[:, 0, :],
             }
-            steps = data.core.steps // (sim.freq // freq) - 1
+            steps = data.core.steps // (sim.freq // freq)
             obs["local_samples"] = _aux_obs(trajectories, steps, data.states.pos, sample_offsets)
             return obs
 

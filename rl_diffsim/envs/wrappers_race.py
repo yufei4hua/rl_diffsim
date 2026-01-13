@@ -155,8 +155,11 @@ class RaceWrapper(Wrapper):
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
             # Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
+            # r_gate_pos = gate_pos_coef * jp.exp(
+            #     -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
+            # )  # (num_envs,)
             r_gate_pos = gate_pos_coef * jp.exp(
-                -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
+                -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
             )  # (num_envs,)
 
             # Relative velocity (velocity projected onto gate_rel_pos)

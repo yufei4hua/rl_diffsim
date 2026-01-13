@@ -560,8 +560,9 @@ class DroneRaceEnv(DroneEnv):
             gate_ids = race_data.gate_mj_ids[race_data.target_gate % n_gates]
             gate_pos = gates_pos[jp.arange(gates_pos.shape[0])[:, None], gate_ids]
             gate_quat = gates_quat[jp.arange(gates_quat.shape[0])[:, None], gate_ids]
+            gate_size = (0.45, 0.45) if check_contacts else (1.0, 1.0)
             passed = gate_passed(
-                drone_pos, race_data.last_drone_pos, gate_pos, gate_quat, (0.45, 0.45)
+                drone_pos, race_data.last_drone_pos, gate_pos, gate_quat, gate_size
             )
             # Update the target gate index. Increment by one if drones have passed a gate
             target_gate = race_data.target_gate + passed * ~disabled_drones

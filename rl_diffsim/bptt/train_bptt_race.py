@@ -402,7 +402,11 @@ def evaluate_bptt(
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
-        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, config=config.env, check_contacts=False
+        num_envs=1,
+        jax_device=args.jax_device,
+        coefs=r_coefs,
+        config=config.env,
+        check_contacts=False,
     )
     eval_env = RecordData.create(eval_env)
 

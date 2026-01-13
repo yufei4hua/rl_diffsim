@@ -769,7 +769,7 @@ class RecordData(Wrapper):
         rmse = np.sqrt(np.mean(pos_err**2))
         return rmse
 
-    def plot_eval(self, save_path: str = "eval_plot.png") -> plt.Figure:
+    def plot_eval(self, save_path: str = "eval_plot.png", traj_plane: list = [0, 2]) -> plt.Figure:
         """Plot recorded traces and save to `save_path`."""
         actions = np.array(self._record_act)
         pos = np.array(self._record_pos)
@@ -824,12 +824,18 @@ class RecordData(Wrapper):
 
         # compute RMSE for position
         rmse_pos = np.sqrt(np.mean(pos_err**2))
-        # XZ plane trajectory plot (Figure-8 view)
-        axes[11].plot(pos[:, 0, 0], pos[:, 0, 2], label="Actual")
-        axes[11].plot(goal[:, 0, 0], goal[:, 0, 2], linestyle="--", linewidth=0.5, label="Goal")
-        axes[11].set_title(f"XZ Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
-        axes[11].set_xlabel("X Position (m)")
-        axes[11].set_ylabel("Z Position (m)")
+        # trajectory plot
+        axes[11].plot(pos[:, 0, traj_plane[0]], pos[:, 0, traj_plane[1]], label="Actual")
+        axes[11].plot(
+            goal[:, 0, traj_plane[0]],
+            goal[:, 0, traj_plane[1]],
+            linestyle="--",
+            linewidth=0.5,
+            label="Goal",
+        )
+        axes[11].set_title(f"Trajectory Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
+        axes[11].set_xlabel(f"{['X', 'Y', 'Z'][traj_plane[0]]} Position (m)")
+        axes[11].set_ylabel(f"{['X', 'Y', 'Z'][traj_plane[1]]} Position (m)")
         axes[11].grid(True)
         axes[11].legend()
         axes[11].axis("equal")

@@ -708,8 +708,10 @@ class RecordData(Wrapper):
             pos = raw.data.states.pos[:, 0, :]
             if hasattr(raw, "trajectories"):
                 goal = raw.trajectories[jp.arange(raw.steps.shape[0]), raw.steps.squeeze(1)]
-            if hasattr(raw, "goal_pos"):
+            elif hasattr(raw, "goal_pos"):
                 goal = raw.goal_pos
+            else:
+                goal = pos
             rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
             return pos, goal, rpy
 

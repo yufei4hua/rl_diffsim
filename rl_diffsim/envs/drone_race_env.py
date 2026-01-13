@@ -223,7 +223,7 @@ class DroneRaceEnv(DroneEnv):
         track: ConfigDict | None = None,
         disturbances: ConfigDict | None = None,
         randomizations: ConfigDict | None = None,
-        check_contacts: bool = True,
+        check_contacts: bool = False,
     ) -> DroneRaceEnv:
         """Create a drone racing environment.
 
@@ -270,6 +270,10 @@ class DroneRaceEnv(DroneEnv):
         # Modify the step pipeline if needed
         if control == "rotor_vel":
             sim.step_pipeline = sim.step_pipeline[2:]  # remove all controllers
+            sim.build_step_fn()
+
+        if check_contacts is False:
+            sim.step_pipeline = sim.step_pipeline[:-1]  # remove clip_floor_pos
             sim.build_step_fn()
 
         # Override reset randomization function
@@ -333,7 +337,7 @@ class DroneRaceEnv(DroneEnv):
             obstacle_mj_ids=obstacle_ids,
             max_episode_steps=max_episode_time * freq,
             sensor_range=sensor_range,
-            pos_limit_low=[-3, -3, -1e-3],
+            pos_limit_low=[-3, -3, -1],
             pos_limit_high=[3, 3, 2.5],
             device=jax_device,
             track=track,

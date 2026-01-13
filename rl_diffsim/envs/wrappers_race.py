@@ -69,7 +69,15 @@ class RaceWrapper(Wrapper):
         return batch_space(self.single_observation_space, self.num_envs)
 
     @classmethod
-    def create(cls, base: struct.PyTreeNode) -> "RaceWrapper":
+    def create(
+        cls,
+        base: struct.PyTreeNode,
+        gate_pos_coef: float = 1.0,
+        gate_vel_coef: float = 1.0,
+        max_vel: float = 2.0,
+        contact_safe_dist: float = 0.1,
+        contact_coef: float = 50.0,
+    ) -> "RaceWrapper":
         """Create a RaceWrapper around `base`.
 
         Parameters:
@@ -126,6 +134,12 @@ class RaceWrapper(Wrapper):
             return race_obs
 
         # region Rewards
+        def _contacts_reward(mjx_data: Data) -> Array:
+            # A pure contact reward calculation
+            dists = mjx_data._impl.contact.dist - contact_safe_dist  # (num_envs, num_contacts)
+            rewards = jp.sum(jp.where(dists < 0.0, -dists * dists, 0.0), axis=-1)
+            return rewards
+
         def _race_reward(
             data: SimData, mjx_data: Data, race_data: RaceData, obs: dict[str, Array]
         ) -> Array:
@@ -136,45 +150,29 @@ class RaceWrapper(Wrapper):
             - Approaching gate: distance towards gate
             - Approaching gate: vel towards gate
             - Avoiding obstacles: distance towards obstacles
-            - Action penalty
-            - RPY penalty
-            Not differentiable:
-            - Alive bonus
-            - Gate pass
-            - Collision penalty
             """
-            pos = obs  # (num_envs, 3)
-            vel = obs["vel"]  # (num_envs, 3)
-            target_gate = obs["target_gate"]  # (num_envs,)
-            gate_pos = obs["gates_pos"][jp.arange(data.num_envs), target_gate]  # (num_envs, 3)
-            # Relative position to target gate
-            gate_rel_pos = gate_pos - pos  # (num_envs, 3)
-            # Relative velocity (velocity projected onto gate_rel_pos)
-            gate_rel_pos_norm = (
-                gate_rel_pos * jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
-            )
-            gate_rel_vel = (
-                jp.sum(vel * gate_rel_pos_norm, axis=-1, keepdims=True) * gate_rel_pos_norm
-            )  # (num_envs, 3)
-
-            num_envs = data.num_envs
-            rewards = jp.zeros((num_envs,))
-
-            # Reward for passing through gates
-            gate_passed = data.info["gate_passed"]  # (num_envs,)
-            rewards += gate_passed * 10.0  # +10 reward for passing a gate
-
-            # Small negative reward for distance to target gate
             pos = data.states.pos[:, 0, :]  # (num_envs, 3)
-            target_gate = data.obs["target_gate"]  # (num_envs,)
-            gate_pos = data.obs["gates_pos"][jp.arange(num_envs), target_gate]  # (num_envs, 3)
-            dist_to_gate = jp.linalg.norm(gate_pos - pos, axis=-1)  # (num_envs,)
-            rewards += -0.1 * dist_to_gate  # -0.1 per meter to target gate
+            vel = data.states.vel[:, 0, :]  # (num_envs, 3)
+            # Relative position to target gate
+            gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
+            r_gate_pos = gate_pos_coef * jp.exp(
+                -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
+            )  # (num_envs,)
 
-            # Small negative reward for collisions
-            collisions = data.info["collisions"]  # (num_envs,)
-            rewards += -5.0 * collisions  # -5 for collision
+            # Relative velocity (velocity projected onto gate_rel_pos)
+            gate_rel_pos_unit = gate_rel_pos / (
+                jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
+            )
+            gate_rel_vel_norm = jp.sum(vel * gate_rel_pos_unit, axis=-1)  # (num_envs,)
+            r_gate_vel = gate_vel_coef * jp.tanh(gate_rel_vel_norm / max_vel)  # (num_envs,)
 
+            # Penalty for collisions
+            r_collision = contact_coef * _contacts_reward(mjx_data)  # (num_envs,)
+
+            rewards = jp.zeros((pos.shape[0],))
+            rewards += r_gate_pos
+            rewards += r_gate_vel
+            rewards += r_collision
             return rewards
 
         def _reset(

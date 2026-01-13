@@ -59,7 +59,7 @@ def simulate(
         env, (obs, info) = env.reset(env, seed=config.exp.seed + ep)
         obs = {k: np.asarray(v[0]) for k, v in obs.items()}
         info = {k: v[0] for k, v in info.items()}
-        controller: Controller = controller_cls(obs, info, config, sim=env.sim)
+        controller: Controller = controller_cls(obs, info, config, sim=env.unwrapped.sim)
         i = 0
         fps = 60
         total_reward = 0.0

@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import jax.numpy as jp
 import mujoco
 import numpy as np
+import toml
 from crazyflow.utils import leaf_replace
 from jax.numpy import vectorize
 from jax.scipy.spatial.transform import Rotation as JR
@@ -33,6 +34,22 @@ if TYPE_CHECKING:
     from jax import Array
     from mujoco import MjSpec
     from mujoco.mjx import Data
+
+
+def load_config(path: Path) -> ConfigDict:
+    """Load the race config file.
+
+    Args:
+        path: Path to the config file.
+
+    Returns:
+        The configuration.
+    """
+    assert path.exists(), f"Configuration file not found: {path}"
+    assert path.suffix == ".toml", f"Configuration file has to be a TOML file: {path}"
+
+    with open(path, "r") as f:
+        return ConfigDict(toml.load(f))
 
 
 def load_track(track: ConfigDict) -> tuple[ConfigDict, ConfigDict, ConfigDict]:

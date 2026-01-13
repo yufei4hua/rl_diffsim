@@ -3,11 +3,8 @@ file = "drone_race_env.py"  # env file name
 seed = 42
 
 [controller]
-# file = "attitude_rl_f8.py"
-# file = "rotvel_rl_rp.py"
-file = "attitude_race.py"
-# file = "rotvel_mellinger.py"
-# file = "state_controller.py"
+# file = "attitude_race.py"
+file = "attitude_rl_race.py"
 
 [deploy]
 [[deploy.drones]]

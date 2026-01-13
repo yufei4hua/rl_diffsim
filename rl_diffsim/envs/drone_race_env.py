@@ -223,6 +223,7 @@ class DroneRaceEnv(DroneEnv):
         track: ConfigDict | None = None,
         disturbances: ConfigDict | None = None,
         randomizations: ConfigDict | None = None,
+        check_contacts: bool = True,
     ) -> DroneRaceEnv:
         """Create a drone racing environment.
 
@@ -244,6 +245,7 @@ class DroneRaceEnv(DroneEnv):
             track: Track configuration dictionary.
             disturbances: Disturbance configuration dictionary.
             randomizations: Randomization configuration dictionary.
+            check_contacts: Whether to disable drones when contacts occur.
 
         Returns:
             An instance of DroneRaceEnv with jittable functions and data.
@@ -262,7 +264,7 @@ class DroneRaceEnv(DroneEnv):
             attitude_freq=attitude_freq,
             force_torque_freq=force_torque_freq,
         )
-        use_box_collision(sim, True)
+        use_box_collision(sim, check_contacts)
         n_substeps = sim.freq // freq
 
         # Modify the step pipeline if needed
@@ -528,8 +530,9 @@ class DroneRaceEnv(DroneEnv):
             disabled = race_data.disabled_drones | jp.any(pos < race_data.pos_limit_low, axis=-1)
             disabled = disabled | jp.any(pos > race_data.pos_limit_high, axis=-1)
             disabled = disabled | (race_data.target_gate == -1)
-            contacts = jp.any(contacts[:, None, :] & race_data.contact_masks, axis=-1)
-            disabled = disabled | contacts
+            if check_contacts:
+                contacts = jp.any(contacts[:, None, :] & race_data.contact_masks, axis=-1)
+                disabled = disabled | contacts
             return disabled
 
         def _step_race(

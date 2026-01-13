@@ -8,12 +8,11 @@ import flax.struct as struct
 import jax
 import jax.numpy as jp
 import numpy as np
-import scipy
 from crazyflow.control.control import Control
 from crazyflow.sim import Sim
 from crazyflow.sim.data import SimData
 from crazyflow.sim.physics import Physics
-from crazyflow.sim.visualize import draw_line, draw_points
+from crazyflow.sim.visualize import draw_line
 from crazyflow.utils import leaf_replace
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
@@ -209,25 +208,24 @@ class RandTrajEnv(DroneEnv):
         ts = t[None, :] + offset[:, None]  # random phase shift
         radius = 1  # Radius for the circles
         omega = 2 * jp.pi / trajectory_time  # Angular velocity
-        
+
         # Position
         x = radius * jp.sin(ts)
         y = jp.zeros_like(ts)
         z = radius / 2 * jp.sin(2 * ts) + 1.5
         trajectories = jp.array([x.T, y.T, z.T]).T  # (num_envs, n_steps, 3)
-        
+
         # Velocity (first derivative)
         vx = radius * jp.cos(ts) * omega
         vy = jp.zeros_like(ts)
         vz = radius * jp.cos(2 * ts) * omega
         trajectory_vel = jp.array([vx.T, vy.T, vz.T]).T  # (num_envs, n_steps, 3)
-        
+
         # Acceleration (second derivative)
         ax = -radius * jp.sin(ts) * omega**2
         ay = jp.zeros_like(ts)
         az = -2 * radius * jp.sin(2 * ts) * omega**2
-        trajectory_acc = jp.array([ax.T, ay.T, az.T]).T  # (num_envs, n_steps, 3) 
-
+        trajectory_acc = jp.array([ax.T, ay.T, az.T]).T  # (num_envs, n_steps, 3)
 
         # Set takeoff position and build default reset position
         takeoff_pos = trajectories[:, :1, :]

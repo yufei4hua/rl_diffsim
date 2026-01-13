@@ -38,7 +38,7 @@ def train():
         )
         score = 0.0
         score += mean_rewards
-        score += -rmse_pos*1000
+        score += -rmse_pos * 1000
         # score += -10 * training_time
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})

@@ -427,7 +427,7 @@ def evaluate_bptt(
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             # if render:
             #     eval_env.render(world=episode, mode="human")
-                # frames.append(np.array(rgb_array))  # VIDEO RECORDING
+            # frames.append(np.array(rgb_array))  # VIDEO RECORDING
             done = (terminated | truncated)[episode]
             episode_reward += float(np.mean(reward).item())
             steps += 1

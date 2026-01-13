@@ -232,9 +232,7 @@ class ZeroYaw(Wrapper):
 
         def _step(env: "ZeroYaw", actions: Array) -> tuple["ZeroYaw", tuple[Any, ...]]:
             actions = actions.at[..., 2].set(0.0)
-            base_env, (obs, reward, terminated, truncated, info) = env.base.step(
-                env.base, actions
-            )
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
 
             env = env.replace(base=base_env)
             return env, (obs, reward, terminated, truncated, info)
@@ -279,9 +277,7 @@ class AngleReward(Wrapper):
             return reward
 
         def _step(env: "AngleReward", actions: Array) -> tuple["AngleReward", tuple[Any, ...]]:
-            base_env, (obs, reward, terminated, truncated, info) = env.base.step(
-                env.base, actions
-            )
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
             reward = _reward(reward, obs)
 
             env = env.replace(base=base_env)
@@ -344,9 +340,7 @@ class ActionNoise(Wrapper):
             )
             # 2. apply noise and step env
             actions = actions + jax.lax.stop_gradient(action_bias + additive_noise)
-            base_env, (obs, reward, terminated, truncated, info) = env.base.step(
-                env.base, actions
-            )
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
             env = env.replace(base=base_env, rng_key=rng_key, action_bias=action_bias)
             return env, (obs, reward, terminated, truncated, info)
 

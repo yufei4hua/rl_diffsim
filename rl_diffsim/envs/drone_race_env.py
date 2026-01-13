@@ -363,7 +363,9 @@ class DroneRaceEnv(DroneEnv):
             action = action + jax.lax.stop_gradient(action_clipped - action)
             return jp.array(action, device=jax_device).reshape((num_envs, num_drones, -1))
 
-        def _apply_action(data: SimData, action: Array, control: Control, disturbances: dict) -> SimData:
+        def _apply_action(
+            data: SimData, action: Array, control: Control, disturbances: dict
+        ) -> SimData:
             low, high = action_space.low, action_space.high
             action = _sanitize_action(action, low, high)
             if "action" in disturbances:
@@ -657,7 +659,7 @@ if __name__ == "__main__":
     with open(config_path, "r") as f:
         config = ConfigDict(toml.load(f))
 
-    env = DroneRaceEnv.create(num_envs=1024, device="gpu",**config.env)
+    env = DroneRaceEnv.create(num_envs=1024, device="gpu", **config.env)
 
     # Reset the environment
     env, (obs, info) = env.reset(env, seed=42)

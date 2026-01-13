@@ -16,14 +16,15 @@ from jax import Array
 from jax.scipy.spatial.transform import Rotation as R
 
 matplotlib.use("Agg")  # render to raster images
-import matplotlib.pyplot as plt
 
 from rl_diffsim.envs.wrappers import Wrapper
 
 if TYPE_CHECKING:
-    from crazyflow.sim_data import SimData
+    from crazyflow.sim.data import SimData
+    from mujoco.mjx import Data
 
     from rl_diffsim.envs.drone_race_env import RaceData
+
 
 # region RaceWrapper
 @struct.dataclass
@@ -79,7 +80,7 @@ class RaceWrapper(Wrapper):
         """
         n_envs = base.unwrapped.num_envs
         n_gates = len(base.unwrapped.race_data.track.gates)
-        
+
         # region Obs
         def _basic_obs(obs: dict[str, Array]) -> dict[str, Array]:
             """Extract the basic observation [pos, quat, vel, ang_vel]."""
@@ -95,24 +96,26 @@ class RaceWrapper(Wrapper):
             """Compute race observation for rl agent."""
             pos = obs["pos"]  # (num_envs, 3)
             target_gate = obs["target_gate"]  # (num_envs,)
-            
+
             # One-hot encoding of target gate
-            gate_onehot = jp.zeros((n_envs, n_gates)).at[jp.arange(n_envs), target_gate].set(1)  # (num_envs, n_gates)
-            
+            gate_onehot = (
+                jp.zeros((n_envs, n_gates)).at[jp.arange(n_envs), target_gate].set(1)
+            )  # (num_envs, n_gates)
+
             # Get target gate position for each env
             gate_pos = obs["gates_pos"][jp.arange(n_envs), target_gate]  # (num_envs, 3)
-            
+
             # Relative position to target gate
             gate_rel_pos = gate_pos - pos  # (num_envs, 3)
-            
+
             # Normal vector of target gate
             gate_quat = obs["gates_quat"][jp.arange(n_envs), target_gate]  # (num_envs, 4)
             gate_normal = R.from_quat(gate_quat).apply(jp.array([1.0, 0.0, 0.0]))  # (num_envs, 3)
-            
+
             # Relative xy-position to all obstacles
             obstacles_pos = obs["obstacles_pos"]  # (num_envs, n_obstacles, 2)
             obst_rel_pos = obstacles_pos[:, :, :2] - pos[:, None, :2]  # (num_envs, n_obstacles, 2)
-            
+
             race_obs = {
                 "gate_onehot": gate_onehot,
                 "gate_rel_pos": gate_rel_pos,
@@ -121,14 +124,16 @@ class RaceWrapper(Wrapper):
             }
 
             return race_obs
-        
+
         # region Rewards
-        def _race_reward(data: SimData, race_data: RaceData, obs: dict[str, Array]) -> Array:
+        def _race_reward(
+            data: SimData, mjx_data: Data, race_data: RaceData, obs: dict[str, Array]
+        ) -> Array:
             """Compute race reward for rl training.
-            
+
             Rewards terms:
             Differentiable:
-            - Approaching gate: distance towards gate 
+            - Approaching gate: distance towards gate
             - Approaching gate: vel towards gate
             - Avoiding obstacles: distance towards obstacles
             - Action penalty
@@ -145,9 +150,13 @@ class RaceWrapper(Wrapper):
             # Relative position to target gate
             gate_rel_pos = gate_pos - pos  # (num_envs, 3)
             # Relative velocity (velocity projected onto gate_rel_pos)
-            gate_rel_pos_norm = gate_rel_pos * jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
-            gate_rel_vel = jp.sum(vel * gate_rel_pos_norm, axis=-1, keepdims=True) * gate_rel_pos_norm # (num_envs, 3)
-            
+            gate_rel_pos_norm = (
+                gate_rel_pos * jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
+            )
+            gate_rel_vel = (
+                jp.sum(vel * gate_rel_pos_norm, axis=-1, keepdims=True) * gate_rel_pos_norm
+            )  # (num_envs, 3)
+
             num_envs = data.num_envs
             rewards = jp.zeros((num_envs,))
 
@@ -180,17 +189,20 @@ class RaceWrapper(Wrapper):
 
         def _step(env: "RaceWrapper", action: Array) -> tuple["RaceWrapper", tuple[Any, ...]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
-            basic_obs = _basic_obs(obs) # (num_envs, 13)
-            race_obs = _race_obs(obs) # (num_envs, 15)
-            obs = {**basic_obs, **race_obs} # (num_envs, 28)
+            basic_obs = _basic_obs(obs)  # (num_envs, 13)
+            race_obs = _race_obs(obs)  # (num_envs, 15)
+            obs = {**basic_obs, **race_obs}  # (num_envs, 28)
+            reward = _race_reward(
+                env.base.unwrapped.data,
+                env.base.unwrapped.mjx_data,
+                env.base.unwrapped.race_data,
+                obs,
+            )
 
             env = env.replace(base=base_env)
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(
-            base=base, step=jax.jit(_step), reset=jax.jit(_reset)
-        )
-
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
 if __name__ == "__main__":
@@ -208,7 +220,7 @@ if __name__ == "__main__":
     with open(config_path, "r") as f:
         config = ConfigDict(toml.load(f))
 
-    env = DroneRaceEnv.create(num_envs=1024, device="gpu",**config.env)
+    env = DroneRaceEnv.create(num_envs=1024, device="gpu", **config.env)
     env = RaceWrapper.create(env)
 
     # Reset the environment
@@ -257,4 +269,3 @@ if __name__ == "__main__":
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)
-

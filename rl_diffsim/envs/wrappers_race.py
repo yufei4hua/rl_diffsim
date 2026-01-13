@@ -87,7 +87,7 @@ class RaceWrapper(Wrapper):
             RaceWrapper: Configured wrapper instance.
         """
         n_envs = base.unwrapped.num_envs
-        n_gates = len(base.unwrapped.race_data.track.gates)
+        n_gates = base.unwrapped.race_data.n_gates
 
         # region Obs
         def _basic_obs(obs: dict[str, Array]) -> dict[str, Array]:

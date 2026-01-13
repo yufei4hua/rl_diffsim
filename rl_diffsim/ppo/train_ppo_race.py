@@ -61,7 +61,7 @@ class Args:
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.88
+    gamma: float = 0.98
     """the discount factor gamma"""
     gae_lambda: float = 0.96
     """the lambda for the general advantage estimation"""
@@ -73,7 +73,7 @@ class Args:
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.01
+    ent_coef: float = 0.03
     """coefficient of the entropy"""
     vf_coef: float = 0.7
     """coefficient of the value function"""
@@ -81,7 +81,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 32
+    hidden_size: int = 48
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -93,11 +93,11 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    gate_pos_coef: float = 0.05
-    gate_vel_coef: float = 0.9
-    max_vel: float = 1.8
-    contact_safe_dist: float = 0.25
-    contact_coef: float = 12.0
+    gate_pos_coef: float = 0.0
+    gate_vel_coef: float = 1.1
+    max_vel: float = 1.9
+    contact_safe_dist: float = 0.16
+    contact_coef: float = 10.0
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -483,6 +483,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
             for batch_step, (sum_reward, done, gates_passed) in enumerate(
                 zip(data.sum_rewards, data.dones, data.gates_passed)
             ):
+                gates_passed = jp.arange(envs.unwrapped.race_data.n_gates+1)[gates_passed]
                 if jp.any(done):
                     wandb.log(
                         {
@@ -589,8 +590,9 @@ def evaluate_ppo(
         else None
     )
     rmse_pos = eval_env.calc_rmse()
+    gates_passed = jp.arange(eval_env.unwrapped.race_data.n_gates + 1)[eval_env.unwrapped.race_data.target_gate[:, 0]]
     print(
-        f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, Gates passed: {np.max(eval_env.unwrapped.race_data.target_gate[:, 0])}"
+        f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
     )
 
     eval_env.close()

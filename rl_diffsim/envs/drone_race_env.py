@@ -96,7 +96,9 @@ class RaceData:
     max_episode_steps: Array = struct.field(pytree_node=False)
     sensor_range: Array = struct.field(pytree_node=False)
     track: ConfigDict = struct.field(pytree_node=False)
+    n_gates: int = struct.field(pytree_node=False)
     gates: ConfigDict = struct.field(pytree_node=False)
+    n_obstacles: int = struct.field(pytree_node=False)
     obstacles: ConfigDict = struct.field(pytree_node=False)
     drone: ConfigDict = struct.field(pytree_node=False)
     disturbances: ConfigDict = struct.field(pytree_node=False)
@@ -144,7 +146,9 @@ class RaceData:
             max_episode_steps=jp.array([max_episode_steps], dtype=int, device=device),
             sensor_range=jp.array([sensor_range], dtype=jp.float32, device=device),
             track=track,
+            n_gates=n_gates,
             gates=gates,
+            n_obstacles=n_obstacles,
             obstacles=obstacles,
             drone=drone,
             disturbances=disturbances,

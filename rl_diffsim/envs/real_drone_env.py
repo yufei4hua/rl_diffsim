@@ -54,6 +54,7 @@ class RealDroneCoreEnv:
         pos_limit_low: list[float] | None = None,
         pos_limit_high: list[float] | None = None,
         control_mode: Literal["state", "attitude", "rotor_vel"] = "state",
+        **kwargs: dict,
     ):
         """Create a deployable version of the drone environment.
 
@@ -64,6 +65,7 @@ class RealDroneCoreEnv:
             pos_limit_low: Lower position limits for safety [x, y, z].
             pos_limit_high: Upper position limits for safety [x, y, z].
             control_mode: Control mode of the drone.
+            kwargs: Additional keyword arguments.
         """
         assert rclpy.ok(), "ROS2 is not running. Please start ROS2 before creating a deploy env."
         # Static env data
@@ -583,6 +585,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
         pos_limit_low: list[float] | None = None,
         pos_limit_high: list[float] | None = None,
         control_mode: Literal["state", "attitude"] = "state",
+        **kwargs: dict,
     ):
         """Initialize the drone environment.
 
@@ -605,6 +608,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
             pos_limit_low: Lower position limits for safety [x, y, z].
             pos_limit_high: Upper position limits for safety [x, y, z].
             control_mode: Control mode of the drone.
+            kwargs: Additional keyword arguments.
         """
         super().__init__(
             drones=drones,
@@ -613,6 +617,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
             pos_limit_low=pos_limit_low,
             pos_limit_high=pos_limit_high,
             control_mode=control_mode,
+            **kwargs,
         )
 
     def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:

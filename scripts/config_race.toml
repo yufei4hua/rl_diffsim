@@ -1,5 +1,6 @@
 [exp]
 file = "drone_race_env.py"  # env file name
+deploy_file = "real_race_env.py"
 seed = 42
 
 [controller]

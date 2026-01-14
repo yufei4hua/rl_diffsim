@@ -1,5 +1,6 @@
 [exp]
 file = "figure_8_env.py"  # env file name
+deploy_file = "real_drone_env.py"
 seed = 42
 
 [controller]

@@ -93,6 +93,7 @@ class RealRaceCoreEnv:
         randomizations: ConfigDict,
         sensor_range: float = 0.5,
         control_mode: Literal["state", "attitude"] = "state",
+        **kwargs: dict,
     ):
         """Create a deployable version of the drone racing environment.
 
@@ -105,6 +106,7 @@ class RealRaceCoreEnv:
             sensor_range: Sensor range. Determines at which distance the exact position of the
                 gates and obstacles is reveiled.
             control_mode: Control mode of the drone.
+            kwargs: Additional keyword arguments.
         """
         assert rclpy.ok(), "ROS2 is not running. Please start ROS2 before creating a deploy env."
         # Static env data
@@ -504,6 +506,7 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
         randomizations: ConfigDict,
         sensor_range: float = 0.5,
         control_mode: Literal["state", "attitude"] = "state",
+        **kwargs: dict,
     ):
         """Initialize the multi-drone environment.
 
@@ -529,6 +532,7 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
             sensor_range: Sensor range. Determines at which distance the exact position of the
                 gates and obstacles is reveiled.
             control_mode: Control mode of the drone.
+            kwargs: Additional keyword arguments.
         """
         super().__init__(
             drones=drones,
@@ -538,6 +542,7 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
             randomizations=randomizations,
             sensor_range=sensor_range,
             control_mode=control_mode,
+            **kwargs,
         )
 
     def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:

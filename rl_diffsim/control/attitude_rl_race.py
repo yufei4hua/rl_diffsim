@@ -115,8 +115,8 @@ class AttitudeRL(Controller):
         Returns:
             The collective thrust and orientation [r_des, p_des, y_des, t_des] as a numpy array.
         """
-        i = min(self._tick, 6.0 * self.freq)  # 6 seconds max for trajectory
-        if i == int(6.0 * self.freq):  # Maximum duration reached
+        i = min(self._tick, 6.0 * self.freq)  # 6 seconds max for the race
+        if obs["target_gate"] == -1 or i >= int(6.0 * self.freq):  # Finish track or maximum duration reached
             self._finished = True
 
         obs_rl = self._obs_race(obs)

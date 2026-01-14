@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 import wandb
-from rl_diffsim.ppo.train_ppo_figure8 import Args, evaluate_ppo, train_ppo
+from rl_diffsim.ppo.train_ppo_race import Args, evaluate_ppo, train_ppo
 
 
 # 1: Define objective/training function
@@ -49,6 +49,20 @@ sweep_configuration = {
         "ent_coef": {"min": 0.0, "max": 1e-2},
         "vf_coef": {"min": 0.5, "max": 1.0},
         "hidden_size": {"values": [16, 32, 64]},
+        # wrapper settings (race-specific)
+        "gate_pos_coef": {"distribution": "uniform", "min": 0.05, "max": 0.2},
+        "gate_vel_coef": {"distribution": "uniform", "min": 0.8, "max": 1.6},
+        "max_vel": {"distribution": "uniform", "min": 1.5, "max": 2.5},
+        "contact_safe_dist": {"distribution": "uniform", "min": 0.12, "max": 0.2},
+        "contact_coef": {"distribution": "uniform", "min": 10.0, "max": 20.0},
+        "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
+        "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
+        "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        "d_act_coefs_1": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        "d_act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.2},
+        "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
     },
 }
 

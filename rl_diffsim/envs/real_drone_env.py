@@ -53,7 +53,7 @@ class RealDroneCoreEnv:
         freq: int,
         pos_limit_low: list[float] | None = None,
         pos_limit_high: list[float] | None = None,
-        control_mode: Literal["state", "attitude", "rotor_vel"] = "state",
+        control: Literal["state", "attitude", "force_torque", "rotor_vel", "rl_state"] = "attitude",
         **kwargs: dict,
     ):
         """Create a deployable version of the drone environment.
@@ -64,7 +64,7 @@ class RealDroneCoreEnv:
             freq: Environment step frequency.
             pos_limit_low: Lower position limits for safety [x, y, z].
             pos_limit_high: Upper position limits for safety [x, y, z].
-            control_mode: Control mode of the drone.
+            control: Control mode of the drone.
             kwargs: Additional keyword arguments.
         """
         assert rclpy.ok(), "ROS2 is not running. Please start ROS2 before creating a deploy env."
@@ -79,10 +79,10 @@ class RealDroneCoreEnv:
         self.rank = rank
         self.freq = freq
         self.device = jax.devices("cpu")[0]
-        assert control_mode in ["state", "attitude", "force_torque", "rotor_vel", "rl_state"], (
-            f"Invalid control mode {control_mode}"
+        assert control in ["state", "attitude", "force_torque", "rotor_vel", "rl_state"], (
+            f"Invalid control mode {control}"
         )
-        self.control_mode = control_mode
+        self.control = control
         self.drone_parameters = load_params("first_principles", drones[rank]["drone_model"])
         self.rotor_vel_min, self.rotor_vel_max = (
             np.sqrt(self.drone_parameters["thrust_min"] / self.drone_parameters["rpm2thrust"][2]),
@@ -94,7 +94,7 @@ class RealDroneCoreEnv:
         self.drone = self._connect_to_drone(
             radio_id=rank, radio_channel=drones[rank]["channel"], drone_id=drones[rank]["id"]
         )
-        if self.control_mode == "rl_state":
+        if self.control == "rl_state":
             self._setup_rl_logging(self.drone)
         # self._setup_sensor_logging(self.drone)
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
@@ -111,7 +111,7 @@ class RealDroneCoreEnv:
 
         self._reset_drone()
 
-        if self.control_mode == "attitude":
+        if self.control == "attitude":
             # Unlock thrust mode protection by sending a zero thrust command
             self.drone.commander.send_setpoint(0, 0, 0, 0)
 
@@ -183,7 +183,7 @@ class RealDroneCoreEnv:
     # region Action
     def send_action(self, action: NDArray):
         """Send the action to the drone."""
-        if self.control_mode == "attitude":
+        if self.control == "attitude":
             pwm = force2pwm(
                 action[3], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
             )
@@ -191,7 +191,7 @@ class RealDroneCoreEnv:
             action = (*np.rad2deg(action[:3]), int(pwm))
             self.drone.commander.send_setpoint(*action)
             self._ros_connector.publish_cmd(action)
-        elif self.control_mode == "rotor_vel":
+        elif self.control == "rotor_vel":
             # convert rotor velocity (RPM) to PWM
             rotor_vel = action
             forces = (
@@ -203,7 +203,7 @@ class RealDroneCoreEnv:
             pwms = np.clip(pwms_normalized, 0.0, 1.0)
             # use position setpoint UI for PWM command
             self.drone.commander.send_position_setpoint(*pwms)
-        elif self.control_mode == "force_torque":
+        elif self.control == "force_torque":
             # thrust in N -> thrust in PWM
             thrust_pwm = force2pwm(
                 action[0], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
@@ -226,7 +226,7 @@ class RealDroneCoreEnv:
             )
             # use attitude setpoint UI for force_torque command
             self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
-        elif self.control_mode == "rl_state":
+        elif self.control == "rl_state":
             pos, vel = action[:3], action[3:6]
             acc = np.zeros(3)  # currently we don't have acc command for RL policy
             quat = np.array([0.0, 0.0, 0.0, 1.0])  # currently no orientation command for RL policy
@@ -480,11 +480,11 @@ class RealDroneCoreEnv:
             wait_for_action(HOVER_DURATION)
             self.drone.param.set_value("commander.enHighLevel", "0")
 
-        if self.control_mode == "rotor_vel":
+        if self.control == "rotor_vel":
             self.drone.param.set_value("stabilizer.controller", 6)
-        elif self.control_mode == "force_torque":
+        elif self.control == "force_torque":
             self.drone.param.set_value("stabilizer.controller", 7)
-        elif self.control_mode == "rl_state":
+        elif self.control == "rl_state":
             self.drone.param.set_value("stabilizer.controller", 8)
             print("Running RL state controller")
 
@@ -616,7 +616,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
             freq=freq,
             pos_limit_low=pos_limit_low,
             pos_limit_high=pos_limit_high,
-            control_mode=control_mode,
+            control=control_mode,
             **kwargs,
         )
 
@@ -684,7 +684,7 @@ class RealMultiDroneEnv(RealDroneCoreEnv, Env):
         freq: int,
         pos_limit_low: list[float] | None = None,
         pos_limit_high: list[float] | None = None,
-        control_mode: Literal["state", "attitude"] = "state",
+        control: Literal["state", "attitude", "force_torque", "rotor_vel", "rl_state"] = "attitude",
     ):
         """Initialize the multi-drone environment.
 
@@ -694,7 +694,7 @@ class RealMultiDroneEnv(RealDroneCoreEnv, Env):
             freq: Environment step frequency.
             pos_limit_low: Lower position limits for safety [x, y, z].
             pos_limit_high: Upper position limits for safety [x, y, z].
-            control_mode: Control mode of the drone.
+            control: Control mode of the drone.
         """
         super().__init__(
             drones=drones,
@@ -702,7 +702,7 @@ class RealMultiDroneEnv(RealDroneCoreEnv, Env):
             freq=freq,
             pos_limit_low=pos_limit_low,
             pos_limit_high=pos_limit_high,
-            control_mode=control_mode,
+            control=control,
         )
 
     def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:

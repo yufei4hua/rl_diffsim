@@ -172,12 +172,13 @@ class EvalRecorder:
     _record_goal: list[NDArray]
     _record_rpy: list[NDArray]
 
-    def __init__(self):
+    def __init__(self, control: str = "attitude"):
         """Initialize the recorder."""
         self._record_act = []
         self._record_pos = []
         self._record_goal = []
         self._record_rpy = []
+        self.control = control
 
     def record_step(self, action: NDArray, position: NDArray, goal: NDArray, rpy: NDArray):
         """Record a single step's data.
@@ -193,7 +194,7 @@ class EvalRecorder:
         self._record_goal.append(goal)
         self._record_rpy.append(rpy)
 
-    def plot_eval(self, save_path: str = "eval_plot.png") -> plt.Figure:
+    def plot_eval(self, save_path: str = "eval_plot.png", traj_plane: list = [0, 2]) -> plt.Figure:
         """Plot recorded traces and save to `save_path`."""
         actions = np.array(self._record_act)
         pos = np.array(self._record_pos)
@@ -204,7 +205,14 @@ class EvalRecorder:
         axes = axes.flatten()
 
         # Actions
-        action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        if self.control == "attitude":
+            action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        elif self.control == "force_torque":
+            action_labels = ["Thrust", "Tx", "Ty", "Tz"]
+        elif self.control == "rotor_vel":
+            action_labels = ["Rotor 1", "Rotor 2", "Rotor 3", "Rotor 4"]
+        else:
+            raise ValueError(f"Unsupported control type: {self.control}")
         for i in range(4):
             axes[i].plot(actions[:, 0, i])
             axes[i].set_title(f"{action_labels[i]} Command")
@@ -241,12 +249,18 @@ class EvalRecorder:
 
         # compute RMSE for position
         rmse_pos = np.sqrt(np.mean(pos_err**2))
-        # XZ plane trajectory plot (Figure-8 view)
-        axes[11].plot(pos[:, 0, 0], pos[:, 0, 2], label="Actual")
-        axes[11].plot(goal[:, 0, 0], goal[:, 0, 2], linestyle="--", linewidth=0.5, label="Goal")
-        axes[11].set_title(f"XZ Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
-        axes[11].set_xlabel("X Position (m)")
-        axes[11].set_ylabel("Z Position (m)")
+        # trajectory plot
+        axes[11].plot(pos[:, 0, traj_plane[0]], pos[:, 0, traj_plane[1]], label="Actual")
+        axes[11].plot(
+            goal[:, 0, traj_plane[0]],
+            goal[:, 0, traj_plane[1]],
+            linestyle="--",
+            linewidth=0.5,
+            label="Goal",
+        )
+        axes[11].set_title(f"Trajectory Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
+        axes[11].set_xlabel(f"{['X', 'Y', 'Z'][traj_plane[0]]} Position (m)")
+        axes[11].set_ylabel(f"{['X', 'Y', 'Z'][traj_plane[1]]} Position (m)")
         axes[11].grid(True)
         axes[11].legend()
         axes[11].axis("equal")

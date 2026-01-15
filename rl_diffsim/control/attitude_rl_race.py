@@ -81,10 +81,7 @@ class AttitudeRL(Controller):
             obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
             act_dim = params["actor"]["params"][f"Dense_{num_layers}"]["kernel"].shape[1]
         agent = Agent.create(
-            key=jax.random.PRNGKey(0),
-            obs_dim=obs_dim,
-            act_dim=act_dim,
-            hidden_size=hidden_size,
+            key=jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=hidden_size
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
@@ -98,7 +95,7 @@ class AttitudeRL(Controller):
         self._finished = False
 
         # Initialize evaluation recorder
-        self.eval_recorder = EvalRecorder()
+        self.eval_recorder = EvalRecorder(control="attitude")
 
         self.sim = sim  # For visualization
 
@@ -116,7 +113,9 @@ class AttitudeRL(Controller):
             The collective thrust and orientation [r_des, p_des, y_des, t_des] as a numpy array.
         """
         i = min(self._tick, 6.0 * self.freq)  # 6 seconds max for the race
-        if obs["target_gate"] == -1 or i >= int(6.0 * self.freq):  # Finish track or maximum duration reached
+        if obs["target_gate"] == -1 or i >= int(
+            6.0 * self.freq
+        ):  # Finish track or maximum duration reached
             self._finished = True
 
         obs_rl = self._obs_race(obs)
@@ -141,9 +140,7 @@ class AttitudeRL(Controller):
         target_gate = obs["target_gate"]  # (,)
         n_gates = obs["gates_pos"].shape[0]
         # One-hot encoding of target gate
-        gate_onehot = (
-            jp.zeros((n_gates,)).at[target_gate].set(1)
-        )  # (n_gates,)
+        gate_onehot = jp.zeros((n_gates,)).at[target_gate].set(1)  # (n_gates,)
 
         # Get target gate position for each env
         gate_pos = obs["gates_pos"][target_gate]  # (3)
@@ -224,4 +221,6 @@ class AttitudeRL(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
-        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png")
+        self.eval_recorder.plot_eval(
+            save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png", traj_plane=[0, 1]
+        )

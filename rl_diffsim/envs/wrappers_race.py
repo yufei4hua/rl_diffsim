@@ -17,6 +17,7 @@ from jax.scipy.spatial.transform import Rotation as R
 
 matplotlib.use("Agg")  # render to raster images
 
+from rl_diffsim.envs.race_utils import compute_objects_contact_masks
 from rl_diffsim.envs.wrappers import Wrapper
 
 if TYPE_CHECKING:
@@ -42,6 +43,8 @@ class RaceWrapper(Wrapper):
     """
 
     base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    last_target_gate: Array = struct.field(pytree_node=True)
 
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
@@ -74,9 +77,13 @@ class RaceWrapper(Wrapper):
         base: struct.PyTreeNode,
         gate_pos_coef: float = 1.0,
         gate_vel_coef: float = 1.0,
+        gate_pass_coef: float = 5.0,
+        min_vel: float = 0.5,
         max_vel: float = 2.0,
-        contact_safe_dist: float = 0.1,
-        contact_coef: float = 50.0,
+        cont_floor_safe_dist: float = 0.1,
+        cont_gate_safe_dist: float = 0.1,
+        cont_obst_safe_dist: float = 0.1,
+        contact_coef: float = 10.0,
     ) -> "RaceWrapper":
         """Create a RaceWrapper around `base`.
 
@@ -88,6 +95,15 @@ class RaceWrapper(Wrapper):
         """
         n_envs = base.unwrapped.num_envs
         n_gates = base.unwrapped.race_data.n_gates
+        floor_contact_masks = compute_objects_contact_masks(
+            base.unwrapped.sim, base.unwrapped.race_data.contact_masks, "world"
+        )
+        gate_contact_masks = compute_objects_contact_masks(
+            base.unwrapped.sim, base.unwrapped.race_data.contact_masks, "gate"
+        )
+        obstacle_contact_masks = compute_objects_contact_masks(
+            base.unwrapped.sim, base.unwrapped.race_data.contact_masks, "obstacle"
+        )
 
         # region Obs
         def _basic_obs(obs: dict[str, Array]) -> dict[str, Array]:
@@ -136,12 +152,25 @@ class RaceWrapper(Wrapper):
         # region Rewards
         def _contacts_reward(mjx_data: Data) -> Array:
             # A pure contact reward calculation
-            dists = mjx_data._impl.contact.dist - contact_safe_dist  # (num_envs, num_contacts)
-            rewards = jp.sum(jp.where(dists < 0.0, -dists * dists, 0.0), axis=-1)
-            return rewards
+            dists = mjx_data._impl.contact.dist  # (num_envs, num_contacts)
+            floor_dists = jp.where(floor_contact_masks[:, 0], dists - cont_floor_safe_dist, 0.0)
+            gate_dists = jp.where(gate_contact_masks[:, 0], dists - cont_gate_safe_dist, 0.0)
+            obstacle_dists = jp.where(
+                obstacle_contact_masks[:, 0], dists - cont_obst_safe_dist, 0.0
+            )
+            r_floor = jp.sum(jp.where(floor_dists < 0.0, -floor_dists * floor_dists, 0.0), axis=-1)
+            r_gate = jp.sum(jp.where(gate_dists < 0.0, -gate_dists * gate_dists, 0.0), axis=-1)
+            r_obstacle = jp.sum(
+                jp.where(obstacle_dists < 0.0, -obstacle_dists * obstacle_dists, 0.0), axis=-1
+            )
+            return r_floor + r_gate + r_obstacle
 
         def _race_reward(
-            data: SimData, mjx_data: Data, race_data: RaceData, obs: dict[str, Array]
+            env: RaceWrapper,
+            data: SimData,
+            mjx_data: Data,
+            race_data: RaceData,
+            obs: dict[str, Array],
         ) -> Array:
             """Compute race reward for rl training.
 
@@ -150,33 +179,50 @@ class RaceWrapper(Wrapper):
             - Approaching gate: distance towards gate
             - Approaching gate: vel towards gate
             - Avoiding obstacles: distance towards obstacles
+            Non-differentiable:
+            - Passing through gate
             """
             pos = data.states.pos[:, 0, :]  # (num_envs, 3)
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
             # Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
-            # r_gate_pos = gate_pos_coef * jp.exp(
-            #     -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
-            # )  # (num_envs,)
             r_gate_pos = gate_pos_coef * jp.exp(
-                -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
+                -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
             )  # (num_envs,)
+            # r_gate_pos = gate_pos_coef * jp.exp(
+            #     -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
+            # )  # (num_envs,)
 
             # Relative velocity (velocity projected onto gate_rel_pos)
             gate_rel_pos_unit = gate_rel_pos / (
                 jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
             )
             gate_rel_vel_norm = jp.sum(vel * gate_rel_pos_unit, axis=-1)  # (num_envs,)
-            r_gate_vel = gate_vel_coef * jp.tanh(gate_rel_vel_norm / max_vel)  # (num_envs,)
+            r_gate_vel = gate_vel_coef * jp.tanh(
+                (gate_rel_vel_norm - min_vel) / (max_vel / 2.0)
+            )  # (num_envs,)
 
             # Penalty for collisions
             r_collision = contact_coef * _contacts_reward(mjx_data)  # (num_envs,)
+
+            # Reward for passing through gate
+            passed = (
+                jp.logical_or(
+                    race_data.target_gate > env.last_target_gate, race_data.target_gate == -1
+                )
+                .astype(jp.float32)
+                .squeeze(-1)
+            )  # (num_envs,)
+            r_pass_gate = gate_pass_coef * passed  # (num_envs,)
+            env = env.replace(last_target_gate=race_data.target_gate)
 
             rewards = jp.zeros((pos.shape[0],))
             rewards += r_gate_pos
             rewards += r_gate_vel
             rewards += r_collision
-            return rewards
+            rewards += r_pass_gate
+            # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}", r_gate_pos=r_gate_pos, r_gate_vel=r_gate_vel, r_collision=r_collision, r_pass_gate=r_pass_gate)
+            return env, rewards
 
         def _reset(
             env: "RaceWrapper", *, seed: int | None = None, options: dict | None = None
@@ -193,7 +239,8 @@ class RaceWrapper(Wrapper):
             basic_obs = _basic_obs(obs)  # (num_envs, 13)
             race_obs = _race_obs(obs)  # (num_envs, 15)
             obs = {**basic_obs, **race_obs}  # (num_envs, 28)
-            reward = _race_reward(
+            env, reward = _race_reward(
+                env,
                 env.base.unwrapped.data,
                 env.base.unwrapped.mjx_data,
                 env.base.unwrapped.race_data,
@@ -203,7 +250,12 @@ class RaceWrapper(Wrapper):
             env = env.replace(base=base_env)
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+        return cls(
+            base=base,
+            last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32),
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
 
 
 if __name__ == "__main__":

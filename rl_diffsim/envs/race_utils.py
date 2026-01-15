@@ -213,6 +213,31 @@ def load_contact_masks(sim: Sim) -> Array:
     return masks
 
 
+def compute_objects_contact_masks(sim: Sim, drone_masks: Array, object: str) -> Array:
+    """Compute contact masks for the drone with specified objects in the simulation."""
+    contact = sim.mjx_data._impl.contact
+    geom1 = np.array(contact.geom1[0])
+    geom2 = np.array(contact.geom2[0])
+    n_contacts = geom1.shape[0]
+    mj = sim.mj_model
+    # Collect geom-id ranges for all bodies matching the prefix
+    ranges = []
+    for bid in range(mj.nbody):
+        name = mj.body(bid).name
+        if name.startswith(object):
+            start = int(mj.body_geomadr[bid])
+            count = int(mj.body_geomnum[bid])
+            if count > 0:
+                ranges.append((start, start + count))
+    # Check whether either geom in the slot belongs to any matched body
+    obj_mask = np.zeros((n_contacts,), dtype=bool)
+    for start, end in ranges:
+        obj_mask |= ((geom1 >= start) & (geom1 < end)) | ((geom2 >= start) & (geom2 < end))
+
+    masks = drone_masks & obj_mask[None, :]
+    return masks
+
+
 # region Factories
 def rng_spec2fn(fn_spec: dict) -> Callable:
     """Convert a function spec to a wrapped and scaled function from jax.random."""

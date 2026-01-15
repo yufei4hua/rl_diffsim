@@ -14,9 +14,11 @@ from pathlib import Path
 
 import fire
 import rclpy
-from utils import load_config, load_controller, load_environment
+from utils import load_config, load_controller
 
 from rl_diffsim.control.attitude_controller import AttitudeController
+from rl_diffsim.envs.real_drone_env import RealDroneEnv
+from rl_diffsim.envs.real_race_env import RealDroneRaceEnv
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,13 @@ def main(config: str = "config.toml", controller: str | None = None):
     rclpy.init()
     config = load_config(Path(__file__).parents[1] / "scripts" / config)
     # Create the drone environment
-    env_cls = load_environment(Path(__file__).parents[1] / "rl_diffsim/envs" / config.exp.deploy_file)
+    match config.exp.deploy_file:
+        case "real_drone_env.py":
+            env_cls = RealDroneEnv
+        case "real_race_env.py":
+            env_cls = RealDroneRaceEnv
+        case _:
+            raise ValueError(f"Unknown deploy environment file: {config.exp.deploy_file}")
     env = env_cls(drones=config.deploy.drones, **config.env)
     try:
         control_path = Path(__file__).parents[1] / "rl_diffsim/control"

@@ -564,7 +564,7 @@ class DroneRaceEnv(DroneEnv):
             gate_ids = race_data.gate_mj_ids[race_data.target_gate % n_gates]
             gate_pos = gates_pos[jp.arange(gates_pos.shape[0])[:, None], gate_ids]
             gate_quat = gates_quat[jp.arange(gates_quat.shape[0])[:, None], gate_ids]
-            gate_size = (0.45, 0.45) if check_contacts else (1.0, 1.0)
+            gate_size = (0.45, 0.45) if check_contacts else (0.6, 0.6)
             passed = gate_passed(
                 drone_pos, race_data.last_drone_pos, gate_pos, gate_quat, gate_size
             )

@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from ml_collections import ConfigDict
     from numpy.typing import NDArray
 
+    from rl_diffsim.control.controller import Controller
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,9 +92,11 @@ class RealRaceCoreEnv:
         rank: int,
         freq: int,
         track: ConfigDict,
-        randomizations: ConfigDict,
+        randomizations: ConfigDict | None = None,
+        pos_limit_low: list[float] | None = None,
+        pos_limit_high: list[float] | None = None,
         sensor_range: float = 0.5,
-        control_mode: Literal["state", "attitude"] = "state",
+        control: Literal["state", "attitude", "force_torque", "rotor_vel", "rl_state"] = "attitude",
         **kwargs: dict,
     ):
         """Create a deployable version of the drone racing environment.
@@ -103,9 +107,11 @@ class RealRaceCoreEnv:
             freq: Environment step frequency.
             track: Track configuration (see :func:`~lsy_drone_racing.envs.utils.load_track`).
             randomizations: Randomization configuration.
+            pos_limit_low: Lower position limits for safety [x, y, z].
+            pos_limit_high: Upper position limits for safety [x, y, z].
             sensor_range: Sensor range. Determines at which distance the exact position of the
                 gates and obstacles is reveiled.
-            control_mode: Control mode of the drone.
+            control: Control mode of the drone.
             kwargs: Additional keyword arguments.
         """
         assert rclpy.ok(), "ROS2 is not running. Please start ROS2 before creating a deploy env."
@@ -114,21 +120,30 @@ class RealRaceCoreEnv:
         self.gates, self.obstacles, self.drones = load_track(track)
         self.n_gates = len(self.gates.pos)
         self.n_obstacles = len(self.obstacles.pos)
-        self.pos_limit_low = np.array(track.safety_limits["pos_limit_low"])
-        self.pos_limit_high = np.array(track.safety_limits["pos_limit_high"])
+        self.pos_limit_low = np.array(pos_limit_low if pos_limit_low else [-5.0, -5.0, 0.0])
+        self.pos_limit_high = np.array(pos_limit_high if pos_limit_high else [5.0, 5.0, 3.0])
         self.sensor_range = sensor_range
         self.drone_names = [f"cf{drone['id']}" for drone in drones]
         self.drone_name = self.drone_names[rank]
+        self.takeoff_pos = [drone.get("takeoff_pos", [0.0, 0.0, 0.05]) for drone in drones]
         self.drone_channel = drones[rank]["channel"]
         self.drone_id = drones[rank]["id"]
         self.rank = rank
         self.freq = freq
         self.device = jax.devices("cpu")[0]
-        assert control_mode in ["state", "attitude"], f"Invalid control mode {control_mode}"
-        self.control_mode = control_mode
+        assert control in ["state", "attitude", "force_torque", "rotor_vel", "rl_state"], (
+            f"Invalid control mode {control}"
+        )
+        self.control = control
+        self.drone_parameters = load_params("first_principles", drones[rank]["drone_model"])
+        self.rotor_vel_min, self.rotor_vel_max = (
+            np.sqrt(self.drone_parameters["thrust_min"] / self.drone_parameters["rpm2thrust"][2]),
+            np.sqrt(self.drone_parameters["thrust_max"] / self.drone_parameters["rpm2thrust"][2]),
+        )
         self.randomizations = randomizations
         self.drone_parameters = load_params("first_principles", drones[rank]["drone_model"])
         self.drone = Crazyflie(rw_cache=str(Path(__file__).parent / ".cache"))
+        # Establish drone connection
         self._drone_healthy = mp.Event()
         self._drone_healthy.set()
         self._ros_connector = ROSConnector(
@@ -149,7 +164,7 @@ class RealRaceCoreEnv:
         # disabled, they are equal to the nominal positions defined in the track config.
         if options.get("real_track_objects", True):
             self._update_track_poses()
-        if options.get("check_race_track", True):
+        if options.get("check_race_track", False):
             check_race_track(
                 gates_pos=self.gates.pos,
                 nominal_gates_pos=self.gates.nominal_pos,
@@ -159,7 +174,7 @@ class RealRaceCoreEnv:
                 nominal_obstacles_pos=self.obstacles.nominal_pos,
                 rng_config=self.randomizations,
             )
-        if options.get("check_drone_start_pos", True):
+        if options.get("check_drone_start_pos", False):
             check_drone_start_pos(
                 nominal_pos=self.drones.pos[self.rank],
                 real_pos=self._ros_connector.pos[self.drone_name],
@@ -174,12 +189,13 @@ class RealRaceCoreEnv:
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
         self._reset_drone()
 
-        if self.control_mode == "attitude":
+        if self.control == "attitude":
             # Unlock thrust mode protection by sending a zero thrust command
             self.drone.commander.send_setpoint(0, 0, 0, 0)
 
         return self.obs(), self.info()
 
+    # region Step
     def _step(self, action: NDArray) -> tuple[dict, float, bool, bool, dict]:
         """Perform a step in the environment."""
         # Note: We do not send the action to the drone here.
@@ -200,8 +216,10 @@ class RealRaceCoreEnv:
 
         with jax.default_device(self.device):  # Ensure gate_passed runs on the CPU
             passed = gate_passed(
-                drone_pos, self.data.last_drone_pos, gate_pos, gate_quat, (0.45, 0.45)
+                drone_pos, self.data.last_drone_pos, gate_pos, gate_quat, (0.545, 0.545)
             )
+            if passed.any():
+                logger.info(f"Passed gate {self.data.target_gate[self.rank] + 1}")
         self.data.target_gate += np.asarray(passed)
         self.data.target_gate[self.data.target_gate >= self.n_gates] = -1
         self.data.last_drone_pos[...] = drone_pos
@@ -213,6 +231,7 @@ class RealRaceCoreEnv:
             self._last_drone_pos_update = t
         return self.obs(), self.reward(), self.terminated(), self.truncated(), self.info()
 
+    # region Obs
     def obs(self) -> dict[str, NDArray]:
         """Return the observation of the environment."""
         # If gates/obstacles are in sensor range use the actual pose, otherwise use the nominal pose
@@ -275,9 +294,10 @@ class RealRaceCoreEnv:
         """Return an info dictionary containing additional information about the environment."""
         return {}
 
+    # region Action
     def send_action(self, action: NDArray):
         """Send the action to the drone."""
-        if self.control_mode == "attitude":
+        if self.control == "attitude":
             pwm = force2pwm(
                 action[3], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
             )
@@ -285,19 +305,56 @@ class RealRaceCoreEnv:
             action = (*np.rad2deg(action[:3]), int(pwm))
             self.drone.commander.send_setpoint(*action)
             self._ros_connector.publish_cmd(action)
+        elif self.control == "rotor_vel":
+            # convert rotor velocity (RPM) to PWM
+            rotor_vel = action
+            forces = (
+                self.drone_parameters["rpm2thrust"][..., 0]
+                + self.drone_parameters["rpm2thrust"][..., 1] * rotor_vel
+                + self.drone_parameters["rpm2thrust"][..., 2] * rotor_vel**2
+            )
+            pwms_normalized = forces / self.drone_parameters["thrust_max"]  # [0.0, 1.0]
+            pwms = np.clip(pwms_normalized, 0.0, 1.0)
+            # use position setpoint UI for PWM command
+            self.drone.commander.send_position_setpoint(*pwms)
+        elif self.control == "force_torque":
+            # thrust in N -> thrust in PWM
+            thrust_pwm = force2pwm(
+                action[0], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
+            )
+            thrust_pwm = np.clip(
+                thrust_pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"]
+            )
+            # torque in Nm -> torque in PWM
+            L = self.drone_parameters["L"]
+            thrust2torque = self.drone_parameters["thrust2torque"]
+            tau_x, tau_y, tau_z = action[1], action[2], action[3]
+            roll_force = tau_x / L * 2.0
+            pitch_force = tau_y / L * 2.0
+            yaw_force = tau_z / thrust2torque
+            torque_force = np.array([roll_force, pitch_force, yaw_force])
+            torque_pwm = force2pwm(
+                torque_force,
+                self.drone_parameters["thrust_max"] * 4,
+                self.drone_parameters["pwm_max"],
+            )
+            # use attitude setpoint UI for force_torque command
+            self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
+        elif self.control == "rl_state":
+            pos, vel = action[:3], action[3:6]
+            acc = np.zeros(3)  # currently we don't have acc command for RL policy
+            quat = np.array([0.0, 0.0, 0.0, 1.0])  # currently no orientation command for RL policy
+            rollrate, pitchrate, yawrate = 0.0, 0.0, 0.0  # currently no rate command for RL policy
+            self.drone.commander.send_full_state_setpoint(
+                pos, vel, acc, quat, rollrate, pitchrate, yawrate
+            )
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
-            # TODO: We currently limit ourselves to yaw rotation only because the simulation is
-            # based on the old crazyswarm full_state command definition. Once the simulation does
-            # support the real full_state command, we can remove this limitation and use full
-            # quaternions as inputs
             quat = R.from_euler("z", action[9]).as_quat()
             rollrate, pitchrate, yawrate = action[10:]
             self.drone.commander.send_full_state_setpoint(
                 pos, vel, acc, quat, rollrate, pitchrate, yawrate
             )
-            # TODO: The estimators can't handle state commands, so we simply don't send anything
-            # Make sure to use the legacy estimator with the state interface
 
     def _update_track_poses(self):
         """Update the track poses from the motion capture system."""
@@ -358,6 +415,7 @@ class RealRaceCoreEnv:
         self.data.drone_connected = True
         logger.info(f"Drone {drone_id} connected to {uri}")
 
+    # region Drone Params
     def _reset_drone(self):
         """Arm the drone, reset estimation."""
         # Arm the drone
@@ -394,18 +452,107 @@ class RealRaceCoreEnv:
         self.drone.param.set_value("flightmode.stabModeYaw", 1)
         time.sleep(0.1)  # Wait for settings to be applied
 
+    # region Start/Return
+    def _move_to_start(self, start_controller: Controller, use_attitude_interface: bool = True):
+        """Move the drone to the start position."""
+        # Trajectory settings
+        pos = self._ros_connector.pos[self.drone_name]
+        FREQ = 50  # Hz
+        START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
+        TAKEOFF_DURATION = max(START_HEIGHT / 0.5, 0.5)  # s
+        MOVE_DURATION = max(
+            np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0
+        )  # s
+        HOVER_DURATION = 2.0  # get ready for episode
+        if use_attitude_interface:
+            # use attitude interface to be compatible with UKF estimator
+            self.drone.param.set_value("stabilizer.controller", 2)
+            # create a trajectory
+            p0 = np.asarray(pos, dtype=np.float32)
+            p1 = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
+            p2 = np.asarray(self.takeoff_pos[self.rank], dtype=np.float32)
+
+            takeoff_steps = int(np.ceil(TAKEOFF_DURATION * FREQ))
+            move_steps = int(np.ceil(MOVE_DURATION * FREQ))
+            hover_steps = int(np.ceil(HOVER_DURATION * FREQ))
+
+            seg_takeoff = np.linspace(p0, p1, num=takeoff_steps, endpoint=True)
+            seg_move = np.linspace(p1, p2, num=move_steps, endpoint=True)
+            seg_hover = np.broadcast_to(p2, (hover_steps, 3))
+
+            traj = np.concatenate([seg_takeoff, seg_move, seg_hover], axis=0)  # (T, 3)
+            start_controller.trajectory = traj
+            self.drone.commander.send_setpoint(0, 0, 0, 0)
+            while rclpy.ok() and not start_controller._finished:
+                obs = self.obs()
+                obs = {k: v[self.rank] for k, v in obs.items()}
+                action = start_controller.compute_control(obs, None)
+                pwm = force2pwm(
+                    action[3],
+                    self.drone_parameters["thrust_max"] * 4,
+                    self.drone_parameters["pwm_max"],
+                )
+                pwm = np.clip(
+                    pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"]
+                )
+                action = (*np.rad2deg(action[:3]), int(pwm))
+                self.drone.commander.send_setpoint(*action)
+                self._ros_connector.publish_cmd(action)
+                self.drone.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                start_controller.step_callback(action, obs, 0.0, False, False, {})
+                time.sleep(1 / FREQ)
+        else:
+            # use high-level commander
+            def wait_for_action(dt: float):
+                tstart = time.perf_counter()
+                # Wait for the action to be completed and send the current position to the drone
+                while time.perf_counter() - tstart < dt:
+                    if not rclpy.ok():
+                        raise RuntimeError("ROS has already stopped")
+                    if not self._drone_healthy.is_set():
+                        raise RuntimeError("Drone connection lost")
+                    obs = self.obs()
+                    self.drone.extpos.send_extpose(*obs["pos"][self.rank], *obs["quat"][self.rank])
+                    time.sleep(1 / FREQ)
+
+            self.drone.commander.send_stop_setpoint()
+            self.drone.commander.send_notify_setpoint_stop()
+            self.drone.param.set_value("commander.enHighLevel", "1")
+            self.drone.platform.send_arming_request(True)
+            takeoff_pos = np.array([pos[0], pos[1], START_HEIGHT], dtype=np.float32)
+            self.drone.high_level_commander.go_to(*takeoff_pos, 0, TAKEOFF_DURATION)
+            wait_for_action(TAKEOFF_DURATION)
+            target_pos = self.takeoff_pos[self.rank]  # Default start position
+            self.drone.high_level_commander.go_to(*target_pos, 0, MOVE_DURATION)
+            wait_for_action(MOVE_DURATION)
+            self.drone.high_level_commander.go_to(*target_pos, 0, HOVER_DURATION)
+            wait_for_action(HOVER_DURATION)
+            self.drone.param.set_value("commander.enHighLevel", "0")
+
+        if self.control == "rotor_vel":
+            self.drone.param.set_value("stabilizer.controller", 6)
+        elif self.control == "force_torque":
+            self.drone.param.set_value("stabilizer.controller", 7)
+        elif self.control == "rl_state":
+            self.drone.param.set_value("stabilizer.controller", 8)
+            print("Running RL state controller")
+
     def _return_to_start(self):
-        """Returning controller to fly the drone back to the starting position."""
         # Enable high-level functions of the drone and disable low-level control access
         self.drone.commander.send_stop_setpoint()
         self.drone.commander.send_notify_setpoint_stop()
         self.drone.param.set_value("commander.enHighLevel", "1")
+        self.drone.param.set_value("stabilizer.controller", 2)  # switch back to mellinger
         self.drone.platform.send_arming_request(True)
         # Fly back to the start position
+        pos = self._ros_connector.pos[self.drone_name]
+        vel = self._ros_connector.vel[self.drone_name]
         RETURN_HEIGHT = 1.75  # m
-        BREAKING_DISTANCE = 1.0  # m
-        BREAKING_DURATION = 3.0  # s
-        RETURN_DURATION = 7.0  # s
+        BREAKING_DISTANCE = 0.5  # m
+        BREAKING_DURATION = 2.0  # s
+        RETURN_DURATION = max(
+            np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0
+        )  # s
         LAND_DURATION = 3.0  # s
 
         def wait_for_action(dt: float):
@@ -420,13 +567,11 @@ class RealRaceCoreEnv:
                 self.drone.extpos.send_extpose(*obs["pos"][self.rank], *obs["quat"][self.rank])
                 time.sleep(0.05)
 
-        pos = self._ros_connector.pos[self.drone_name]
-        vel = self._ros_connector.vel[self.drone_name]
         break_pos = pos + vel / np.linalg.norm(vel) * BREAKING_DISTANCE
         break_pos[2] = RETURN_HEIGHT
         self.drone.high_level_commander.go_to(*break_pos, 0, BREAKING_DURATION)
         wait_for_action(BREAKING_DURATION)
-        return_pos = self.drones.pos[self.rank]  # Starting position from the config file
+        return_pos = self.takeoff_pos[self.rank]
         return_pos[2] = RETURN_HEIGHT
         self.drone.high_level_commander.go_to(*return_pos, 0, RETURN_DURATION)
         wait_for_action(RETURN_DURATION)
@@ -503,9 +648,11 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
         drones: list[dict[str, int]],
         freq: int,
         track: ConfigDict,
-        randomizations: ConfigDict,
+        randomizations: ConfigDict | None = None,
+        pos_limit_low: list[float] | None = None,
+        pos_limit_high: list[float] | None = None,
         sensor_range: float = 0.5,
-        control_mode: Literal["state", "attitude"] = "state",
+        control: Literal["state", "attitude", "force_torque", "rotor_vel", "rl_state"] = "attitude",
         **kwargs: dict,
     ):
         """Initialize the multi-drone environment.
@@ -529,9 +676,11 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
             freq: Environment step frequency.
             track: Track configuration (see :func:`~lsy_drone_racing.envs.utils.load_track`).
             randomizations: Randomization configuration.
+            pos_limit_low: Lower position limits for safety [x, y, z].
+            pos_limit_high: Upper position limits for safety [x, y, z].
             sensor_range: Sensor range. Determines at which distance the exact position of the
                 gates and obstacles is reveiled.
-            control_mode: Control mode of the drone.
+            control: Control mode of the drone.
             kwargs: Additional keyword arguments.
         """
         super().__init__(
@@ -540,8 +689,10 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
             freq=freq,
             track=track,
             randomizations=randomizations,
+            pos_limit_low=pos_limit_low,
+            pos_limit_high=pos_limit_high,
             sensor_range=sensor_range,
-            control_mode=control_mode,
+            control=control,
             **kwargs,
         )
 
@@ -561,96 +712,3 @@ class RealDroneRaceEnv(RealRaceCoreEnv, Env):
         """
         obs, reward, terminated, truncated, info = self._step(action)
         return {k: v[0, ...] for k, v in obs.items()}, reward[0], terminated[0], truncated[0], info
-
-
-# region Multi Drone Env
-class RealMultiDroneRaceEnv(RealRaceCoreEnv, Env):
-    """A Gymnasium environment for controlling a specific drone in a multi-drone physical race.
-
-    This environment extends the functionality of `RealRaceCoreEnv` to support multi-drone racing
-    scenarios. Each instance of this environment controls a single drone identified by its rank, but
-    maintains awareness of all drones in the race. This allows for coordinated multi-drone
-    deployments where each drone runs in a separate process with its own controller.
-
-    The environment handles communication with the specific drone through cflib and tracks all
-    drones' positions using a motion capture system via ROS2. It provides observations that include
-    the state of all drones, allowing controllers to implement collision avoidance or cooperative
-    strategies.
-
-    Features:
-    - Controls a specific drone in a multi-drone race based on its rank
-    - Tracks all drones' positions and states via ROS2
-    - Supports both state-based and attitude-based control modes
-    - Provides sensor range simulation for gates and obstacles
-    - Handles automatic return-to-home behavior when the race is completed
-
-    Action space:
-        The action space is a **single** action vector for the drone with the environment rank.
-        See :class:`~.RealRaceCoreEnv` for more information.
-
-    Warning:
-        The action space differs from the action space of the simulated counterpart. This deviation
-        is necessary to run different controller types at different frequencies that asynchronously
-        publish ther commands to the drone.
-
-    Observation space:
-        The observation space is a dictionary containing the state of all drones in the race.
-        It mimics exactly the observation space of
-        :class:`lsy_drone_racing.envs.multi_drone_race.MultiDroneRaceEnv`.
-
-    Note:
-        Each instance of this environment controls only one drone (specified by rank), but provides
-        observations for all drones in the race. This allows us to run controllers at different
-        frequencies for different drones. Consequently the step method applies actions only to the
-    """
-
-    def __init__(
-        self,
-        drones: list[dict[str, int]],
-        rank: int,
-        freq: int,
-        track: ConfigDict,
-        randomizations: ConfigDict,
-        sensor_range: float = 0.5,
-        control_mode: Literal["state", "attitude"] = "state",
-    ):
-        """Initialize the multi-drone environment.
-
-        Args:
-            drones: List of all drones in the race, including their channel and id.
-            rank: Rank of the drone that is controlled by this environment.
-            freq: Environment step frequency.
-            track: Track configuration (see :func:`~lsy_drone_racing.envs.utils.load_track`).
-            randomizations: Randomization configuration.
-            sensor_range: Sensor range. Determines at which distance the exact position of the
-                gates and obstacles is reveiled.
-            control_mode: Control mode of the drone.
-        """
-        super().__init__(
-            drones=drones,
-            rank=rank,
-            freq=freq,
-            track=track,
-            randomizations=randomizations,
-            sensor_range=sensor_range,
-            control_mode=control_mode,
-        )
-
-    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:
-        """Reset the environment and return the initial observation and info."""
-        return self._reset(seed=seed, options=options)
-
-    def step(self, action: NDArray) -> tuple[dict, float, bool, bool, dict]:
-        """Perform a step in the environment.
-
-        Note:
-            The action is applied only to the drone with the environment rank!
-
-        Args:
-            action: Action to be taken by the drone.
-
-        Returns:
-            Observation, reward, terminated, truncated, and info.
-        """
-        obs, reward, terminated, truncated, info = self._step(action)
-        return obs, reward[self.rank], terminated[self.rank], truncated[self.rank], info

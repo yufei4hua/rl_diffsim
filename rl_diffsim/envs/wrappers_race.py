@@ -44,6 +44,7 @@ class RaceWrapper(Wrapper):
 
     base: struct.PyTreeNode = struct.field(pytree_node=True)
 
+    progress_coef: float = struct.field(pytree_node=True)
     last_target_gate: Array = struct.field(pytree_node=True)
 
     step: Callable = struct.field(pytree_node=False)
@@ -75,15 +76,16 @@ class RaceWrapper(Wrapper):
     def create(
         cls,
         base: struct.PyTreeNode,
-        gate_pos_coef: float = 1.0,
-        gate_vel_coef: float = 1.0,
-        gate_pass_coef: float = 5.0,
+        gate_pos_coef: float | tuple[float, float] = 1.0,
+        gate_vel_coef: float | tuple[float, float] = 1.0,
+        gate_pass_coef: float | tuple[float, float] = 5.0,
         min_vel: float = 0.5,
         max_vel: float = 2.0,
         cont_floor_safe_dist: float = 0.1,
         cont_gate_safe_dist: float = 0.1,
         cont_obst_safe_dist: float = 0.1,
-        contact_coef: float = 10.0,
+        contact_coef: float | tuple[float, float] = 10.0,
+        total_timesteps: int = 0,
     ) -> "RaceWrapper":
         """Create a RaceWrapper around `base`.
 
@@ -150,6 +152,17 @@ class RaceWrapper(Wrapper):
             return race_obs
 
         # region Rewards
+        def _schedule_coef(
+            coef: float | tuple[float, float], progress: float
+        ) -> float:
+            if isinstance(coef, float):
+                return coef
+            elif isinstance(coef, tuple) and len(coef) == 2:
+                start, end = coef
+                return start + (end - start) * progress
+            else:
+                raise ValueError("coef must be a float or a tuple of two floats.")
+
         def _contacts_reward(mjx_data: Data) -> Array:
             # A pure contact reward calculation
             dists = mjx_data._impl.contact.dist  # (num_envs, num_contacts)
@@ -186,7 +199,7 @@ class RaceWrapper(Wrapper):
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
             # Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
-            r_gate_pos = gate_pos_coef * jp.exp(
+            r_gate_pos = jp.exp(
                 -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
             )  # (num_envs,)
             # r_gate_pos = gate_pos_coef * jp.exp(
@@ -198,12 +211,12 @@ class RaceWrapper(Wrapper):
                 jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
             )
             gate_rel_vel_norm = jp.sum(vel * gate_rel_pos_unit, axis=-1)  # (num_envs,)
-            r_gate_vel = gate_vel_coef * jp.tanh(
+            r_gate_vel = jp.tanh(
                 (gate_rel_vel_norm - min_vel) / (max_vel / 2.0)
             )  # (num_envs,)
 
             # Penalty for collisions
-            r_collision = contact_coef * _contacts_reward(mjx_data)  # (num_envs,)
+            r_collision = _contacts_reward(mjx_data)  # (num_envs,)
 
             # Reward for passing through gate
             passed = (
@@ -213,17 +226,23 @@ class RaceWrapper(Wrapper):
                 .astype(jp.float32)
                 .squeeze(-1)
             )  # (num_envs,)
-            r_pass_gate = gate_pass_coef * passed  # (num_envs,)
+            r_pass_gate = passed  # (num_envs,)
             env = env.replace(last_target_gate=race_data.target_gate)
 
+            # construct total reward
             rewards = jp.zeros((pos.shape[0],))
-            rewards += r_gate_pos
-            rewards += r_gate_vel
-            rewards += r_collision
-            rewards += r_pass_gate
+            k_gate_pos = _schedule_coef(gate_pos_coef, env.progress_coef)
+            k_gate_vel = _schedule_coef(gate_vel_coef, env.progress_coef)
+            k_contact = _schedule_coef(contact_coef, env.progress_coef)
+            k_gate_pass = _schedule_coef(gate_pass_coef, env.progress_coef)
+            rewards += k_gate_pos * r_gate_pos
+            rewards += k_gate_vel * r_gate_vel
+            rewards += k_contact * r_collision
+            rewards += k_gate_pass * r_pass_gate
             # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}", r_gate_pos=r_gate_pos, r_gate_vel=r_gate_vel, r_collision=r_collision, r_pass_gate=r_pass_gate)
             return env, rewards
 
+        # region Reset & Step
         def _reset(
             env: "RaceWrapper", *, seed: int | None = None, options: dict | None = None
         ) -> tuple["RaceWrapper", tuple[Any, Any]]:
@@ -231,7 +250,7 @@ class RaceWrapper(Wrapper):
             basic_obs = _basic_obs(obs)
             race_obs = _race_obs(obs)
             obs = {**basic_obs, **race_obs}
-            env = env.replace(base=base_env)
+            env = env.replace(base=base_env, progress_coef=0.0, last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32))
             return env, (obs, info)
 
         def _step(env: "RaceWrapper", action: Array) -> tuple["RaceWrapper", tuple[Any, ...]]:
@@ -246,13 +265,18 @@ class RaceWrapper(Wrapper):
                 env.base.unwrapped.race_data,
                 obs,
             )
+            if total_timesteps > 0:
+                progress_coef = env.progress_coef + env.num_envs / total_timesteps
+            else:
+                progress_coef = 1.0
 
-            env = env.replace(base=base_env)
+            env = env.replace(base=base_env, progress_coef=progress_coef)
             return env, (obs, reward, terminated, truncated, info)
 
         return cls(
             base=base,
             last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32),
+            progress_coef=0.0,
             step=jax.jit(_step),
             reset=jax.jit(_reset),
         )

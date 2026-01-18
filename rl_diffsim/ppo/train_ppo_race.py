@@ -101,7 +101,7 @@ class Args:
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.15
     cont_obst_safe_dist: float = 0.22
-    contact_coef: float = 12.0
+    contact_coef: float = (5.0, 15.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -126,6 +126,7 @@ class Args:
 def make_jitted_envs(
     num_envs: int = None,
     jax_device: str = "cpu",
+    total_timesteps: int = 0,
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
@@ -146,6 +147,7 @@ def make_jitted_envs(
         cont_gate_safe_dist=coefs.get("cont_gate_safe_dist", 0.0),
         cont_obst_safe_dist=coefs.get("cont_obst_safe_dist", 0.0),
         contact_coef=coefs.get("contact_coef", 0.0),
+        total_timesteps=total_timesteps,
     )
     env = NormalizeActions.create(env)
     env = ZeroYaw.create(env)
@@ -381,6 +383,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     envs = make_jitted_envs(
         num_envs=args.num_envs,
         jax_device=jax_device,
+        total_timesteps=args.total_timesteps,
         coefs=r_coefs,
         config=config.env,
         check_contacts=False,

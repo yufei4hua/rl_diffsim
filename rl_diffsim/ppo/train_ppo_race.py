@@ -47,7 +47,7 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 32
+    num_minibatches: int = 64
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -90,13 +90,13 @@ class Args:
     min_vel: float = 0.4
     max_vel: float = 3.6
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.15
-    cont_obst_safe_dist: float = 0.22
+    cont_gate_safe_dist: float = 0.13
+    cont_obst_safe_dist: float = 0.20
     gate_size: float = 0.6
     gate_pos_coef: float = 0.0
     gate_vel_coef: float = 2.0
     gate_pass_coef: float = 10.0
-    contact_coef: float = (10.0, 15.0)
+    contact_coef: tuple = (10.0, 15.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -541,18 +541,18 @@ def evaluate_ppo(
     `n_eval` episodes with deterministic actions.
     """
     r_coefs = {
-        "gate_pos_coef": args.gate_pos_coef,
-        "gate_vel_coef": args.gate_vel_coef,
-        "gate_pass_coef": args.gate_pass_coef,
+        "gate_pos_coef": 0.0,
+        "gate_vel_coef": 0.0,
+        "gate_pass_coef": 0.0,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
-        "cont_floor_safe_dist": args.cont_floor_safe_dist,
-        "cont_gate_safe_dist": args.cont_gate_safe_dist,
-        "cont_obst_safe_dist": args.cont_obst_safe_dist,
-        "contact_coef": args.contact_coef,
-        "gate_size": args.gate_size,
-        "act_coefs": args.act_coefs,
-        "d_act_coefs": args.d_act_coefs,
+        "cont_floor_safe_dist": -1.0,
+        "cont_gate_safe_dist": 0.0,
+        "cont_obst_safe_dist": 0.0,
+        "contact_coef": 10.0,
+        "gate_size": 0.45,
+        "act_coefs": (0.0,)*4,
+        "d_act_coefs": (0.0,)*4,
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
@@ -599,12 +599,14 @@ def evaluate_ppo(
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
-        # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
+        gates_passed = jp.arange(eval_env.unwrapped.race_data.n_gates + 1)[
+            eval_env.unwrapped.race_data.target_gate[:, 0]
+        ]
+        print(
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
+        )
 
     fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
-    gates_passed = jp.arange(eval_env.unwrapped.race_data.n_gates + 1)[
-        eval_env.unwrapped.race_data.target_gate[:, 0]
-    ]
     print(
         f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
     )

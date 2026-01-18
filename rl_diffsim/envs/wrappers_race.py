@@ -200,16 +200,19 @@ class RaceWrapper(Wrapper):
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
             # Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
-            r_gate_pos = jp.exp(-2.0 * jp.linalg.norm(gate_rel_pos, axis=-1))  # (num_envs,)
+            gate_dist = jp.linalg.norm(gate_rel_pos, axis=-1)  # (num_envs,)
+            r_gate_pos = jp.exp(-2.0 * gate_dist)  # (num_envs,)
             # r_gate_pos = gate_pos_coef * jp.exp(
             #     -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
             # )  # (num_envs,)
 
             # Relative velocity (velocity projected onto gate_rel_pos)
-            gate_rel_pos_unit = gate_rel_pos / (
-                jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
+            gate_norm = obs["gate_normal"]  # (num_envs, 3)
+            ref_vel = gate_rel_pos - (1 - 1 / (gate_dist[:, None] + 1e-8)) * jp.sum(gate_rel_pos * gate_norm, axis=-1, keepdims=True) * gate_norm
+            ref_vel_unit = ref_vel / (
+                jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8
             )
-            gate_rel_vel_norm = jp.sum(vel * gate_rel_pos_unit, axis=-1)  # (num_envs,)
+            gate_rel_vel_norm = jp.sum(vel * ref_vel_unit, axis=-1)  # (num_envs,)
             r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
 
             # Penalty for collisions

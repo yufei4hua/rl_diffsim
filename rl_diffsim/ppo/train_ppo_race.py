@@ -19,14 +19,8 @@ from ml_collections import ConfigDict
 import wandb
 from rl_diffsim.envs.drone_race_env import DroneRaceEnv
 from rl_diffsim.envs.race_utils import load_config
-from rl_diffsim.envs.wrappers import (
-    ActionPenalty,
-    FlattenJaxObservation,
-    NormalizeActions,
-    RecordData,
-    ZeroYaw,
-)
-from rl_diffsim.envs.wrappers_race import RaceWrapper
+from rl_diffsim.envs.wrappers import ActionPenalty, FlattenJaxObservation, NormalizeActions, ZeroYaw
+from rl_diffsim.envs.wrappers_race import RaceWrapper, RecordRaceData
 from rl_diffsim.ppo.ppo_agent import Agent
 
 
@@ -51,9 +45,9 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
-    num_steps: int = 48
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 48
+    num_minibatches: int = 32
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -93,15 +87,16 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    gate_pos_coef: float = 0.0
-    gate_vel_coef: float = 2.0
-    gate_pass_coef: float = 10.0
     min_vel: float = 0.4
     max_vel: float = 3.6
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.15
     cont_obst_safe_dist: float = 0.22
-    contact_coef: float = (5.0, 15.0)
+    gate_size: float = 0.6
+    gate_pos_coef: float = 0.0
+    gate_vel_coef: float = 2.0
+    gate_pass_coef: float = 10.0
+    contact_coef: float = (10.0, 15.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -147,6 +142,7 @@ def make_jitted_envs(
         cont_gate_safe_dist=coefs.get("cont_gate_safe_dist", 0.0),
         cont_obst_safe_dist=coefs.get("cont_obst_safe_dist", 0.0),
         contact_coef=coefs.get("contact_coef", 0.0),
+        gate_size=coefs.get("gate_size", 0.45),
         total_timesteps=total_timesteps,
     )
     env = NormalizeActions.create(env)
@@ -376,6 +372,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         "cont_gate_safe_dist": args.cont_gate_safe_dist,
         "cont_obst_safe_dist": args.cont_obst_safe_dist,
         "contact_coef": args.contact_coef,
+        "gate_size": args.gate_size,
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,
     }
@@ -536,7 +533,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
 # region Evaluate
 def evaluate_ppo(
-    args: Args, n_eval: int, model_path: Path, render: bool
+    args: Args, n_eval: int, model_path: Path, render: bool, plot: bool = True
 ) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
@@ -553,6 +550,7 @@ def evaluate_ppo(
         "cont_gate_safe_dist": args.cont_gate_safe_dist,
         "cont_obst_safe_dist": args.cont_obst_safe_dist,
         "contact_coef": args.contact_coef,
+        "gate_size": args.gate_size,
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,
     }
@@ -564,7 +562,7 @@ def evaluate_ppo(
         config=config.env,
         check_contacts=False,
     )
-    eval_env = RecordData.create(eval_env)
+    eval_env = RecordRaceData.create(eval_env)
 
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
@@ -603,12 +601,7 @@ def evaluate_ppo(
         episode_lengths.append(steps)
         # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = (
-        eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png", traj_plane=[0, 1])
-        if render
-        else None
-    )
-    rmse_pos = eval_env.calc_rmse()
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
     gates_passed = jp.arange(eval_env.unwrapped.race_data.n_gates + 1)[
         eval_env.unwrapped.race_data.target_gate[:, 0]
     ]
@@ -618,11 +611,17 @@ def evaluate_ppo(
 
     eval_env.close()
 
-    return fig, rmse_pos, episode_rewards, episode_lengths
+    return fig, 0.0, episode_rewards, episode_lengths
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
+def main(
+    wandb_enabled: bool = True,
+    train: bool = True,
+    n_eval: int = 1,
+    render: bool = True,
+    plot: bool = True,
+):
     """Main entry.
 
     Flags:
@@ -640,7 +639,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
         fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(
-            args, n_eval, model_path, render
+            args, n_eval, model_path, render, plot
         )
         if wandb_enabled and train:
             logs = {

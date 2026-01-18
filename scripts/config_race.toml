@@ -53,7 +53,7 @@ pos = [1.0, 0.25, 1.55]
 [[env.track.obstacles]]
 pos = [-1.5, -0.25, 1.55]
 [[env.track.obstacles]]
-pos = [-0.5, -0.9, 1.55]
+pos = [-0.5, -0.75, 1.55]
 
 [[env.track.drones]]
 pos = [-1.5, 0.75, 0.1]
@@ -101,14 +101,14 @@ fn = "uniform"
 minval = [-0.05, -0.05, -0.01]
 maxval = [0.05, 0.05, 0.01]
 
-# [env.randomizations.gate_rpy]
-# fn = "uniform"
-# [env.randomizations.gate_rpy.kwargs]
-# minval = [-0.05, -0.1, -0.2]
-# maxval = [0.05, 0.1, 0.2]
+[env.randomizations.gate_rpy]
+fn = "uniform"
+[env.randomizations.gate_rpy.kwargs]
+minval = [-0.05, -0.1, -0.2]
+maxval = [0.05, 0.1, 0.2]
 
-# [env.randomizations.obstacle_pos]
-# fn = "uniform"
-# [env.randomizations.obstacle_pos.kwargs]
-# minval = [-0.15, -0.15, -0.05]
-# maxval = [0.15, 0.15, 0.05]
+[env.randomizations.obstacle_pos]
+fn = "uniform"
+[env.randomizations.obstacle_pos.kwargs]
+minval = [-0.05, -0.05, -0.05]
+maxval = [0.05, 0.05, 0.05]

@@ -109,6 +109,7 @@ class RaceData:
     obstacles_visited: Array
     last_drone_pos: Array
     disabled_drones: Array
+    gate_size: float
 
     @classmethod
     def create(
@@ -130,6 +131,7 @@ class RaceData:
         obstacles: dict,
         drone: dict,
         disturbances: dict,
+        gate_size: float,
     ) -> RaceData:
         """Create a new environment data struct with default values."""
         return cls(
@@ -152,6 +154,7 @@ class RaceData:
             obstacles=obstacles,
             drone=drone,
             disturbances=disturbances,
+            gate_size=gate_size,
         )
 
 
@@ -349,6 +352,7 @@ class DroneRaceEnv(DroneEnv):
             obstacles=obstacles,
             drone=drone,
             disturbances=disturbances,
+            gate_size=0.45,
         )
         _randomize_track: Callable = build_track_randomization_fn(
             randomizations, gate_ids, obstacle_ids
@@ -564,7 +568,7 @@ class DroneRaceEnv(DroneEnv):
             gate_ids = race_data.gate_mj_ids[race_data.target_gate % n_gates]
             gate_pos = gates_pos[jp.arange(gates_pos.shape[0])[:, None], gate_ids]
             gate_quat = gates_quat[jp.arange(gates_quat.shape[0])[:, None], gate_ids]
-            gate_size = (0.45, 0.45) if check_contacts else (0.6, 0.6)
+            gate_size = (race_data.gate_size, race_data.gate_size)
             passed = gate_passed(
                 drone_pos, race_data.last_drone_pos, gate_pos, gate_quat, gate_size
             )

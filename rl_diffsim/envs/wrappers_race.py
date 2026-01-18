@@ -15,16 +15,18 @@ from gymnasium.vector.utils import batch_space
 from jax import Array
 from jax.scipy.spatial.transform import Rotation as R
 
-matplotlib.use("Agg")  # render to raster images
-
 from rl_diffsim.envs.race_utils import compute_objects_contact_masks
 from rl_diffsim.envs.wrappers import Wrapper
+
+matplotlib.use("Agg")  # render to raster images
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
 if TYPE_CHECKING:
     from crazyflow.sim.data import SimData
     from mujoco.mjx import Data
 
-    from rl_diffsim.envs.drone_race_env import RaceData
+    from rl_diffsim.envs.drone_race_env import DroneRaceEnv, RaceData
 
 
 # region RaceWrapper
@@ -42,7 +44,7 @@ class RaceWrapper(Wrapper):
 
     """
 
-    base: struct.PyTreeNode = struct.field(pytree_node=True)
+    base: DroneRaceEnv = struct.field(pytree_node=True)
 
     progress_coef: float = struct.field(pytree_node=True)
     last_target_gate: Array = struct.field(pytree_node=True)
@@ -75,7 +77,7 @@ class RaceWrapper(Wrapper):
     @classmethod
     def create(
         cls,
-        base: struct.PyTreeNode,
+        base: DroneRaceEnv,
         gate_pos_coef: float | tuple[float, float] = 1.0,
         gate_vel_coef: float | tuple[float, float] = 1.0,
         gate_pass_coef: float | tuple[float, float] = 5.0,
@@ -85,6 +87,7 @@ class RaceWrapper(Wrapper):
         cont_gate_safe_dist: float = 0.1,
         cont_obst_safe_dist: float = 0.1,
         contact_coef: float | tuple[float, float] = 10.0,
+        gate_size: float | tuple[float, float] = 0.45,
         total_timesteps: int = 0,
     ) -> "RaceWrapper":
         """Create a RaceWrapper around `base`.
@@ -152,9 +155,7 @@ class RaceWrapper(Wrapper):
             return race_obs
 
         # region Rewards
-        def _schedule_coef(
-            coef: float | tuple[float, float], progress: float
-        ) -> float:
+        def _schedule_coef(coef: float | tuple[float, float], progress: float) -> float:
             if isinstance(coef, float):
                 return coef
             elif isinstance(coef, tuple) and len(coef) == 2:
@@ -199,9 +200,7 @@ class RaceWrapper(Wrapper):
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
             # Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
-            r_gate_pos = jp.exp(
-                -2.0 * jp.linalg.norm(gate_rel_pos, axis=-1)
-            )  # (num_envs,)
+            r_gate_pos = jp.exp(-2.0 * jp.linalg.norm(gate_rel_pos, axis=-1))  # (num_envs,)
             # r_gate_pos = gate_pos_coef * jp.exp(
             #     -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
             # )  # (num_envs,)
@@ -211,9 +210,7 @@ class RaceWrapper(Wrapper):
                 jp.linalg.norm(gate_rel_pos, axis=-1, keepdims=True) + 1e-8
             )
             gate_rel_vel_norm = jp.sum(vel * gate_rel_pos_unit, axis=-1)  # (num_envs,)
-            r_gate_vel = jp.tanh(
-                (gate_rel_vel_norm - min_vel) / (max_vel / 2.0)
-            )  # (num_envs,)
+            r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
 
             # Penalty for collisions
             r_collision = _contacts_reward(mjx_data)  # (num_envs,)
@@ -250,7 +247,11 @@ class RaceWrapper(Wrapper):
             basic_obs = _basic_obs(obs)
             race_obs = _race_obs(obs)
             obs = {**basic_obs, **race_obs}
-            env = env.replace(base=base_env, progress_coef=0.0, last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32))
+            env = env.replace(
+                base=base_env,
+                progress_coef=0.0,
+                last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32),
+            )
             return env, (obs, info)
 
         def _step(env: "RaceWrapper", action: Array) -> tuple["RaceWrapper", tuple[Any, ...]]:
@@ -259,16 +260,15 @@ class RaceWrapper(Wrapper):
             race_obs = _race_obs(obs)  # (num_envs, 15)
             obs = {**basic_obs, **race_obs}  # (num_envs, 28)
             env, reward = _race_reward(
-                env,
-                env.base.unwrapped.data,
-                env.base.unwrapped.mjx_data,
-                env.base.unwrapped.race_data,
-                obs,
+                env, base_env.data, base_env.mjx_data, base_env.race_data, obs
             )
             if total_timesteps > 0:
                 progress_coef = env.progress_coef + env.num_envs / total_timesteps
             else:
                 progress_coef = 1.0
+            # scheduled gate_size
+            g_size = _schedule_coef(gate_size, progress_coef)
+            base_env = base_env.replace(race_data=base_env.race_data.replace(gate_size=g_size))
 
             env = env.replace(base=base_env, progress_coef=progress_coef)
             return env, (obs, reward, terminated, truncated, info)
@@ -346,3 +346,165 @@ if __name__ == "__main__":
 
     print("\nPos trajectory shape:", pos_traj.shape)
     print("Vel trajectory shape:", vel_traj.shape)
+
+
+# region RecordRaceData
+@struct.dataclass
+class RecordRaceData(Wrapper):
+    """Wrapper that records debugging data."""
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    _record_act: Array = struct.field(pytree_node=True)
+    _record_pos: Array = struct.field(pytree_node=True)
+    _record_rpy: Array = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode) -> "RecordRaceData":
+        """Create a RecordRaceData wrapper around `base`.
+
+        Parameters:
+            base: The jittable environment to wrap.
+
+        Returns:
+            RecordRaceData: Configured wrapper instance.
+        """
+        assert hasattr(base.unwrapped, "max_episode_time"), (
+            "Base env must have max_episode_time attribute"
+        )
+        max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
+        num_envs = int(base.num_envs)
+        act_dim = int(base.action_space.shape[-1])
+        pos_dim = 3
+
+        # initialize buffers # TODO: this takes a lot of memory
+        empty_act = jp.zeros((max_T, num_envs, act_dim), dtype=jp.float32)
+        empty_pos = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
+        empty_rpy = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
+
+        def _extract_data(base: "RecordRaceData") -> dict[str, Array]:
+            """Extract recorded data as a dict of arrays."""
+            raw = base.unwrapped
+            pos = raw.data.states.pos[:, 0, :]
+            rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
+            return pos, rpy
+
+        def _reset(
+            env: "RecordRaceData", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["RecordRaceData", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            pos, rpy = _extract_data(base_env)
+            env = env.replace(
+                base=base_env,
+                _record_act=empty_act,
+                _record_pos=empty_pos.at[0, ...].set(pos),
+                _record_rpy=empty_rpy.at[0, ...].set(rpy),
+            )
+            return env, (obs, info)
+
+        def _step(env: "RecordRaceData", action: Array) -> tuple["RecordRaceData", tuple[Any, ...]]:
+            # step the wrapped environment
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+
+            act = action  # shape: (num_envs, act_dim)
+            pos, rpy = _extract_data(base_env)
+
+            # record data
+            new_act = env._record_act.at[env.steps, ...].set(act)
+            new_pos = env._record_pos.at[env.steps, ...].set(pos)
+            new_rpy = env._record_rpy.at[env.steps, ...].set(rpy)
+
+            env = env.replace(
+                base=base_env, _record_act=new_act, _record_pos=new_pos, _record_rpy=new_rpy
+            )
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(
+            base=base,
+            _record_act=empty_act,
+            _record_pos=empty_pos,
+            _record_rpy=empty_rpy,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
+    def calc_rmse(self) -> float:
+        """Compute RMSE between recorded position and goal (return in meters)."""
+        pos = np.array(self._record_pos)  # shape: (T, num_envs, 3)
+        goal = np.array(self._record_goal)  # shape: (T, num_envs, 3)
+        pos_err = np.linalg.norm(pos - goal, axis=-1)  # shape: (T, num_envs)
+        rmse = np.sqrt(np.mean(pos_err**2))
+        return rmse
+
+    def plot_eval(self, save_path: str = "race_eval_plot.png") -> plt.Figure:
+        """Plot recorded traces and save to `save_path`."""
+        episode_length = self.steps[0, 0]
+        actions = np.array(self._record_act)[:episode_length]
+        pos = np.array(self._record_pos)[:episode_length]
+        rpy = np.array(self._record_rpy)[:episode_length]
+
+        fig = plt.figure(figsize=(18, 12), constrained_layout=True)
+        gs = GridSpec(nrows=3, ncols=4, figure=fig, hspace=0.05, wspace=0.05)
+        axes = [
+            fig.add_subplot(gs[0, 0]),
+            fig.add_subplot(gs[0, 1]),
+            fig.add_subplot(gs[0, 2]),
+            fig.add_subplot(gs[0, 3]),
+            fig.add_subplot(gs[1:3, 0:2]),
+            fig.add_subplot(gs[1:3, 2:4]),
+        ]
+        raw = self.unwrapped
+
+        # Actions
+        if raw.control == "attitude":
+            action_labels = ["Roll", "Pitch", "Yaw", "Thrust"]
+        else:
+            raise ValueError(f"Unsupported control type: {raw.sim.control}")
+        action_sim_low = np.array(raw.single_action_space.low)
+        action_sim_high = np.array(raw.single_action_space.high)
+        scale = (action_sim_high - action_sim_low) / 2.0
+        mean = (action_sim_high + action_sim_low) / 2.0
+        actions = actions * scale + mean  # rescale to sim action range
+        for i in range(4):
+            if i < 3:
+                axes[i].plot(rpy[:, 0, i], label="Actual")
+            axes[i].plot(actions[:, 0, i], linestyle="--", color="orange", label="Command")
+            axes[i].set_title(f"{action_labels[i]}")
+            axes[i].set_xlabel("Time Step")
+            axes[i].set_ylabel("Angle (rad)")
+            axes[i].legend()
+            axes[i].grid(True)
+
+        # Race trajectory plot
+        gates = np.array(raw.mjx_data.mocap_pos[0, raw.race_data.gate_mj_ids])
+        obstacles = np.array(raw.mjx_data.mocap_pos[0, raw.race_data.obstacle_mj_ids])
+
+        axes[4].plot(pos[:, 0, 0], pos[:, 0, 1])
+        axes[4].scatter(
+            gates[:, 0], gates[:, 1], c="green", s=80, marker="o", label="Gates", zorder=5
+        )
+        axes[4].scatter(
+            obstacles[:, 0], obstacles[:, 1], c="red", s=80, marker="x", label="Obstacles", zorder=5
+        )
+        axes[4].set_title("Race Trajectory XY Plane")
+        axes[4].set_xlabel("X Position (m)")
+        axes[4].set_ylabel("Y Position (m)")
+        axes[4].grid(True)
+        axes[4].axis("equal")
+
+        axes[5].plot(pos[:, 0, 0], pos[:, 0, 2])
+        axes[5].scatter(
+            gates[:, 0], gates[:, 2], c="green", s=80, marker="o", label="Gates", zorder=5
+        )
+        axes[5].set_title("Race Trajectory XZ Plane")
+        axes[5].set_xlabel("X Position (m)")
+        axes[5].set_ylabel("Z Position (m)")
+        axes[5].grid(True)
+        axes[5].axis("equal")
+
+        fig.savefig(Path(__file__).parents[2] / "saves" / save_path, bbox_inches="tight")
+
+        return fig

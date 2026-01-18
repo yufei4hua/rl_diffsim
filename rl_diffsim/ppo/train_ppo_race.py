@@ -41,7 +41,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 5_000_000
+    total_timesteps: int = 8_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -88,7 +88,7 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 3.6
+    max_vel: float = 2.0
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.13
     cont_obst_safe_dist: float = 0.20
@@ -96,7 +96,7 @@ class Args:
     gate_pos_coef: float = 0.0
     gate_vel_coef: float = 2.0
     gate_pass_coef: float = 10.0
-    contact_coef: tuple = (10.0, 15.0)
+    contact_coef: tuple = (10.0, 40.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -560,7 +560,7 @@ def evaluate_ppo(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=False,
+        check_contacts=True,
     )
     eval_env = RecordRaceData.create(eval_env)
 

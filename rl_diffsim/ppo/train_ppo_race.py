@@ -41,7 +41,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 8_000_000
+    total_timesteps: int = 10_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -63,7 +63,7 @@ class Args:
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
-    clip_coef: float = 0.5
+    clip_coef: float = 0.3
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
@@ -88,15 +88,15 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 2.0
+    max_vel: float = 1.5
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.13
-    cont_obst_safe_dist: float = 0.20
-    gate_size: float = 0.6
+    cont_gate_safe_dist: float = 0.10
+    cont_obst_safe_dist: float = 0.15
+    gate_size: tuple = (0.6, 0.4)
     gate_pos_coef: float = 0.0
-    gate_vel_coef: float = 2.0
-    gate_pass_coef: float = 10.0
-    contact_coef: tuple = (10.0, 40.0)
+    gate_vel_coef: float = (3.0, 0.1)
+    gate_pass_coef: tuple = (5.0, 15.0)
+    contact_coef: tuple = (10.0, 50.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -549,7 +549,7 @@ def evaluate_ppo(
         "cont_floor_safe_dist": -1.0,
         "cont_gate_safe_dist": 0.0,
         "cont_obst_safe_dist": 0.0,
-        "contact_coef": 10.0,
+        "contact_coef": 1000.0,
         "gate_size": 0.45,
         "act_coefs": (0.0,)*4,
         "d_act_coefs": (0.0,)*4,
@@ -560,7 +560,7 @@ def evaluate_ppo(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=True,
+        check_contacts=False,
     )
     eval_env = RecordRaceData.create(eval_env)
 

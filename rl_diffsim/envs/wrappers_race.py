@@ -239,7 +239,8 @@ class RaceWrapper(Wrapper):
             rewards += k_gate_vel * r_gate_vel
             rewards += k_contact * r_collision
             rewards += k_gate_pass * r_pass_gate
-            # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}", r_gate_pos=r_gate_pos, r_gate_vel=r_gate_vel, r_collision=r_collision, r_pass_gate=r_pass_gate)
+            # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}", 
+            #                 r_gate_pos=k_gate_pos * r_gate_pos, r_gate_vel=k_gate_vel * r_gate_vel, r_collision=k_contact * r_collision, r_pass_gate=k_gate_pass * r_pass_gate)
             return env, rewards
 
         # region Reset & Step

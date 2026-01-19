@@ -41,7 +41,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 15_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -63,7 +63,7 @@ class Args:
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
-    clip_coef: float = 0.3
+    clip_coef: float = 0.2
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
@@ -90,13 +90,13 @@ class Args:
     min_vel: float = 0.4
     max_vel: float = 1.5
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.10
+    cont_gate_safe_dist: float = 0.12
     cont_obst_safe_dist: float = 0.15
-    gate_size: tuple = (0.6, 0.4)
+    gate_size: tuple = (0.6, 0.2)
     gate_pos_coef: float = 0.0
-    gate_vel_coef: float = (3.0, 0.1)
+    gate_vel_coef: float = (2.0, 0.0)
     gate_pass_coef: tuple = (5.0, 15.0)
-    contact_coef: tuple = (10.0, 50.0)
+    contact_coef: tuple = (20.0, 50.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -105,18 +105,19 @@ class Args:
     def create(**kwargs: Any) -> "Args":
         """Create arguments class."""
         args = Args(**kwargs)
+        num_minibatches = args.num_steps # keep batch size constant for sweeping
         batch_size = int(args.num_envs * args.num_steps)
-        minibatch_size = int(batch_size // args.num_minibatches)
+        minibatch_size = int(batch_size // num_minibatches)
         num_iterations = args.total_timesteps // batch_size
         return replace(
             args,
+            num_minibatches=num_minibatches,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
             num_iterations=num_iterations,
         )
 
 
-# region MakeEnvs
 # region MakeEnvs
 def make_jitted_envs(
     num_envs: int = None,
@@ -551,8 +552,8 @@ def evaluate_ppo(
         "cont_obst_safe_dist": 0.0,
         "contact_coef": 1000.0,
         "gate_size": 0.45,
-        "act_coefs": (0.0,)*4,
-        "d_act_coefs": (0.0,)*4,
+        "act_coefs": (0.0,) * 4,
+        "d_act_coefs": (0.0,) * 4,
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
@@ -560,7 +561,7 @@ def evaluate_ppo(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=False,
+        check_contacts=True,
     )
     eval_env = RecordRaceData.create(eval_env)
 
@@ -582,6 +583,7 @@ def evaluate_ppo(
     episode_rewards = []
     episode_lengths = []
     ep_seed = args.seed
+    success_mask = np.zeros(n_eval, dtype=bool)
 
     for episode in range(n_eval):
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
@@ -602,18 +604,22 @@ def evaluate_ppo(
         gates_passed = jp.arange(eval_env.unwrapped.race_data.n_gates + 1)[
             eval_env.unwrapped.race_data.target_gate[:, 0]
         ]
+        success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
         print(
             f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
         )
-
-    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
+        fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
+    
+    success_count = np.sum(success_mask)
+    episode_lengths = np.array(episode_lengths)
+    avg_lap_time = np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
     print(
-        f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
+        f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s"
     )
 
     eval_env.close()
 
-    return fig, 0.0, episode_rewards, episode_lengths
+    return fig, success_count, episode_rewards, avg_lap_time
 
 
 # region Main
@@ -640,7 +646,7 @@ def main(
         train_ppo(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(
+        fig, success_count, episode_rewards, episode_lengths = evaluate_ppo(
             args, n_eval, model_path, render, plot
         )
         if wandb_enabled and train:
@@ -650,8 +656,8 @@ def main(
             }
             if fig is not None:
                 logs["eval/eval_plot"] = wandb.Image(fig)
-            if rmse_pos is not None:
-                logs["eval/pos_rmse_mm"] = rmse_pos
+            if success_count is not None:
+                logs["eval/success_count"] = success_count
             wandb.log(logs)
             wandb.finish()
 

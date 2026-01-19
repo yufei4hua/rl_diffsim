@@ -58,13 +58,14 @@ class RaceWrapper(Wrapper):
         n_gates = len(self.base.unwrapped.race_data.track.gates)
         n_obstacles = len(self.base.unwrapped.race_data.track.obstacles)
         obs_spec = {
+            "drone_ang_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
             "drone_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
             "drone_quat": spaces.Box(low=-1, high=1, shape=(4,)),
             "drone_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
-            "drone_ang_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
+            "gate_corner_rel_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(4, 3)),
+            "gate_normal": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
             "gate_onehot": spaces.Box(low=0, high=1, shape=(n_gates,), dtype=bool),
             "gate_rel_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
-            "gate_normal": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
             "obst_rel_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(n_obstacles, 2)),
         }
         return spaces.Dict(obs_spec)
@@ -139,7 +140,33 @@ class RaceWrapper(Wrapper):
 
             # Normal vector of target gate
             gate_quat = obs["gates_quat"][jp.arange(n_envs), target_gate]  # (num_envs, 4)
-            gate_normal = R.from_quat(gate_quat).apply(jp.array([1.0, 0.0, 0.0]))  # (num_envs, 3)
+            gate_rot = R.from_quat(gate_quat)
+            gate_normal = gate_rot.apply(jp.array([1.0, 0.0, 0.0]))  # (num_envs, 3)
+
+            # # Relative position to gate corners
+            gate_size = (0.56, 0.56)  # (2,)
+            # Define corner offsets in gate's local frame
+            corner_offsets = 0.5 * jp.array(
+                [
+                    [0.0, -gate_size[0], -gate_size[1]],
+                    [0.0, -gate_size[0],  gate_size[1]],
+                    [0.0,  gate_size[0],  gate_size[1]],
+                    [0.0,  gate_size[0], -gate_size[1]],
+                ]
+            )  # (4, 3)
+            # Apply rotation: (num_envs,) rotations x (4, 3) vectors -> (num_envs, 4, 3)
+            corner_offsets_world = jp.concat(
+                (
+                    gate_rot.apply(corner_offsets[0])[:, None, :],
+                    gate_rot.apply(corner_offsets[1])[:, None, :],
+                    gate_rot.apply(corner_offsets[2])[:, None, :],
+                    gate_rot.apply(corner_offsets[3])[:, None, :],
+                ),
+                axis=-2,
+            )
+            gate_corner_rel_pos = (
+                gate_rel_pos[:, None, :] + corner_offsets_world
+            )  # (num_envs, 4, 3)
 
             # Relative xy-position to all obstacles
             obstacles_pos = obs["obstacles_pos"]  # (num_envs, n_obstacles, 2)
@@ -148,6 +175,7 @@ class RaceWrapper(Wrapper):
             race_obs = {
                 "gate_onehot": gate_onehot,
                 "gate_rel_pos": gate_rel_pos,
+                "gate_corner_rel_pos": gate_corner_rel_pos,
                 "gate_normal": gate_normal,
                 "obst_rel_pos": obst_rel_pos,
             }
@@ -208,10 +236,13 @@ class RaceWrapper(Wrapper):
 
             # Relative velocity (velocity projected onto gate_rel_pos)
             gate_norm = obs["gate_normal"]  # (num_envs, 3)
-            ref_vel = gate_rel_pos - (1 - 1 / (gate_dist[:, None] + 1e-8)) * jp.sum(gate_rel_pos * gate_norm, axis=-1, keepdims=True) * gate_norm
-            ref_vel_unit = ref_vel / (
-                jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8
+            ref_vel = (
+                gate_rel_pos
+                - (1 - 1 / (gate_dist[:, None] + 1e-8))
+                * jp.sum(gate_rel_pos * gate_norm, axis=-1, keepdims=True)
+                * gate_norm
             )
+            ref_vel_unit = ref_vel / (jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8)
             gate_rel_vel_norm = jp.sum(vel * ref_vel_unit, axis=-1)  # (num_envs,)
             r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
 
@@ -239,7 +270,7 @@ class RaceWrapper(Wrapper):
             rewards += k_gate_vel * r_gate_vel
             rewards += k_contact * r_collision
             rewards += k_gate_pass * r_pass_gate
-            # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}", 
+            # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}",
             #                 r_gate_pos=k_gate_pos * r_gate_pos, r_gate_vel=k_gate_vel * r_gate_vel, r_collision=k_contact * r_collision, r_pass_gate=k_gate_pass * r_pass_gate)
             return env, rewards
 

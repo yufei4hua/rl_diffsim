@@ -273,13 +273,6 @@ class RaceWrapper(Wrapper):
             # scheduled gate_size
             g_size = _schedule_coef(gate_size, progress_coef)
             base_env = base_env.replace(race_data=base_env.race_data.replace(gate_size=g_size))
-            # enable check_contacts after certain progress
-            base_env = jax.lax.cond(
-                progress_coef > 0.66,
-                lambda env: env.replace(race_data=env.race_data.replace(check_contacts=True)),
-                lambda env: env,
-                base_env
-            )
 
             env = env.replace(base=base_env, progress_coef=progress_coef)
             return env, (obs, reward, terminated, truncated, info)

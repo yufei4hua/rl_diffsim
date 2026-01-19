@@ -110,7 +110,6 @@ class RaceData:
     last_drone_pos: Array
     disabled_drones: Array
     gate_size: float
-    check_contacts: bool
 
     @classmethod
     def create(
@@ -133,7 +132,6 @@ class RaceData:
         drone: dict,
         disturbances: dict,
         gate_size: float,
-        check_contacts: bool,
     ) -> RaceData:
         """Create a new environment data struct with default values."""
         return cls(
@@ -157,7 +155,6 @@ class RaceData:
             drone=drone,
             disturbances=disturbances,
             gate_size=gate_size,
-            check_contacts=check_contacts,
         )
 
 
@@ -356,7 +353,6 @@ class DroneRaceEnv(DroneEnv):
             drone=drone,
             disturbances=disturbances,
             gate_size=0.45,
-            check_contacts=check_contacts,
         )
         _randomize_track: Callable = build_track_randomization_fn(
             randomizations, gate_ids, obstacle_ids
@@ -548,12 +544,9 @@ class DroneRaceEnv(DroneEnv):
             disabled = race_data.disabled_drones | jp.any(pos < race_data.pos_limit_low, axis=-1)
             disabled = disabled | jp.any(pos > race_data.pos_limit_high, axis=-1)
             disabled = disabled | (race_data.target_gate == -1)
-            disabled = jax.lax.cond(
-                race_data.check_contacts,
-                lambda d: d | jp.any(contacts[:, None, :] & race_data.contact_masks, axis=-1),
-                lambda d: d,
-                disabled
-            )
+            if check_contacts:
+                contacts = jp.any(contacts[:, None, :] & race_data.contact_masks, axis=-1)
+                disabled = disabled | contacts
             return disabled
 
         def _step_race(

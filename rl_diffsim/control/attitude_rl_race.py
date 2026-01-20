@@ -150,6 +150,23 @@ class AttitudeRL(Controller):
         gate_quat = obs["gates_quat"][target_gate]  # (4)
         gate_normal = R.from_quat(gate_quat).apply(jp.array([1.0, 0.0, 0.0]))  # (3)
 
+        # Relative position to gate corners
+        gate_size = (0.56, 0.56)  # (2,)
+        # Define corner offsets in gate's local frame
+        corner_offsets = 0.5 * jp.array(
+            [
+                [0.0, -gate_size[0], -gate_size[1]],
+                [0.0, -gate_size[0],  gate_size[1]],
+                [0.0,  gate_size[0],  gate_size[1]],
+                [0.0,  gate_size[0], -gate_size[1]],
+            ]
+        )  # (4, 3)
+        # Apply rotation to corners
+        gate_rot = R.from_quat(gate_quat)
+        corner_offsets_world = gate_rot.apply(corner_offsets)  # (4, 3)
+        gate_corner_rel_pos = gate_rel_pos[None, :] + corner_offsets_world  # (4, 3)
+        gate_corner_rel_pos = gate_corner_rel_pos.flatten()  # (12,)
+
         # Relative xy-position to all obstacles
         obstacles_pos = obs["obstacles_pos"]  # (n_obstacles, 2)
         obst_rel_pos = obstacles_pos[:, :2] - pos[:2]  # (n_obstacles, 2)
@@ -158,6 +175,7 @@ class AttitudeRL(Controller):
         obs_rl["gate_onehot"] = gate_onehot
         obs_rl["gate_rel_pos"] = gate_rel_pos
         obs_rl["gate_normal"] = gate_normal
+        obs_rl["gate_corner_rel_pos"] = gate_corner_rel_pos
         obs_rl["obst_rel_pos"] = obst_rel_pos
 
         # alphabetical key order: important for flax policy

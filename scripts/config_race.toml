@@ -9,7 +9,7 @@ file = "attitude_rl_race.py"
 
 [deploy]
 [[deploy.drones]]
-id = 20
+id = 10
 channel = 100
 drone_model = "cf21B_500"    # cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500.
 takeoff_pos = [-1.5, 0.75, 0.01]  # Takeoff position [x, y, z] in meters
@@ -23,7 +23,7 @@ sim_freq = 500               # Simulation frequency, in Hz.
 state_freq = 50              # State estimation frequency, in Hz.
 attitude_freq = 500          # Controller frequency, in Hz.
 force_torque_freq = 500      # Force/torque frequency, in Hz.
-sensor_range = 10            # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
+sensor_range = 0.7           # Range at which the exact location of gates and obstacles become visible to the drone. Objects that are not in the drone's sensor range report their nominal position.
 reset_rotor = true           # Whether to reset rotor velocities on env.reset()
 
 

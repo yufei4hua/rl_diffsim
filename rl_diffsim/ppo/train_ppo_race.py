@@ -88,15 +88,15 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 1.1
+    max_vel: float = 1.0
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.16
+    cont_gate_safe_dist: float = 0.17
     cont_obst_safe_dist: float = 0.18
     gate_size: tuple = (0.6, 0.25)
     gate_pos_coef: float = 0.0
-    gate_vel_coef: tuple = (2.9, 0.0)
+    gate_vel_coef: tuple = (2.7, 0.0)
     gate_pass_coef: tuple = (5.0, 15.0)
-    contact_coef: tuple = (20.0, 60.0)
+    contact_coef: tuple = (20.0, 64.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""

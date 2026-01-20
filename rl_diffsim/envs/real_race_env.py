@@ -164,7 +164,7 @@ class RealRaceCoreEnv:
         # disabled, they are equal to the nominal positions defined in the track config.
         if options.get("real_track_objects", True):
             self._update_track_poses()
-        if options.get("check_race_track", False):
+        if options.get("check_race_track", True):
             check_race_track(
                 gates_pos=self.gates.pos,
                 nominal_gates_pos=self.gates.nominal_pos,

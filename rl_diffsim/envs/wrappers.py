@@ -397,7 +397,7 @@ class ActionPenalty(Wrapper):
         cls,
         base: struct.PyTreeNode | AngleReward,
         num_actions: int = 1,
-        init_last_actions: Array | None = None,
+        init_last_actions: tuple | None = None,
         hover_action: Array = jp.zeros((4,)),
         act_coefs: tuple = (0.0,) * 4,
         d_act_coefs: tuple = (0.0,) * 4,
@@ -418,6 +418,7 @@ class ActionPenalty(Wrapper):
         # last_actions is part of the observation dict (computed in property)
         last_actions = jp.zeros((num_envs, num_actions, act_dim), dtype=jp.float32)
         if init_last_actions is not None:
+            init_last_actions = jp.array(init_last_actions, dtype=jp.float32)
             last_actions = jp.broadcast_to(init_last_actions, last_actions.shape)
 
         def _reset(

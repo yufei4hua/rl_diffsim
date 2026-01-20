@@ -55,8 +55,8 @@ class RaceWrapper(Wrapper):
     @property
     def single_observation_space(self) -> spaces.Space:
         """Single observation space."""
-        n_gates = len(self.base.unwrapped.race_data.track.gates)
-        n_obstacles = len(self.base.unwrapped.race_data.track.obstacles)
+        n_gates = self.unwrapped.race_data.n_gates
+        n_obstacles = self.unwrapped.race_data.n_obstacles
         obs_spec = {
             "drone_ang_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
             "drone_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
@@ -317,72 +317,6 @@ class RaceWrapper(Wrapper):
         )
 
 
-if __name__ == "__main__":
-    import time
-    from pathlib import Path
-
-    import toml
-    from ml_collections import ConfigDict
-
-    from rl_diffsim.envs.drone_race_env import DroneRaceEnv
-
-    """Test the jittable drone environment implementation."""
-    # Create the jittable environment
-    config_path = Path(__file__).parents[2] / "scripts/config_race.toml"
-    with open(config_path, "r") as f:
-        config = ConfigDict(toml.load(f))
-
-    env = DroneRaceEnv.create(num_envs=1024, device="gpu", **config.env)
-    env = RaceWrapper.create(env)
-
-    # Reset the environment
-    env, (obs, info) = env.reset(env, seed=42)
-    print("Initial Race RL Obs:")
-    for k, v in obs.items():
-        print(k, v[0])
-
-    def step_once(env: DroneRaceEnv, _) -> tuple[DroneRaceEnv, tuple[Array, Array]]:
-        """Single env step for lax.scan."""
-        base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
-        action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
-
-        env, (next_obs, reward, terminated, truncated, info) = env.step(env, action)
-
-        pos = env.unwrapped.data.states.pos[:, 0, :]  # (num_envs, 3)
-        vel = env.unwrapped.data.states.vel[:, 0, :]  # (num_envs, 3)
-
-        return env, (pos, vel)
-
-    def rollout(env: DroneRaceEnv, num_steps: int) -> tuple[DroneRaceEnv, tuple[Array, Array]]:
-        """Rollout for multiple steps using lax.scan."""
-        env, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
-        return env, (pos_traj, vel_traj)
-
-    rollout_jit = jax.jit(rollout, static_argnames=("num_steps",))
-
-    # Warm-up rollout
-    start_time = time.time()
-    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
-    pos_traj.block_until_ready()
-    end_time = time.time()
-    print(f"Warm-up rollout took {end_time - start_time:.4f} seconds")
-
-    # After jitting
-    start_time = time.time()
-    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
-    pos_traj.block_until_ready()
-    end_time = time.time()
-    print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
-    start_time = time.time()
-    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
-    pos_traj.block_until_ready()
-    end_time = time.time()
-    print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
-
-    print("\nPos trajectory shape:", pos_traj.shape)
-    print("Vel trajectory shape:", vel_traj.shape)
-
-
 # region RecordRaceData
 @struct.dataclass
 class RecordRaceData(Wrapper):
@@ -543,3 +477,69 @@ class RecordRaceData(Wrapper):
         fig.savefig(Path(__file__).parents[2] / "saves" / save_path, bbox_inches="tight")
 
         return fig
+
+
+if __name__ == "__main__":
+    import time
+    from pathlib import Path
+
+    import toml
+    from ml_collections import ConfigDict
+
+    from rl_diffsim.envs.drone_race_env import DroneRaceEnv
+
+    """Test the jittable drone environment implementation."""
+    # Create the jittable environment
+    config_path = Path(__file__).parents[2] / "scripts/config_race.toml"
+    with open(config_path, "r") as f:
+        config = ConfigDict(toml.load(f))
+
+    env = DroneRaceEnv.create(num_envs=1024, device="gpu", **config.env)
+    env = RaceWrapper.create(env)
+
+    # Reset the environment
+    env, (obs, info) = env.reset(env, seed=42)
+    print("Initial Race RL Obs:")
+    for k, v in obs.items():
+        print(k, v[0])
+
+    def step_once(env: DroneRaceEnv, _) -> tuple[DroneRaceEnv, tuple[Array, Array]]:
+        """Single env step for lax.scan."""
+        base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
+        action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)
+
+        env, (next_obs, reward, terminated, truncated, info) = env.step(env, action)
+
+        pos = env.unwrapped.data.states.pos[:, 0, :]  # (num_envs, 3)
+        vel = env.unwrapped.data.states.vel[:, 0, :]  # (num_envs, 3)
+
+        return env, (pos, vel)
+
+    def rollout(env: DroneRaceEnv, num_steps: int) -> tuple[DroneRaceEnv, tuple[Array, Array]]:
+        """Rollout for multiple steps using lax.scan."""
+        env, (pos_traj, vel_traj) = jax.lax.scan(step_once, env, xs=None, length=num_steps)
+        return env, (pos_traj, vel_traj)
+
+    rollout_jit = jax.jit(rollout, static_argnames=("num_steps",))
+
+    # Warm-up rollout
+    start_time = time.time()
+    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
+    pos_traj.block_until_ready()
+    end_time = time.time()
+    print(f"Warm-up rollout took {end_time - start_time:.4f} seconds")
+
+    # After jitting
+    start_time = time.time()
+    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
+    pos_traj.block_until_ready()
+    end_time = time.time()
+    print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
+    start_time = time.time()
+    env, (pos_traj, vel_traj) = rollout_jit(env, 100)
+    pos_traj.block_until_ready()
+    end_time = time.time()
+    print(f"Jitted rollout took {end_time - start_time:.4f} seconds")
+
+    print("\nPos trajectory shape:", pos_traj.shape)
+    print("Vel trajectory shape:", vel_traj.shape)

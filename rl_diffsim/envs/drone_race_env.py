@@ -88,20 +88,15 @@ class RaceData:
     """
 
     # Static variables
-    contact_masks: Array = struct.field(pytree_node=False)
-    pos_limit_low: Array = struct.field(pytree_node=False)
-    pos_limit_high: Array = struct.field(pytree_node=False)
-    gate_mj_ids: Array = struct.field(pytree_node=False)
-    obstacle_mj_ids: Array = struct.field(pytree_node=False)
-    max_episode_steps: Array = struct.field(pytree_node=False)
-    sensor_range: Array = struct.field(pytree_node=False)
-    track: ConfigDict = struct.field(pytree_node=False)
+    sensor_range: float = struct.field(pytree_node=False)
     n_gates: int = struct.field(pytree_node=False)
-    gates: ConfigDict = struct.field(pytree_node=False)
     n_obstacles: int = struct.field(pytree_node=False)
-    obstacles: ConfigDict = struct.field(pytree_node=False)
-    drone: ConfigDict = struct.field(pytree_node=False)
-    disturbances: ConfigDict = struct.field(pytree_node=False)
+    contact_masks: Array
+    pos_limit_low: Array
+    pos_limit_high: Array
+    gate_mj_ids: Array
+    obstacle_mj_ids: Array
+    max_episode_steps: Array
 
     # Dynamic variables
     target_gate: Array
@@ -126,11 +121,6 @@ class RaceData:
         pos_limit_low: Array,
         pos_limit_high: Array,
         device: Device,
-        track: dict,
-        gates: dict,
-        obstacles: dict,
-        drone: dict,
-        disturbances: dict,
         gate_size: float,
     ) -> RaceData:
         """Create a new environment data struct with default values."""
@@ -146,14 +136,9 @@ class RaceData:
             gate_mj_ids=jp.array(gate_mj_ids, dtype=int, device=device),
             obstacle_mj_ids=jp.array(obstacle_mj_ids, dtype=int, device=device),
             max_episode_steps=jp.array([max_episode_steps], dtype=int, device=device),
-            sensor_range=jp.array([sensor_range], dtype=jp.float32, device=device),
-            track=track,
+            sensor_range=sensor_range,
             n_gates=n_gates,
-            gates=gates,
             n_obstacles=n_obstacles,
-            obstacles=obstacles,
-            drone=drone,
-            disturbances=disturbances,
             gate_size=gate_size,
         )
 
@@ -347,11 +332,6 @@ class DroneRaceEnv(DroneEnv):
             pos_limit_low=[-3, -3, -1],
             pos_limit_high=[3, 3, 2.5],
             device=jax_device,
-            track=track,
-            gates=gates,
-            obstacles=obstacles,
-            drone=drone,
-            disturbances=disturbances,
             gate_size=0.45,
         )
         _randomize_track: Callable = build_track_randomization_fn(
@@ -435,11 +415,11 @@ class DroneRaceEnv(DroneEnv):
                 mjx_data.mocap_quat,
                 race_data.gates_visited,
                 race_data.gate_mj_ids,
-                race_data.gates["nominal_pos"],
-                race_data.gates["nominal_quat"],
+                gates["nominal_pos"],
+                gates["nominal_quat"],
                 race_data.obstacles_visited,
                 race_data.obstacle_mj_ids,
-                race_data.obstacles["nominal_pos"],
+                obstacles["nominal_pos"],
             )
             obs = {
                 "pos": data.states.pos[:, 0, :],

@@ -24,9 +24,9 @@ class ActorNet(nn.Module):
         # Actor mean
         x = obs
         x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
-        x = nn.tanh(x)
+        x = nn.relu(x)
         x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
-        x = nn.tanh(x)
+        x = nn.relu(x)
         mean = nn.Dense(self.act_dim, kernel_init=orthogonal(0.01), bias_init=zeros)(x)
         mean = nn.tanh(mean)
         # Actor logstd
@@ -48,9 +48,9 @@ class CriticNet(nn.Module):
         """Simple MLP model for critic."""
         x = obs
         x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
-        x = nn.tanh(x)
+        x = nn.relu(x)
         x = nn.Dense(self.hidden_size, kernel_init=orthogonal(), bias_init=zeros)(x)
-        x = nn.tanh(x)
+        x = nn.relu(x)
         value = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=zeros)(x)
         return value.squeeze(-1)
 

@@ -51,13 +51,13 @@ class Args:
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 6e-4
+    actor_lr: float = 8e-4
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.93
+    gamma: float = 0.95
     """the discount factor gamma"""
-    gae_lambda: float = 0.96
+    gae_lambda: float = 0.81
     """the lambda for the general advantage estimation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
@@ -88,15 +88,15 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 1.5
+    max_vel: float = 1.1
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.12
-    cont_obst_safe_dist: float = 0.15
-    gate_size: tuple = (0.6, 0.2)
+    cont_gate_safe_dist: float = 0.16
+    cont_obst_safe_dist: float = 0.18
+    gate_size: tuple = (0.6, 0.25)
     gate_pos_coef: float = 0.0
-    gate_vel_coef: float = (2.0, 0.0)
+    gate_vel_coef: tuple = (2.9, 0.0)
     gate_pass_coef: tuple = (5.0, 15.0)
-    contact_coef: tuple = (20.0, 50.0)
+    contact_coef: tuple = (20.0, 60.0)
     act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
     """reward coefficients for training"""
@@ -105,13 +105,11 @@ class Args:
     def create(**kwargs: Any) -> "Args":
         """Create arguments class."""
         args = Args(**kwargs)
-        num_minibatches = args.num_steps # keep batch size constant for sweeping
         batch_size = int(args.num_envs * args.num_steps)
-        minibatch_size = int(batch_size // num_minibatches)
+        minibatch_size = int(batch_size // args.num_minibatches)
         num_iterations = args.total_timesteps // batch_size
         return replace(
             args,
-            num_minibatches=num_minibatches,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
             num_iterations=num_iterations,
@@ -151,7 +149,7 @@ def make_jitted_envs(
     env = ActionPenalty.create(
         env,
         num_actions=1,
-        init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
+        init_last_actions=(0.0,) * 4,
         act_coefs=coefs.get("act_coefs", (0.0,) * 4),
         d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )
@@ -595,8 +593,8 @@ def evaluate_ppo(
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             if render:
                 eval_env.render()
-            done = terminated | truncated
-            episode_reward += float(np.asarray(reward).item())
+            done = np.asarray(terminated | truncated, dtype=bool).any()
+            episode_reward += np.mean(np.asarray(reward))
             steps += 1
 
         episode_rewards.append(episode_reward)

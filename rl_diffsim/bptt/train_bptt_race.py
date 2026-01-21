@@ -20,14 +20,8 @@ import wandb
 from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.envs.drone_race_env import DroneRaceEnv
 from rl_diffsim.envs.race_utils import load_config
-from rl_diffsim.envs.wrappers import (
-    ActionPenalty,
-    FlattenJaxObservation,
-    NormalizeActions,
-    RecordData,
-    ZeroYaw,
-)
-from rl_diffsim.envs.wrappers_race import RaceWrapper
+from rl_diffsim.envs.wrappers import ActionPenalty, FlattenJaxObservation, NormalizeActions, ZeroYaw
+from rl_diffsim.envs.wrappers_race import RaceWrapper, RecordRaceData
 
 
 # region Arguments
@@ -47,19 +41,19 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 300_000
+    total_timesteps: int = 200_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 72
+    num_steps: int = 32
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 2.0e-2
+    actor_lr: float = 4e-3
     """the learning rate of the actor optimizer"""
-    gamma: float = 1.0
+    gamma: float = 0.96
     """the discount factor gamma"""
-    hidden_size: int = 64
+    hidden_size: int = 48
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -69,14 +63,18 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    gate_pos_coef: float = 1.0
-    gate_vel_coef: float = 1.0
-    max_vel: float = 2.0
-    contact_safe_dist: float = 0.1
-    contact_coef: float = 50.0
-    act_coefs: tuple = (0.35, 0.35, 0.0, 0.1)
+    min_vel: float = 0.4
+    max_vel: float = 3.0
+    cont_floor_safe_dist: float = 0.05
+    cont_gate_safe_dist: float = 0.1
+    cont_obst_safe_dist: float = 0.12
+    gate_size: tuple = (0.6, 0.4)
+    gate_pos_coef: float = 0.0
+    gate_vel_coef: tuple = (4.0, 2.0)
+    gate_pass_coef: float = 0.0
+    contact_coef: tuple = (10.0, 50.0)
+    act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
-
     """reward coefficients for training"""
 
     @staticmethod
@@ -100,6 +98,7 @@ class Args:
 def make_jitted_envs(
     num_envs: int = None,
     jax_device: str = "cpu",
+    total_timesteps: int = 0,
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
@@ -113,16 +112,22 @@ def make_jitted_envs(
         env,
         gate_pos_coef=coefs.get("gate_pos_coef", 0.0),
         gate_vel_coef=coefs.get("gate_vel_coef", 0.0),
+        gate_pass_coef=coefs.get("gate_pass_coef", 0.0),
+        min_vel=coefs.get("min_vel", 0.0),
         max_vel=coefs.get("max_vel", 0.0),
-        contact_safe_dist=coefs.get("contact_safe_dist", 0.0),
+        cont_floor_safe_dist=coefs.get("cont_floor_safe_dist", 0.0),
+        cont_gate_safe_dist=coefs.get("cont_gate_safe_dist", 0.0),
+        cont_obst_safe_dist=coefs.get("cont_obst_safe_dist", 0.0),
         contact_coef=coefs.get("contact_coef", 0.0),
+        gate_size=coefs.get("gate_size", 0.45),
+        total_timesteps=total_timesteps,
     )
     env = NormalizeActions.create(env)
     env = ZeroYaw.create(env)
     env = ActionPenalty.create(
         env,
         num_actions=1,
-        init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
+        init_last_actions=(0.0,) * 4,
         act_coefs=coefs.get("act_coefs", (0.0,) * 4),
         d_act_coefs=coefs.get("d_act_coefs", (0.0,) * 4),
     )
@@ -144,6 +149,7 @@ class RolloutData:
     entropy: Array
     returns: Array
     losses: Array
+    gates_passed: Array
 
 
 # region Policy Update
@@ -180,6 +186,7 @@ def update_policy(
             # 2. step environment & compute stepwise loss
             env, (next_obs, reward, terminations, truncations, info) = env.step(env, action)
 
+            gates_passed = env.unwrapped.race_data.target_gate[:, 0]
             sum_rewards = sum_rewards + reward
             next_sum_rewards = jp.where(dones, 0.0, sum_rewards)
             loss = -discounts * reward  # jp.where(dones, 0.0, reward)
@@ -196,6 +203,7 @@ def update_policy(
                 entropy=jp.mean(entropy),
                 returns=jp.zeros_like(reward),
                 losses=loss,
+                gates_passed=gates_passed,
             )
 
         (envs, key, sum_rewards, next_discounts, next_obs, next_done), rollout_data = jax.lax.scan(
@@ -258,9 +266,14 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     r_coefs = {
         "gate_pos_coef": args.gate_pos_coef,
         "gate_vel_coef": args.gate_vel_coef,
+        "gate_pass_coef": args.gate_pass_coef,
+        "min_vel": args.min_vel,
         "max_vel": args.max_vel,
-        "contact_safe_dist": args.contact_safe_dist,
+        "cont_floor_safe_dist": args.cont_floor_safe_dist,
+        "cont_gate_safe_dist": args.cont_gate_safe_dist,
+        "cont_obst_safe_dist": args.cont_obst_safe_dist,
         "contact_coef": args.contact_coef,
+        "gate_size": args.gate_size,
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,
     }
@@ -268,6 +281,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     envs = make_jitted_envs(
         num_envs=args.num_envs,
         jax_device=jax_device,
+        total_timesteps=args.total_timesteps,
         coefs=r_coefs,
         config=config.env,
         check_contacts=False,
@@ -295,17 +309,17 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     # warmup jax compile
     start_warmup_time = time.time()
     envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
-    for _ in range(2):
-        (_, _, _), (p_loss, (data, _, next_done, sum_rewards)) = update_policy(
-            envs=envs,
-            args=args,
-            agent=agent,
-            next_obs=next_obs,
-            next_done=jp.zeros(args.num_envs, dtype=bool),
-            sum_rewards=jp.zeros((args.num_envs,)),
-            key=key,
-        )
-    p_loss.block_until_ready()
+    # for _ in range(2):
+    #     (_, _, _), (p_loss, (data, _, next_done, sum_rewards)) = update_policy(
+    #         envs=envs,
+    #         args=args,
+    #         agent=agent,
+    #         next_obs=next_obs,
+    #         next_done=jp.zeros(args.num_envs, dtype=bool),
+    #         sum_rewards=jp.zeros((args.num_envs,)),
+    #         key=key,
+    #     )
+    # p_loss.block_until_ready()
     print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
     # start the game
@@ -352,10 +366,14 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
 
             # Log episode rewards
-            for batch_step, (sum_reward, done) in enumerate(zip(data.sum_rewards, data.dones)):
+            for batch_step, (sum_reward, done, gates_passed) in enumerate(zip(data.sum_rewards, data.dones, data.gates_passed)):
+                gates_passed = jp.arange(envs.unwrapped.race_data.n_gates + 1)[gates_passed]
                 if jp.any(done):
                     wandb.log(
-                        {"train/reward": jp.mean(sum_reward[done])},
+                        {
+                            "train/gates_passed": jp.max(gates_passed),
+                            "train/reward": jp.mean(sum_reward[done]),
+                        },
                         step=global_step + batch_step * args.num_envs,
                     )
                     sum_rewards_hist.append(float(jp.mean(sum_reward[done])))
@@ -384,7 +402,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
 # region Evaluate
 def evaluate_bptt(
-    args: Args, n_eval: int, model_path: Path, render: bool
+    args: Args, n_eval: int, model_path: Path, render: bool, plot: bool = True
 ) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
@@ -392,13 +410,18 @@ def evaluate_bptt(
     `n_eval` episodes with deterministic actions.
     """
     r_coefs = {
-        "gate_pos_coef": args.gate_pos_coef,
-        "gate_vel_coef": args.gate_vel_coef,
+        "gate_pos_coef": 0.0,
+        "gate_vel_coef": 0.0,
+        "gate_pass_coef": 0.0,
+        "min_vel": args.min_vel,
         "max_vel": args.max_vel,
-        "contact_safe_dist": args.contact_safe_dist,
-        "contact_coef": args.contact_coef,
-        "act_coefs": args.act_coefs,
-        "d_act_coefs": args.d_act_coefs,
+        "cont_floor_safe_dist": -1.0,
+        "cont_gate_safe_dist": 0.0,
+        "cont_obst_safe_dist": 0.0,
+        "contact_coef": 1000.0,
+        "gate_size": 0.45,
+        "act_coefs": (0.0,) * 4,
+        "d_act_coefs": (0.0,) * 4,
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
@@ -406,9 +429,9 @@ def evaluate_bptt(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=False,
+        check_contacts=True,
     )
-    eval_env = RecordData.create(eval_env)
+    eval_env = RecordRaceData.create(eval_env)
 
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
@@ -425,6 +448,7 @@ def evaluate_bptt(
     episode_rewards = []
     episode_lengths = []
     ep_seed = args.seed
+    success_mask = np.zeros(n_eval, dtype=bool)
 
     for episode in range(n_eval):
         eval_env, (obs, info) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
@@ -436,25 +460,36 @@ def evaluate_bptt(
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
             if render:
                 eval_env.render()
-            done = terminated | truncated
-            episode_reward += float(np.asarray(reward).item())
+            done = np.asarray(terminated | truncated, dtype=bool).any()
+            episode_reward += np.mean(np.asarray(reward))
             steps += 1
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
-        # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
-
-    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
-    rmse_pos = eval_env.calc_rmse()
-    print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
+        gates_passed = jp.arange(eval_env.unwrapped.race_data.n_gates + 1)[
+            eval_env.unwrapped.race_data.target_gate[:, 0]
+        ]
+        success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
+        print(
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
+        )
+        fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
+    
+    success_count = np.sum(success_mask)
+    episode_lengths = np.array(episode_lengths)
+    avg_lap_time = np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
+    print(
+        f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s"
+    )
 
     eval_env.close()
 
-    return fig, rmse_pos, episode_rewards, episode_lengths
+    return fig, success_count, episode_rewards, avg_lap_time
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
+def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True,
+    plot: bool = True,):
     """Main entry.
 
     Flags:
@@ -471,8 +506,8 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
         train_bptt(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_bptt(
-            args, n_eval, model_path, render
+        fig, success_count, episode_rewards, episode_lengths = evaluate_bptt(
+            args, n_eval, model_path, render, plot
         )
         if wandb_enabled and train:
             logs = {
@@ -481,8 +516,8 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
             }
             if fig is not None:
                 logs["eval/eval_plot"] = wandb.Image(fig)
-            if rmse_pos is not None:
-                logs["eval/pos_rmse_mm"] = rmse_pos
+            if success_count is not None:
+                logs["eval/success_count"] = success_count
             wandb.log(logs)
             wandb.finish()
 

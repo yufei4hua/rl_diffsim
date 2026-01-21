@@ -49,9 +49,9 @@ def train():
         mean_rewards = np.asarray(sum_rewards_hist).mean()
         # score based on final performance
         _, success_count, episode_rewards, avg_lap_time = evaluate_ppo(
-            args=args, n_eval=10, model_path=model_path, render=False, plot=False
+            args=args, n_eval=20, model_path=model_path, render=False, plot=False
         )
-        score = success_count - avg_lap_time
+        score = success_count - avg_lap_time * 5.0
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})
         run.log({"final_reward": np.mean(episode_rewards)})
@@ -61,9 +61,10 @@ def train():
 
 # 2: Define the search space
 sweep_configuration = {
-    "method": "random",  # "random", "bayes", "grid"
+    "method": "bayes",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
+        # "seed": {"values": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
         # "num_envs": {"values": [1024, 2048]},
         # "num_steps": {"values": [48, 64, 96, 128]},
         # # "num_minibatches": {"values": [4, 8, 16]},
@@ -81,18 +82,18 @@ sweep_configuration = {
         "max_vel": {"distribution": "uniform", "min": 1.0, "max": 2.5},
         "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.05, "max": 0.2},
         "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        "gate_size_1": {"distribution": "uniform", "min": 0.2, "max": 0.5},
-        "gate_vel_coef_0": {"distribution": "uniform", "min": 0.8, "max": 3.0},
+        # "gate_size_1": {"distribution": "uniform", "min": 0.2, "max": 0.5},
+        "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 3.0},
         # "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.0},
-        "contact_coef_1": {"distribution": "uniform", "min": 30.0, "max": 70.0},
-        # "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        "contact_coef_1": {"distribution": "uniform", "min": 40.0, "max": 60.0},
+        "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
         # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
         # "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
-        # "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        # "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
+        "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
         # "d_act_coefs_1": {"distribution": "uniform", "min": 0.5, "max": 1.5},
         # "d_act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.2},
-        # "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
+        "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
     },
 }
 

@@ -41,7 +41,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 15_000_000
+    total_timesteps: int = 20_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
@@ -51,7 +51,7 @@ class Args:
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 8e-4
+    actor_lr: float = 1.2e-3
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
@@ -88,17 +88,17 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 1.0
+    max_vel: float = 2.2
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.17
-    cont_obst_safe_dist: float = 0.18
+    cont_obst_safe_dist: float = 0.16
     gate_size: tuple = (0.6, 0.25)
     gate_pos_coef: float = 0.0
-    gate_vel_coef: tuple = (2.7, 0.0)
+    gate_vel_coef: tuple = (2.8, 1.0)
     gate_pass_coef: tuple = (5.0, 15.0)
-    contact_coef: tuple = (20.0, 64.0)
-    act_coefs: tuple = (0.2, 0.2, 0.0, 0.1)
-    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
+    contact_coef: tuple = (20.0, 50.0)
+    act_coefs: tuple = (0.16, 0.16, 0.0, 0.06)
+    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.8)
     """reward coefficients for training"""
 
     @staticmethod
@@ -108,11 +108,15 @@ class Args:
         batch_size = int(args.num_envs * args.num_steps)
         minibatch_size = int(batch_size // args.num_minibatches)
         num_iterations = args.total_timesteps // batch_size
+        act_coefs = (args.act_coefs[0],) * 2 + (0.0, args.act_coefs[3])
+        d_act_coefs = (args.d_act_coefs[0],) * 2 + (0.0, args.d_act_coefs[3])
         return replace(
             args,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
             num_iterations=num_iterations,
+            act_coefs=act_coefs,
+            d_act_coefs=d_act_coefs,
         )
 
 
@@ -413,20 +417,21 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     # warmup jax compile
     start_warmup_time = time.time()
     envs, (next_obs, _) = envs.reset(envs, seed=args.seed)
-    # for _ in range(2):
-    #     _, data, next_obs, next_done, _, _ = collect_rollout(
-    #         envs=envs,
-    #         args=args,
-    #         agent=agent,
-    #         next_obs=next_obs,
-    #         next_done=jp.zeros(args.num_envs, dtype=bool),
-    #         sum_rewards=jp.zeros((args.num_envs,)),
-    #         key=key,
-    #     )
-    #     data = compute_gae(args, agent, next_obs, next_done, data)
-    #     (_, _), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var) = update_policy(
-    #         args, agent, data, key
-    #     )
+    for _ in range(2):
+        _, data, next_obs, next_done, _, _ = collect_rollout(
+            envs=envs,
+            args=args,
+            agent=agent,
+            next_obs=next_obs,
+            next_done=jp.zeros(args.num_envs, dtype=bool),
+            sum_rewards=jp.zeros((args.num_envs,)),
+            key=key,
+        )
+        data = compute_gae(args, agent, next_obs, next_done, data)
+        (_, _), (pg_loss, v_loss, entropy_loss, approx_kl, explained_var) = update_policy(
+            args, agent, data, key
+        )
+    pg_loss.block_until_ready()
     print("JAX warmup took {:.5f} s".format(time.time() - start_warmup_time))
 
     # start the game

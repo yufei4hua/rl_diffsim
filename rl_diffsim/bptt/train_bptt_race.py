@@ -41,11 +41,11 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 200_000
+    total_timesteps: int = 400_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
@@ -64,13 +64,13 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 3.0
+    max_vel: float = 3.6
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.1
     cont_obst_safe_dist: float = 0.12
     gate_size: tuple = (0.6, 0.4)
     gate_pos_coef: float = 0.0
-    gate_vel_coef: tuple = (4.0, 2.0)
+    gate_vel_coef: tuple = (4.0, 3.0)
     gate_pass_coef: float = 0.0
     contact_coef: tuple = (10.0, 50.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)

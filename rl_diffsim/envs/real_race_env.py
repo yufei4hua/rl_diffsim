@@ -162,9 +162,9 @@ class RealRaceCoreEnv:
         options = {} if options is None else options
         # Update the position of gates and obstacles with the real positions measured from Mocap. If
         # disabled, they are equal to the nominal positions defined in the track config.
-        if options.get("real_track_objects", True):
+        if options.get("real_track_objects", False):
             self._update_track_poses()
-        if options.get("check_race_track", True):
+        if options.get("check_race_track", False):
             check_race_track(
                 gates_pos=self.gates.pos,
                 nominal_gates_pos=self.gates.nominal_pos,

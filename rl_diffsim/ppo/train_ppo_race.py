@@ -612,13 +612,13 @@ def evaluate_ppo(
             f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
-    
+
     success_count = np.sum(success_mask)
     episode_lengths = np.array(episode_lengths)
-    avg_lap_time = np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
-    print(
-        f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s"
+    avg_lap_time = (
+        np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
     )
+    print(f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s")
 
     eval_env.close()
 

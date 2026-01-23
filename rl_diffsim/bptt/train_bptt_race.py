@@ -45,13 +45,13 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 64
+    num_steps: int = 96
     """the number of steps to run in each environment per policy rollout"""
-    anneal_actor_lr: bool = False
+    anneal_actor_lr: bool = True
     """Toggle learning rate annealing for policy networks"""
     actor_lr: float = 4e-3
     """the learning rate of the actor optimizer"""
-    gamma: float = 0.96
+    gamma: float = 1.0
     """the discount factor gamma"""
     hidden_size: int = 48
     """the hidden size of actor and critic networks"""
@@ -68,11 +68,12 @@ class Args:
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.1
     cont_obst_safe_dist: float = 0.12
-    gate_size: tuple = (0.6, 0.4)
-    gate_pos_coef: float = 0.0
+    gate_size: tuple = (1.2, 0.6)
+    gate_pos_coef: float = 0.5
     gate_vel_coef: tuple = (4.0, 3.0)
     gate_pass_coef: float = 0.0
-    contact_coef: tuple = (10.0, 50.0)
+    gate_pass_diff_coef: float = 40.0
+    contact_coef: tuple = (10.0, 20.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
@@ -113,6 +114,7 @@ def make_jitted_envs(
         gate_pos_coef=coefs.get("gate_pos_coef", 0.0),
         gate_vel_coef=coefs.get("gate_vel_coef", 0.0),
         gate_pass_coef=coefs.get("gate_pass_coef", 0.0),
+        gate_pass_diff_coef=coefs.get("gate_pass_diff_coef", 0.0),
         min_vel=coefs.get("min_vel", 0.0),
         max_vel=coefs.get("max_vel", 0.0),
         cont_floor_safe_dist=coefs.get("cont_floor_safe_dist", 0.0),
@@ -267,6 +269,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         "gate_pos_coef": args.gate_pos_coef,
         "gate_vel_coef": args.gate_vel_coef,
         "gate_pass_coef": args.gate_pass_coef,
+        "gate_pass_diff_coef": args.gate_pass_diff_coef,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": args.cont_floor_safe_dist,
@@ -366,7 +369,9 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
             data = jax.tree_util.tree_map(lambda x: x[iter_idx], all_data)
 
             # Log episode rewards
-            for batch_step, (sum_reward, done, gates_passed) in enumerate(zip(data.sum_rewards, data.dones, data.gates_passed)):
+            for batch_step, (sum_reward, done, gates_passed) in enumerate(
+                zip(data.sum_rewards, data.dones, data.gates_passed)
+            ):
                 gates_passed = jp.arange(envs.unwrapped.race_data.n_gates + 1)[gates_passed]
                 if jp.any(done):
                     wandb.log(
@@ -413,6 +418,7 @@ def evaluate_bptt(
         "gate_pos_coef": 0.0,
         "gate_vel_coef": 0.0,
         "gate_pass_coef": 0.0,
+        "gate_pass_diff_coef": 10.0,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": -1.0,
@@ -423,13 +429,28 @@ def evaluate_bptt(
         "act_coefs": (0.0,) * 4,
         "d_act_coefs": (0.0,) * 4,
     }
+    r_coefs = {
+        "gate_pos_coef": args.gate_pos_coef,
+        "gate_vel_coef": args.gate_vel_coef,
+        "gate_pass_coef": args.gate_pass_coef,
+        "gate_pass_diff_coef": args.gate_pass_diff_coef,
+        "min_vel": args.min_vel,
+        "max_vel": args.max_vel,
+        "cont_floor_safe_dist": args.cont_floor_safe_dist,
+        "cont_gate_safe_dist": args.cont_gate_safe_dist,
+        "cont_obst_safe_dist": args.cont_obst_safe_dist,
+        "contact_coef": args.contact_coef,
+        "gate_size": args.gate_size,
+        "act_coefs": args.act_coefs,
+        "d_act_coefs": args.d_act_coefs,
+    }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
         num_envs=1,
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=True,
+        check_contacts=False,
     )
     eval_env = RecordRaceData.create(eval_env)
 
@@ -474,13 +495,13 @@ def evaluate_bptt(
             f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
-    
+
     success_count = np.sum(success_mask)
     episode_lengths = np.array(episode_lengths)
-    avg_lap_time = np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
-    print(
-        f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s"
+    avg_lap_time = (
+        np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
     )
+    print(f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s")
 
     eval_env.close()
 
@@ -488,8 +509,13 @@ def evaluate_bptt(
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True,
-    plot: bool = True,):
+def main(
+    wandb_enabled: bool = True,
+    train: bool = True,
+    n_eval: int = 1,
+    render: bool = True,
+    plot: bool = True,
+):
     """Main entry.
 
     Flags:

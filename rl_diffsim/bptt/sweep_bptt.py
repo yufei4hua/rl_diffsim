@@ -68,18 +68,18 @@ sweep_configuration = {
         "num_steps": {"distribution": "int_uniform", "min": 48, "max": 128},
         "actor_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-2},
         "gamma": {"min": 0.93, "max": 1.0},
-        # "hidden_size": {"distribution": "int_uniform", "min": 8, "max": 64},
-        # "hidden_size": {"values": [8, 16]},
-        # wrapper settings (race-specific)
-        # "min_vel": {"distribution": "uniform", "min": 0.3, "max": 0.6},
-        "max_vel": {"distribution": "uniform", "min": 1.0, "max": 3.6},
+        "hidden_size": {"values": [16, 32, 48, 64]},
+        # "hidden_size": {"distribution": "int_uniform", "min": 16, "max": 64},
+        # # wrapper settings (race-specific)
+        # # "min_vel": {"distribution": "uniform", "min": 0.3, "max": 0.6},
+        # "max_vel": {"distribution": "uniform", "min": 1.0, "max": 3.6},
         # "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.05, "max": 0.2},
         # "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        # "gate_size_1": {"distribution": "uniform", "min": 0.2, "max": 0.5},
-        "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 3.0},
-        "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.0},
+        # # "gate_size_1": {"distribution": "uniform", "min": 0.2, "max": 0.5},
+        # "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 3.0},
         # "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.0},
-        "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 60.0},
+        # # "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.0},
+        # "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 60.0},
         # "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
         # # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
         # # "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
@@ -96,4 +96,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=f"{Args().wandb_project_name}-sweep", entity="fresssack"
 )
 
-wandb.agent(sweep_id, function=train, count=100)
+wandb.agent(sweep_id, function=train, count=50)

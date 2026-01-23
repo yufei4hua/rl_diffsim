@@ -79,15 +79,16 @@ class RaceWrapper(Wrapper):
     def create(
         cls,
         base: DroneRaceEnv,
-        gate_pos_coef: float | tuple[float, float] = 1.0,
-        gate_vel_coef: float | tuple[float, float] = 1.0,
-        gate_pass_coef: float | tuple[float, float] = 5.0,
+        gate_pos_coef: float | tuple[float, float] = 0.0,
+        gate_vel_coef: float | tuple[float, float] = 0.0,
+        gate_pass_coef: float | tuple[float, float] = 0.0,
+        gate_pass_diff_coef: float | tuple[float, float] = 0.0,
         min_vel: float = 0.5,
         max_vel: float = 2.0,
         cont_floor_safe_dist: float = 0.1,
         cont_gate_safe_dist: float = 0.1,
         cont_obst_safe_dist: float = 0.1,
-        contact_coef: float | tuple[float, float] = 10.0,
+        contact_coef: float | tuple[float, float] = 0.0,
         gate_size: float | tuple[float, float] = 0.45,
         total_timesteps: int = 0,
     ) -> "RaceWrapper":
@@ -149,9 +150,9 @@ class RaceWrapper(Wrapper):
             corner_offsets = 0.5 * jp.array(
                 [
                     [0.0, -gate_size[0], -gate_size[1]],
-                    [0.0, -gate_size[0],  gate_size[1]],
-                    [0.0,  gate_size[0],  gate_size[1]],
-                    [0.0,  gate_size[0], -gate_size[1]],
+                    [0.0, -gate_size[0], gate_size[1]],
+                    [0.0, gate_size[0], gate_size[1]],
+                    [0.0, gate_size[0], -gate_size[1]],
                 ]
             )  # (4, 3)
             # Apply rotation: (num_envs,) rotations x (4, 3) vectors -> (num_envs, 4, 3)
@@ -226,7 +227,7 @@ class RaceWrapper(Wrapper):
             """
             pos = data.states.pos[:, 0, :]  # (num_envs, 3)
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
-            # Relative position to target gate
+            # 1. Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
             gate_dist = jp.linalg.norm(gate_rel_pos, axis=-1)  # (num_envs,)
             r_gate_pos = jp.exp(-2.0 * gate_dist)  # (num_envs,)
@@ -234,22 +235,22 @@ class RaceWrapper(Wrapper):
             #     -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
             # )  # (num_envs,)
 
-            # Relative velocity (velocity projected onto gate_rel_pos)
+            # 2. Relative velocity (velocity projected onto gate_rel_pos)
             gate_norm = obs["gate_normal"]  # (num_envs, 3)
+            gate_rel_pos_offset = gate_rel_pos + 0.05 * gate_norm  # (num_envs, 3)
             ref_vel = (
-                gate_rel_pos
-                - (1 - 1 / (gate_dist[:, None] + 1e-8))
-                * jp.sum(gate_rel_pos * gate_norm, axis=-1, keepdims=True)
+                gate_rel_pos_offset
+                - (1 - 1.0 / (gate_dist[:, None] + 1e-4))
+                * jp.sum(gate_rel_pos_offset * gate_norm, axis=-1, keepdims=True)
                 * gate_norm
             )
             ref_vel_unit = ref_vel / (jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8)
             gate_rel_vel_norm = jp.sum(vel * ref_vel_unit, axis=-1)  # (num_envs,)
             r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
-
-            # Penalty for collisions
+            # 3. Penalty for collisions
             r_collision = _contacts_reward(mjx_data)  # (num_envs,)
 
-            # Reward for passing through gate
+            # 4. Reward for passing through gate
             passed = (
                 jp.logical_or(
                     race_data.target_gate > env.last_target_gate, race_data.target_gate == -1
@@ -260,18 +261,32 @@ class RaceWrapper(Wrapper):
             r_pass_gate = passed  # (num_envs,)
             env = env.replace(last_target_gate=race_data.target_gate)
 
+            # 5. Velocity bonus when passing gate
+            # gate_vel_diff = jp.linalg.norm(vel / jp.linalg.norm(vel, axis=-1, keepdims=True) - gate_norm, axis=-1)  # (num_envs,)
+            # r_gate_vel_aligned = jp.exp(-4.0 * gate_vel_diff)  # (num_envs,)
+            r_pass_gate_diff = passed * (r_gate_pos)  # (num_envs,)
+
             # construct total reward
             rewards = jp.zeros((pos.shape[0],))
             k_gate_pos = _schedule_coef(gate_pos_coef, env.progress_coef)
             k_gate_vel = _schedule_coef(gate_vel_coef, env.progress_coef)
             k_contact = _schedule_coef(contact_coef, env.progress_coef)
             k_gate_pass = _schedule_coef(gate_pass_coef, env.progress_coef)
+            k_gate_pass_diff = _schedule_coef(gate_pass_diff_coef, env.progress_coef)
             rewards += k_gate_pos * r_gate_pos
             rewards += k_gate_vel * r_gate_vel
             rewards += k_contact * r_collision
             rewards += k_gate_pass * r_pass_gate
-            # jax.debug.print("r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}",
-            #                 r_gate_pos=k_gate_pos * r_gate_pos, r_gate_vel=k_gate_vel * r_gate_vel, r_collision=k_contact * r_collision, r_pass_gate=k_gate_pass * r_pass_gate)
+            rewards += k_gate_pass_diff * r_pass_gate_diff
+            # jax.debug.print("ref_vel: {ref_vel_unit}, gate_rel_vel_norm: {gate_rel_vel_norm}", ref_vel_unit=ref_vel_unit, gate_rel_vel_norm=gate_rel_vel_norm)
+            # jax.debug.print(
+            #     "r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}, r_pass_diff: {r_pass_gate_diff}",
+            #     r_gate_pos=k_gate_pos * r_gate_pos,
+            #     r_gate_vel=k_gate_vel * r_gate_vel,
+            #     r_collision=k_contact * r_collision,
+            #     r_pass_gate=k_gate_pass * r_pass_gate,
+            #     r_pass_gate_diff=k_gate_pass_diff * r_pass_gate_diff,
+            # )
             return env, rewards
 
         # region Reset & Step

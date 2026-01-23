@@ -158,9 +158,9 @@ class AttitudeRL(Controller):
         corner_offsets = 0.5 * jp.array(
             [
                 [0.0, -gate_size[0], -gate_size[1]],
-                [0.0, -gate_size[0],  gate_size[1]],
-                [0.0,  gate_size[0],  gate_size[1]],
-                [0.0,  gate_size[0], -gate_size[1]],
+                [0.0, -gate_size[0], gate_size[1]],
+                [0.0, gate_size[0], gate_size[1]],
+                [0.0, gate_size[0], -gate_size[1]],
             ]
         )  # (4, 3)
         # Apply rotation to corners

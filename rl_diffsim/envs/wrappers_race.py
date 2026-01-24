@@ -20,6 +20,7 @@ from rl_diffsim.envs.wrappers import Wrapper
 
 matplotlib.use("Agg")  # render to raster images
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.gridspec import GridSpec
 
 if TYPE_CHECKING:
@@ -227,30 +228,9 @@ class RaceWrapper(Wrapper):
             """
             pos = data.states.pos[:, 0, :]  # (num_envs, 3)
             vel = data.states.vel[:, 0, :]  # (num_envs, 3)
-            # 1. Relative position to target gate
             gate_rel_pos = obs["gate_rel_pos"]  # (num_envs, 3)
-            gate_dist = jp.linalg.norm(gate_rel_pos, axis=-1)  # (num_envs,)
-            r_gate_pos = jp.exp(-2.0 * gate_dist)  # (num_envs,)
-            # r_gate_pos = gate_pos_coef * jp.exp(
-            #     -1.0 * jp.sum(gate_rel_pos * gate_rel_pos, axis=-1)
-            # )  # (num_envs,)
-
-            # 2. Relative velocity (velocity projected onto gate_rel_pos)
             gate_norm = obs["gate_normal"]  # (num_envs, 3)
-            gate_rel_pos_offset = gate_rel_pos + 0.05 * gate_norm  # (num_envs, 3)
-            ref_vel = (
-                gate_rel_pos_offset
-                - (1 - 1.0 / (gate_dist[:, None] + 1e-4))
-                * jp.sum(gate_rel_pos_offset * gate_norm, axis=-1, keepdims=True)
-                * gate_norm
-            )
-            ref_vel_unit = ref_vel / (jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8)
-            gate_rel_vel_norm = jp.sum(vel * ref_vel_unit, axis=-1)  # (num_envs,)
-            r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
-            # 3. Penalty for collisions
-            r_collision = _contacts_reward(mjx_data)  # (num_envs,)
-
-            # 4. Reward for passing through gate
+            gate_rel_pos_proj_norm = jp.sum(gate_rel_pos * gate_norm, axis=-1)  # (num_envs,)
             passed = (
                 jp.logical_or(
                     race_data.target_gate > env.last_target_gate, race_data.target_gate == -1
@@ -258,6 +238,26 @@ class RaceWrapper(Wrapper):
                 .astype(jp.float32)
                 .squeeze(-1)
             )  # (num_envs,)
+            # 1. Relative position to target gate
+            gate_dist = jp.linalg.norm(gate_rel_pos, axis=-1)  # (num_envs,)
+            r_gate_pos = jp.exp(-2.0 * gate_dist)  # (num_envs,)
+
+            # 2. Relative velocity (velocity projected onto gate_rel_pos)
+            ref_vel = (
+                gate_rel_pos
+                - (1 - 1.0 / (gate_dist[:, None] + 1e-4))
+                * gate_rel_pos_proj_norm[:, None]
+                * gate_norm
+            )
+            ref_vel_unit = ref_vel / (jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8)
+
+            ref_vel_unit = jp.where(gate_rel_pos_proj_norm[:, None] < 0.0, gate_norm, ref_vel_unit)
+            gate_rel_vel_norm = jp.sum(vel * ref_vel_unit, axis=-1)  # (num_envs,)
+            r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
+            # 3. Penalty for collisions
+            r_collision = _contacts_reward(mjx_data)  # (num_envs,)
+
+            # 4. Reward for passing through gate
             r_pass_gate = passed  # (num_envs,)
             env = env.replace(last_target_gate=race_data.target_gate)
 
@@ -341,6 +341,7 @@ class RecordRaceData(Wrapper):
 
     _record_act: Array = struct.field(pytree_node=True)
     _record_pos: Array = struct.field(pytree_node=True)
+    _record_vel: Array = struct.field(pytree_node=True)
     _record_rpy: Array = struct.field(pytree_node=True)
 
     step: Callable = struct.field(pytree_node=False)
@@ -367,24 +368,27 @@ class RecordRaceData(Wrapper):
         # initialize buffers # TODO: this takes a lot of memory
         empty_act = jp.zeros((max_T, num_envs, act_dim), dtype=jp.float32)
         empty_pos = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
+        empty_vel = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
         empty_rpy = jp.zeros((max_T, num_envs, pos_dim), dtype=jp.float32)
 
         def _extract_data(base: "RecordRaceData") -> dict[str, Array]:
             """Extract recorded data as a dict of arrays."""
             raw = base.unwrapped
             pos = raw.data.states.pos[:, 0, :]
+            vel = raw.data.states.vel[:, 0, :]
             rpy = R.from_quat(raw.data.states.quat[:, 0, :]).as_euler("xyz")
-            return pos, rpy
+            return pos, vel, rpy
 
         def _reset(
             env: "RecordRaceData", *, seed: int | None = None, options: dict | None = None
         ) -> tuple["RecordRaceData", tuple[Any, Any]]:
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
-            pos, rpy = _extract_data(base_env)
+            pos, vel, rpy = _extract_data(base_env)
             env = env.replace(
                 base=base_env,
                 _record_act=empty_act,
                 _record_pos=empty_pos.at[0, ...].set(pos),
+                _record_vel=empty_vel.at[0, ...].set(vel),
                 _record_rpy=empty_rpy.at[0, ...].set(rpy),
             )
             return env, (obs, info)
@@ -394,15 +398,20 @@ class RecordRaceData(Wrapper):
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
 
             act = action  # shape: (num_envs, act_dim)
-            pos, rpy = _extract_data(base_env)
+            pos, vel, rpy = _extract_data(base_env)
 
             # record data
             new_act = env._record_act.at[env.steps, ...].set(act)
             new_pos = env._record_pos.at[env.steps, ...].set(pos)
+            new_vel = env._record_vel.at[env.steps, ...].set(vel)
             new_rpy = env._record_rpy.at[env.steps, ...].set(rpy)
 
             env = env.replace(
-                base=base_env, _record_act=new_act, _record_pos=new_pos, _record_rpy=new_rpy
+                base=base_env,
+                _record_act=new_act,
+                _record_pos=new_pos,
+                _record_vel=new_vel,
+                _record_rpy=new_rpy,
             )
             return env, (obs, reward, terminated, truncated, info)
 
@@ -410,6 +419,7 @@ class RecordRaceData(Wrapper):
             base=base,
             _record_act=empty_act,
             _record_pos=empty_pos,
+            _record_vel=empty_vel,
             _record_rpy=empty_rpy,
             step=jax.jit(_step),
             reset=jax.jit(_reset),
@@ -428,6 +438,7 @@ class RecordRaceData(Wrapper):
         episode_length = self.steps[0, 0]
         actions = np.array(self._record_act)[:episode_length]
         pos = np.array(self._record_pos)[:episode_length]
+        vel = np.array(self._record_vel)[:episode_length]
         rpy = np.array(self._record_rpy)[:episode_length]
 
         fig = plt.figure(figsize=(18, 12), constrained_layout=True)
@@ -466,7 +477,16 @@ class RecordRaceData(Wrapper):
         gates = np.array(raw.mjx_data.mocap_pos[0, raw.race_data.gate_mj_ids])
         obstacles = np.array(raw.mjx_data.mocap_pos[0, raw.race_data.obstacle_mj_ids])
 
-        axes[4].plot(pos[:, 0, 0], pos[:, 0, 1])
+        # Calculate velocity norm for color mapping
+        vel_norm = np.linalg.norm(vel[:, 0, :], axis=-1)  # shape: (T,)
+
+        # XY Plane trajectory with velocity color mapping
+        # Create line segments for LineCollection
+        points_xy = np.array([pos[:, 0, 0], pos[:, 0, 1]]).T.reshape(-1, 1, 2)
+        segments_xy = np.concatenate([points_xy[:-1], points_xy[1:]], axis=1)
+        lc_xy = LineCollection(segments_xy, cmap="turbo", linewidth=2)
+        lc_xy.set_array(vel_norm[:-1])  # Use velocity at start of each segment
+        line_xy = axes[4].add_collection(lc_xy)
         axes[4].scatter(
             gates[:, 0], gates[:, 1], c="green", s=80, marker="o", label="Gates", zorder=5
         )
@@ -478,8 +498,18 @@ class RecordRaceData(Wrapper):
         axes[4].set_ylabel("Y Position (m)")
         axes[4].grid(True)
         axes[4].axis("equal")
+        axes[4].autoscale()
+        # Add colorbar for XY plane
+        cbar_xy = fig.colorbar(line_xy, ax=axes[4], fraction=0.046, pad=0.04)
+        cbar_xy.set_label("Velocity (m/s)", rotation=270, labelpad=15)
 
-        axes[5].plot(pos[:, 0, 0], pos[:, 0, 2])
+        # XZ Plane trajectory with velocity color mapping
+        # Create line segments for LineCollection
+        points_xz = np.array([pos[:, 0, 0], pos[:, 0, 2]]).T.reshape(-1, 1, 2)
+        segments_xz = np.concatenate([points_xz[:-1], points_xz[1:]], axis=1)
+        lc_xz = LineCollection(segments_xz, cmap="turbo", linewidth=2)
+        lc_xz.set_array(vel_norm[:-1])  # Use velocity at start of each segment
+        line_xz = axes[5].add_collection(lc_xz)
         axes[5].scatter(
             gates[:, 0], gates[:, 2], c="green", s=80, marker="o", label="Gates", zorder=5
         )
@@ -488,6 +518,10 @@ class RecordRaceData(Wrapper):
         axes[5].set_ylabel("Z Position (m)")
         axes[5].grid(True)
         axes[5].axis("equal")
+        axes[5].autoscale()
+        # Add colorbar for XZ plane
+        cbar_xz = fig.colorbar(line_xz, ax=axes[5], fraction=0.046, pad=0.04)
+        cbar_xz.set_label("Velocity (m/s)", rotation=270, labelpad=15)
 
         fig.savefig(Path(__file__).parents[2] / "saves" / save_path, bbox_inches="tight")
 

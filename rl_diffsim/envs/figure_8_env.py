@@ -210,6 +210,7 @@ class FigureEightEnv(DroneEnv):
         n_loops = max_episode_time / trajectory_time
         t = jp.linspace(0, 2 * jp.pi * n_loops, n_steps)
         offset = jp.linspace(0, 2 * jp.pi, num_envs, endpoint=False)
+        offset = jp.zeros_like(offset)  # no phase shift between envs
         ts = t[None, :] + offset[:, None]  # random phase shift
         radius = 1  # Radius for the circles
         x = radius * jp.sin(ts)  # Scale amplitude for 1-meter diameter
@@ -244,6 +245,12 @@ class FigureEightEnv(DroneEnv):
         ) -> dict[str, Array]:
             """Static method version of obs for jitting."""
             idx = jp.clip(steps + sample_offsets[None, ...], 0, trajectories.shape[1] - 1)
+            # idx = steps + sample_offsets[None, ...]
+            # idx = jp.where(
+            #     idx >= trajectories.shape[1],
+            #     idx - trajectories.shape[1],
+            #     idx,
+            # )
             dpos = trajectories[jp.arange(trajectories.shape[0])[:, None], idx] - pos
             local_samples = dpos.reshape(dpos.shape[0], dpos.shape[1] * dpos.shape[2])
             return local_samples

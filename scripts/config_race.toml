@@ -61,21 +61,21 @@ rpy = [0.0, 0.0, 0.0]
 vel = [0, 0, 0]
 ang_vel = [0, 0, 0]
 
-# [env.disturbances.action]
-# fn = "normal"
-# scale = 0.001
+[env.disturbances.action]
+fn = "normal"
+scale = 0.001
 
-# [env.disturbances.dynamics]
-# fn = "uniform"
-# [env.disturbances.dynamics.kwargs]
-# minval = [-0.1, -0.1, -0.1]
-# maxval = [0.1, 0.1, 0.1]
+[env.disturbances.dynamics]
+fn = "uniform"
+[env.disturbances.dynamics.kwargs]
+minval = [-0.1, -0.1, -0.1]
+maxval = [0.1, 0.1, 0.1]
 
-# [env.randomizations.drone_pos]
-# fn = "uniform"
-# [env.randomizations.drone_pos.kwargs]
-# minval = [-0.1, -0.1, 0.0]
-# maxval = [0.1, 0.1, 0.02]
+[env.randomizations.drone_pos]
+fn = "uniform"
+[env.randomizations.drone_pos.kwargs]
+minval = [-0.1, -0.1, 0.0]
+maxval = [0.1, 0.1, 0.02]
 
 # [env.randomizations.drone_rpy]
 # fn = "uniform"

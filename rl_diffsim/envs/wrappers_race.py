@@ -245,13 +245,15 @@ class RaceWrapper(Wrapper):
             # 2. Relative velocity (velocity projected onto gate_rel_pos)
             ref_vel = (
                 gate_rel_pos
-                - (1 - 1.0 / (gate_dist[:, None] + 1e-4))
-                * gate_rel_pos_proj_norm[:, None]
+                + (
+                    (1.0 / (gate_dist[:, None] + 1.0) - 0.8) * gate_rel_pos_proj_norm[:, None]
+                    + (1.0 / (5.0 * gate_dist[:, None] + 1.0) - 0.3)
+                )
                 * gate_norm
             )
             ref_vel_unit = ref_vel / (jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8)
 
-            ref_vel_unit = jp.where(gate_rel_pos_proj_norm[:, None] < 0.0, gate_norm, ref_vel_unit)
+            ref_vel_unit = jp.where(race_data.target_gate == -1, gate_norm, ref_vel_unit)
             gate_rel_vel_norm = jp.sum(vel * ref_vel_unit, axis=-1)  # (num_envs,)
             r_gate_vel = jp.tanh((gate_rel_vel_norm - min_vel) / (max_vel / 2.0))  # (num_envs,)
             # 3. Penalty for collisions

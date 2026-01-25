@@ -43,17 +43,17 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 400_000
     """total timesteps of the experiments"""
-    num_envs: int = 16
+    num_envs: int = 32
     """the number of parallel game environments"""
-    num_steps: int = 96
+    num_steps: int = 72
     """the number of steps to run in each environment per policy rollout"""
-    anneal_actor_lr: bool = True
+    anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
     actor_lr: float = 4e-3
     """the learning rate of the actor optimizer"""
-    gamma: float = 1.0
+    gamma: float = 0.999
     """the discount factor gamma"""
-    hidden_size: int = 48
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -64,16 +64,16 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 3.6
+    max_vel: float = 2.4
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.1
-    cont_obst_safe_dist: float = 0.12
-    gate_size: tuple = (1.2, 0.6)
-    gate_pos_coef: float = 0.5
-    gate_vel_coef: tuple = (4.0, 3.0)
+    cont_gate_safe_dist: float = 0.12
+    cont_obst_safe_dist: float = 0.15
+    gate_size: tuple = (0.6, 0.3)
+    gate_pos_coef: float = 1.0
+    gate_vel_coef: tuple = (4.0, 1.0)
     gate_pass_coef: float = 0.0
-    gate_pass_diff_coef: float = 40.0
-    contact_coef: tuple = (10.0, 20.0)
+    gate_pass_diff_coef: float = 50.0
+    contact_coef: tuple = (10.0, 50.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
@@ -103,10 +103,15 @@ def make_jitted_envs(
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
+    end_on_gate_bypass: bool = False,
 ) -> DroneRaceEnv:
     """Make environments for training RL policy."""
     env: DroneRaceEnv = DroneRaceEnv.create(
-        num_envs=num_envs, device=jax_device, check_contacts=check_contacts, **config
+        num_envs=num_envs,
+        device=jax_device,
+        check_contacts=check_contacts,
+        end_on_gate_bypass=end_on_gate_bypass,
+        **config,
     )
 
     env = RaceWrapper.create(
@@ -199,7 +204,7 @@ def update_policy(
                 observations=obs,
                 actions=action,
                 rewards=reward,
-                dones=dones,
+                dones=next_dones,
                 values=value,
                 sum_rewards=sum_rewards,
                 entropy=jp.mean(entropy),
@@ -288,6 +293,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         coefs=r_coefs,
         config=config.env,
         check_contacts=False,
+        end_on_gate_bypass=True,
     )
 
     # setup annealing learning rate
@@ -450,7 +456,7 @@ def evaluate_bptt(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=False,
+        check_contacts=True,
     )
     eval_env = RecordRaceData.create(eval_env)
 

@@ -98,7 +98,7 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
-        max_episode_time=18.0,
+        max_episode_time=6.0,
         trajectory_time=6.0,
         n_samples=10,
         num_envs=num_envs,

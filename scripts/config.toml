@@ -12,7 +12,7 @@ file = "attitude_rl_f8.py"
 
 [deploy]
 [[deploy.drones]]
-id = 10
+id = 20
 channel = 100
 drone_model = "cf21B_500"    # cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500.
 takeoff_pos = [0.0, 0.0, 1.5]  # Takeoff position [x, y, z] in meters

@@ -149,11 +149,7 @@ class AttitudeRL(Controller):
         obs_rl = {k: obs[k] for k in obs_rl_key}
         # idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
         idx = self._tick + self.sample_offsets
-        idx = jp.where(
-            idx >= self.trajectory.shape[0],
-            idx - self.trajectory.shape[0],
-            idx,
-        )
+        idx = jp.where(idx >= self.trajectory.shape[0], idx - self.trajectory.shape[0], idx)
         dpos = self.trajectory[idx] - obs["pos"]  # (n_samples, 3)
         obs_rl["local_samples"] = dpos.reshape(-1)  # (n_samples*3,)
         obs_rl["last_action"] = self.last_action  # (4,)

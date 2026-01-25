@@ -216,6 +216,7 @@ class DroneRaceEnv(DroneEnv):
         disturbances: ConfigDict | None = None,
         randomizations: ConfigDict | None = None,
         check_contacts: bool = False,
+        end_on_gate_bypass: bool = False,
     ) -> DroneRaceEnv:
         """Create a drone racing environment.
 
@@ -238,6 +239,7 @@ class DroneRaceEnv(DroneEnv):
             disturbances: Disturbance configuration dictionary.
             randomizations: Randomization configuration dictionary.
             check_contacts: Whether to disable drones when contacts occur.
+            end_on_gate_bypass: Whether to disable drones that fail to pass a gate.
 
         Returns:
             An instance of DroneRaceEnv with jittable functions and data.
@@ -549,9 +551,13 @@ class DroneRaceEnv(DroneEnv):
             gate_pos = gates_pos[jp.arange(gates_pos.shape[0])[:, None], gate_ids]
             gate_quat = gates_quat[jp.arange(gates_quat.shape[0])[:, None], gate_ids]
             gate_size = (race_data.gate_size, race_data.gate_size)
-            passed = gate_passed(
+            passed_plane, in_box = gate_passed(
                 drone_pos, race_data.last_drone_pos, gate_pos, gate_quat, gate_size
             )
+            passed = passed_plane & in_box
+            if end_on_gate_bypass:
+                # Disable drones that failed to pass the gate when they crossed the gate plane
+                disabled_drones = disabled_drones | (~in_box & passed_plane)
             # Update the target gate index. Increment by one if drones have passed a gate
             target_gate = race_data.target_gate + passed * ~disabled_drones
             target_gate = jp.where(target_gate >= n_gates, -1, target_gate)

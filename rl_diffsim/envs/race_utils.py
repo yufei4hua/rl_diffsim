@@ -90,14 +90,14 @@ def load_track(track: ConfigDict) -> tuple[ConfigDict, ConfigDict, ConfigDict]:
 
 
 @jax.jit
-@partial(vectorize, signature="(3),(3),(3),(4)->()", excluded=[4])
+@partial(vectorize, signature="(3),(3),(3),(4)->(),()", excluded=[4])
 def gate_passed(
     drone_pos: Array,
     last_drone_pos: Array,
     gate_pos: Array,
     gate_quat: Array,
     gate_size: tuple[float, float],
-) -> bool:
+) -> tuple[bool, bool]:
     """Check if the drone has passed the current gate.
 
     We transform the position of the drone into the reference frame of the current gate. Gates have
@@ -130,7 +130,7 @@ def gate_passed(
     z_intersect = alpha * (pos_local[2]) + (1 - alpha) * last_pos_local[2]
     # Divide gate size by 2 to get the distance from the center to the edges
     in_box = (abs(y_intersect) < gate_size[0] / 2) & (abs(z_intersect) < gate_size[1] / 2)
-    return passed_plane & in_box
+    return passed_plane, in_box
 
 
 # region Utils

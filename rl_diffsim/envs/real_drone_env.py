@@ -584,7 +584,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
         freq: int,
         pos_limit_low: list[float] | None = None,
         pos_limit_high: list[float] | None = None,
-        control_mode: Literal["state", "attitude"] = "state",
+        control: Literal["state", "attitude", "force_torque", "rotor_vel", "rl_state"] = "attitude",
         **kwargs: dict,
     ):
         """Initialize the drone environment.
@@ -616,7 +616,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
             freq=freq,
             pos_limit_low=pos_limit_low,
             pos_limit_high=pos_limit_high,
-            control=control_mode,
+            control=control,
             **kwargs,
         )
 

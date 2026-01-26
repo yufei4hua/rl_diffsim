@@ -215,7 +215,7 @@ class FigureEightEnv(DroneEnv):
         radius = 1  # Radius for the circles
         x = radius * jp.sin(ts)  # Scale amplitude for 1-meter diameter
         y = jp.zeros_like(ts)  # y is 0 everywhere
-        z = radius / 2 * jp.sin(2 * ts) + 1.5  # Scale amplitude for 1-meter diameter
+        z = radius / 2 * jp.sin(2 * ts) + 1.25  # Scale amplitude for 1-meter diameter
         trajectories = jp.array([x.T, y.T, z.T]).T  # (num_envs, n_steps, 3)
 
         # Set takeoff position and build default reset position

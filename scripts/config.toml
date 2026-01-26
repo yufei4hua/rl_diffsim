@@ -15,7 +15,7 @@ file = "attitude_rl_f8.py"
 id = 20
 channel = 100
 drone_model = "cf21B_500"    # cf2x_L250, cf2x_P250, cf2x_T500, cf21B_500.
-takeoff_pos = [0.0, 0.0, 1.5]  # Takeoff position [x, y, z] in meters
+takeoff_pos = [0.0, 0.0, 1.25]  # Takeoff position [x, y, z] in meters
 
 [env]
 physics = "first_principles" # "first_principles", "so_rpy_rotor_drag"

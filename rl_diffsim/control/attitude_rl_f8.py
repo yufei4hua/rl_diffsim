@@ -73,7 +73,7 @@ class AttitudeRL(Controller):
         radius = 1  # Radius for the circles
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
         y = np.zeros_like(t)  # x is 0 everywhere
-        z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
+        z = radius / 2 * np.sin(2 * t) + 1.25  # Scale amplitude for 1-meter diameter
         self.trajectory = np.array([x, y, z]).T
 
         # Load RL policy

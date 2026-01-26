@@ -48,11 +48,11 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 40
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 1.6e-2
+    actor_lr: float = 1.2e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
@@ -67,8 +67,8 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.0
-    act_coefs: tuple = (0.35, 0.35, 0.0, 0.1)
-    d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
+    act_coefs: tuple = (0.19, 0.19, 0.0, 0.12)
+    d_act_coefs: tuple = (0.9, 0.9, 0.0, 0.5)
     """reward coefficients for training"""
 
     @staticmethod
@@ -98,8 +98,8 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
-        max_episode_time=6.0,
-        trajectory_time=6.0,
+        max_episode_time=5.5,
+        trajectory_time=5.5,
         n_samples=10,
         num_envs=num_envs,
         freq=50,

@@ -83,7 +83,8 @@ class RaceWrapper(Wrapper):
         gate_pos_coef: float | tuple[float, float] = 0.0,
         gate_vel_coef: float | tuple[float, float] = 0.0,
         gate_pass_coef: float | tuple[float, float] = 0.0,
-        gate_pass_diff_coef: float | tuple[float, float] = 0.0,
+        gate_pass_pos_coef: float | tuple[float, float] = 0.0,
+        gate_pass_vel_coef: float | tuple[float, float] = 0.0,
         min_vel: float = 0.5,
         max_vel: float = 2.0,
         cont_floor_safe_dist: float = 0.1,
@@ -263,10 +264,11 @@ class RaceWrapper(Wrapper):
             r_pass_gate = passed  # (num_envs,)
             env = env.replace(last_target_gate=race_data.target_gate)
 
-            # 5. Velocity bonus when passing gate
+            # 5. Position & velocity bonus when passing gate
             # gate_vel_diff = jp.linalg.norm(vel / jp.linalg.norm(vel, axis=-1, keepdims=True) - gate_norm, axis=-1)  # (num_envs,)
             # r_gate_vel_aligned = jp.exp(-4.0 * gate_vel_diff)  # (num_envs,)
-            r_pass_gate_diff = passed * (r_gate_pos)  # (num_envs,)
+            r_pass_gate_pos = passed * r_gate_pos  # (num_envs,)
+            r_pass_gate_vel = passed * r_gate_vel  # (num_envs,)
 
             # construct total reward
             rewards = jp.zeros((pos.shape[0],))
@@ -274,12 +276,14 @@ class RaceWrapper(Wrapper):
             k_gate_vel = _schedule_coef(gate_vel_coef, env.progress_coef)
             k_contact = _schedule_coef(contact_coef, env.progress_coef)
             k_gate_pass = _schedule_coef(gate_pass_coef, env.progress_coef)
-            k_gate_pass_diff = _schedule_coef(gate_pass_diff_coef, env.progress_coef)
+            k_gate_pass_pos = _schedule_coef(gate_pass_pos_coef, env.progress_coef)
+            k_gate_pass_vel = _schedule_coef(gate_pass_vel_coef, env.progress_coef)
             rewards += k_gate_pos * r_gate_pos
             rewards += k_gate_vel * r_gate_vel
             rewards += k_contact * r_collision
             rewards += k_gate_pass * r_pass_gate
-            rewards += k_gate_pass_diff * r_pass_gate_diff
+            rewards += k_gate_pass_pos * r_pass_gate_pos
+            rewards += k_gate_pass_vel * r_pass_gate_vel
             # jax.debug.print("ref_vel: {ref_vel_unit}, gate_rel_vel_norm: {gate_rel_vel_norm}", ref_vel_unit=ref_vel_unit, gate_rel_vel_norm=gate_rel_vel_norm)
             # jax.debug.print(
             #     "r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}, r_pass_diff: {r_pass_gate_diff}",

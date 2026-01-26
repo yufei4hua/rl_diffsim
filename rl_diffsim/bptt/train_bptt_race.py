@@ -63,17 +63,18 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    min_vel: float = 0.4
-    max_vel: float = 2.4
+    min_vel: float = 0.6
+    max_vel: float = 3.2
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.12
-    cont_obst_safe_dist: float = 0.15
-    gate_size: tuple = (0.6, 0.3)
+    cont_gate_safe_dist: float = 0.11
+    cont_obst_safe_dist: float = 0.17
+    gate_size: float = 0.3
     gate_pos_coef: float = 1.0
-    gate_vel_coef: tuple = (4.0, 1.0)
+    gate_vel_coef: tuple = (4.0, 1.5)
     gate_pass_coef: float = 0.0
-    gate_pass_diff_coef: float = 50.0
-    contact_coef: tuple = (10.0, 50.0)
+    gate_pass_pos_coef: float = 40.0
+    gate_pass_vel_coef: float = 30.0
+    contact_coef: tuple = (10.0, 60.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
@@ -119,7 +120,8 @@ def make_jitted_envs(
         gate_pos_coef=coefs.get("gate_pos_coef", 0.0),
         gate_vel_coef=coefs.get("gate_vel_coef", 0.0),
         gate_pass_coef=coefs.get("gate_pass_coef", 0.0),
-        gate_pass_diff_coef=coefs.get("gate_pass_diff_coef", 0.0),
+        gate_pass_pos_coef=coefs.get("gate_pass_pos_coef", 0.0),
+        gate_pass_vel_coef=coefs.get("gate_pass_vel_coef", 0.0),
         min_vel=coefs.get("min_vel", 0.0),
         max_vel=coefs.get("max_vel", 0.0),
         cont_floor_safe_dist=coefs.get("cont_floor_safe_dist", 0.0),
@@ -274,7 +276,8 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         "gate_pos_coef": args.gate_pos_coef,
         "gate_vel_coef": args.gate_vel_coef,
         "gate_pass_coef": args.gate_pass_coef,
-        "gate_pass_diff_coef": args.gate_pass_diff_coef,
+        "gate_pass_pos_coef": args.gate_pass_pos_coef,
+        "gate_pass_vel_coef": args.gate_pass_vel_coef,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": args.cont_floor_safe_dist,
@@ -424,7 +427,8 @@ def evaluate_bptt(
         "gate_pos_coef": 0.0,
         "gate_vel_coef": 0.0,
         "gate_pass_coef": 0.0,
-        "gate_pass_diff_coef": 10.0,
+        "gate_pass_pos_coef": 0.0,
+        "gate_pass_vel_coef": 0.0,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": -1.0,
@@ -439,7 +443,8 @@ def evaluate_bptt(
         "gate_pos_coef": args.gate_pos_coef,
         "gate_vel_coef": args.gate_vel_coef,
         "gate_pass_coef": args.gate_pass_coef,
-        "gate_pass_diff_coef": args.gate_pass_diff_coef,
+        "gate_pass_pos_coef": args.gate_pass_pos_coef,
+        "gate_pass_vel_coef": args.gate_pass_vel_coef,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": args.cont_floor_safe_dist,
@@ -456,7 +461,7 @@ def evaluate_bptt(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=True,
+        check_contacts=False,
     )
     eval_env = RecordRaceData.create(eval_env)
 

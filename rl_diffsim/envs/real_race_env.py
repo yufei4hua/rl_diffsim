@@ -215,9 +215,10 @@ class RealRaceCoreEnv:
         gate_quat = self.gates.quat[self.data.target_gate]
 
         with jax.default_device(self.device):  # Ensure gate_passed runs on the CPU
-            passed = gate_passed(
-                drone_pos, self.data.last_drone_pos, gate_pos, gate_quat, (0.545, 0.545)
+            passed_plane, in_box = gate_passed(
+                drone_pos, self.data.last_drone_pos, gate_pos, gate_quat, (0.72, 0.72)
             )
+            passed = passed_plane & in_box
             if passed.any():
                 logger.info(f"Passed gate {self.data.target_gate[self.rank] + 1}")
         self.data.target_gate += np.asarray(passed)

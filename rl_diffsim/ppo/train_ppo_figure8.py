@@ -510,7 +510,9 @@ def evaluate_ppo(
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
+    eval_env = make_jitted_envs(
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
+    )
     eval_env = RecordData.create(eval_env)
 
     agent = Agent.create(

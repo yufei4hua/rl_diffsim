@@ -88,15 +88,13 @@ class AttitudeRL(Controller):
 
             params = pickle.load(f)
             hidden_size = params["actor"]["params"]["Dense_0"]["kernel"].shape[1]
-            num_layers = len(params["actor"]["params"].keys()) - 2
+            num_layers = len(params["actor"]["params"].keys()) - 1
+            if "actor_logstd" in params["actor"]["params"].keys():
+                num_layers -= 1
             obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
             act_dim = params["actor"]["params"][f"Dense_{num_layers}"]["kernel"].shape[1]
         agent = Agent.create(
-            key=jax.random.PRNGKey(0),
-            obs_dim=obs_dim,
-            act_dim=act_dim,
-            hidden_size=hidden_size,
-            # num_layers=num_layers,
+            key=jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=hidden_size
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)

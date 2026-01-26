@@ -45,23 +45,23 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_500_000
+    total_timesteps: int = 4_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
-    num_steps: int = 16
+    num_steps: int = 32
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 32
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 5e-4
+    actor_lr: float = 8e-4
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.88
+    gamma: float = 0.93
     """the discount factor gamma"""
-    gae_lambda: float = 0.96
+    gae_lambda: float = 0.90
     """the lambda for the general advantage estimation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
@@ -79,7 +79,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 32
+    hidden_size: int = 24
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -91,9 +91,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.06
-    act_coefs: tuple = (0.02, 0.02, 0.0, 0.04)
-    d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.4)
+    rpy_coef: float = 0.0
+    act_coefs: tuple = (0.06, 0.06, 0.0, 0.1)
+    d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.5)
     """reward coefficients for training"""
 
     @staticmethod
@@ -121,11 +121,13 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
+        max_episode_time=5.5,
+        trajectory_time=5.5,
         n_samples=10,
         num_envs=num_envs,
         freq=50,
         drone_model="cf21B_500",
-        physics="so_rpy_rotor_drag",
+        physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
         reset_randomization=None if reset_random else lambda data, mask: data,
@@ -133,7 +135,7 @@ def make_jitted_envs(
 
     env = NormalizeActions.create(env)
     env = ZeroYaw.create(env)
-    env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    # env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
     env = ActionPenalty.create(
         env,
         num_actions=1,
@@ -508,7 +510,7 @@ def evaluate_ppo(
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,
     }
-    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs)
+    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
     eval_env = RecordData.create(eval_env)
 
     agent = Agent.create(

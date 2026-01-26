@@ -23,8 +23,9 @@ os.environ["SCIPY_ARRAY_API"] = "1"
 from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 
-from rl_diffsim.bptt.bptt_agent_deterministic import Agent
+# from rl_diffsim.bptt.bptt_agent_deterministic import Agent
 from rl_diffsim.control.controller import Controller
+from rl_diffsim.ppo.ppo_agent import Agent
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -77,7 +78,7 @@ class AttitudeRL(Controller):
         self.trajectory = np.array([x, y, z]).T
 
         # Load RL policy
-        self.algo_name = "bptt"
+        self.algo_name = "ppo"
         self.exp_name = "f8"
         model_path = (
             Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
@@ -87,7 +88,7 @@ class AttitudeRL(Controller):
 
             params = pickle.load(f)
             hidden_size = params["actor"]["params"]["Dense_0"]["kernel"].shape[1]
-            num_layers = len(params["actor"]["params"].keys()) - 1
+            num_layers = len(params["actor"]["params"].keys()) - 2
             obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
             act_dim = params["actor"]["params"][f"Dense_{num_layers}"]["kernel"].shape[1]
         agent = Agent.create(
@@ -95,7 +96,7 @@ class AttitudeRL(Controller):
             obs_dim=obs_dim,
             act_dim=act_dim,
             hidden_size=hidden_size,
-            num_layers=num_layers,
+            # num_layers=num_layers,
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)

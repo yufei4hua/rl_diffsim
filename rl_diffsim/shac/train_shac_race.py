@@ -77,15 +77,15 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    min_vel: float = 0.7
-    max_vel: float = 2.2
+    min_vel: float = 0.8
+    max_vel: float = 3.4
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.12
     cont_obst_safe_dist: float = 0.22
     gate_size: float = 0.3
     gate_pos_coef: float = 1.5
-    gate_vel_coef: tuple = (2.3, 1.4)
-    gate_pass_coef: float = 50.0
+    gate_vel_coef: tuple = (2.2, 1.2)
+    gate_pass_coef: float = 45.0
     gate_pass_pos_coef: float = 40.0
     gate_pass_vel_coef: float = 40.0
     contact_coef: tuple = (8.0, 80.0)

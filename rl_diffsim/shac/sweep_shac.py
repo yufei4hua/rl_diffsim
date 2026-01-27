@@ -22,10 +22,10 @@ def train():
             cfg.pop(f"d_act_coefs_{i}") if f"d_act_coefs_{i}" in cfg else Args.d_act_coefs[i]
             for i in range(len(Args.d_act_coefs))
         )
-        gate_size = tuple(
-            cfg.pop(f"gate_size_{i}") if f"gate_size_{i}" in cfg else Args.gate_size[i]
-            for i in range(len(Args.gate_size))
-        )
+        # gate_size = tuple(
+        #     cfg.pop(f"gate_size_{i}") if f"gate_size_{i}" in cfg else Args.gate_size[i]
+        #     for i in range(len(Args.gate_size))
+        # )
         gate_vel_coef = tuple(
             cfg.pop(f"gate_vel_coef_{i}") if f"gate_vel_coef_{i}" in cfg else Args.gate_vel_coef[i]
             for i in range(len(Args.gate_vel_coef))
@@ -36,7 +36,7 @@ def train():
         )
         cfg["act_coefs"] = act_coefs
         cfg["d_act_coefs"] = d_act_coefs
-        cfg["gate_size"] = gate_size
+        # cfg["gate_size"] = gate_size
         cfg["gate_vel_coef"] = gate_vel_coef
         cfg["contact_coef"] = contact_coef
         args = Args.create(**cfg)
@@ -61,11 +61,11 @@ def train():
 
 # 2: Define the search space
 sweep_configuration = {
-    "method": "random",  # "random", "bayes", "grid"
+    "method": "bayes",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
-        # "num_envs": {"values": [16, 32]},
-        # "num_steps": {"values": [16, 32]},
+        # "num_envs": {"values": [16, 32, 64]},
+        # "num_steps": {"values": [48, 64]},
         # "num_minibatches": {"values": [4, 8, 16]},
         # "actor_lr": {"distribution": "log_uniform_values", "min": 2e-2, "max": 1e-1},
         # "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-2},
@@ -75,29 +75,31 @@ sweep_configuration = {
         # "hidden_size": {"values": [8, 16]},
         # "hidden_size": {"distribution": "int_uniform", "min": 16, "max": 64},
         # wrapper settings (race-specific)
-        # "min_vel": {"distribution": "uniform", "min": 0.3, "max": 0.6},
-        "max_vel": {"distribution": "uniform", "min": 1.0, "max": 3.6},
-        "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        # "gate_size_1": {"distribution": "uniform", "min": 0.2, "max": 0.5},
-        "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 3.0},
-        "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.0},
-        # "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.0},
-        "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 60.0},
-        "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
-        # # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
-        # # "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
-        # "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        # "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
-        # # "d_act_coefs_1": {"distribution": "uniform", "min": 0.5, "max": 1.5},
-        # # "d_act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.2},
-        # "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
+        "min_vel": {"distribution": "uniform", "min": 0.5, "max": 1.0},
+        "max_vel": {"distribution": "uniform", "min": 2.0, "max": 3.6},
+        "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.08, "max": 0.15},
+        "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.15, "max": 0.25},
+        "gate_size": {"distribution": "uniform", "min": 0.2, "max": 0.5},
+        "gate_pos_coef": {"distribution": "uniform", "min": 0.2, "max": 2.0},
+        "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 4.0},
+        "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.5},
+        "gate_pass_coef": {"distribution": "uniform", "min": 0.0, "max": 70.0},
+        "contact_coef_0": {"distribution": "uniform", "min": 0.0, "max": 30.0},
+        "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 100.0},
+        # "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        # # # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        # # # "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
+        # # "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
+        # # "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        # # # "d_act_coefs_1": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        # # # "d_act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.2},
+        # # "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
     },
 }
 
 # 3: Start the sweep
 sweep_id = wandb.sweep(
-    sweep=sweep_configuration, project="rl_diffsim-SHAC-sweep-deploy", entity="lsy-tum"
+    sweep=sweep_configuration, project=f"{Args().wandb_project_name}-sweep", entity="lsy-tum"
 )
 
-wandb.agent(sweep_id, function=train, count=100)
+wandb.agent(sweep_id, function=train, count=50)

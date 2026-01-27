@@ -60,7 +60,7 @@ class RaceWrapper(Wrapper):
         n_obstacles = self.unwrapped.race_data.n_obstacles
         obs_spec = {
             "drone_ang_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
-            "drone_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
+            "drone_pos_z": spaces.Box(low=-np.inf, high=np.inf, shape=(1,)),
             "drone_quat": spaces.Box(low=-1, high=1, shape=(4,)),
             "drone_vel": spaces.Box(low=-np.inf, high=np.inf, shape=(3,)),
             "gate_corner_rel_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(4, 3)),
@@ -119,7 +119,7 @@ class RaceWrapper(Wrapper):
             """Extract the basic observation [pos, quat, vel, ang_vel]."""
             # add drone_ prefix because flax will sort keys alphabetically
             return {
-                "drone_pos": obs["pos"],  # (num_envs, 3)
+                "drone_pos_z": obs["pos"][:, 2:],  # (num_envs, 1)
                 "drone_quat": obs["quat"],  # (num_envs, 4)
                 "drone_vel": obs["vel"],  # (num_envs, 3)
                 "drone_ang_vel": obs["ang_vel"],  # (num_envs, 3)
@@ -248,7 +248,7 @@ class RaceWrapper(Wrapper):
                 gate_rel_pos
                 + (
                     (1.0 / (gate_dist[:, None] + 1.0) - 0.8) * gate_rel_pos_proj_norm[:, None]
-                    + (1.0 / (5.0 * gate_dist[:, None] + 1.0) - 0.3)
+                    + (1.0 / (10.0 * gate_dist[:, None] + 1.0) - 0.4)
                 )
                 * gate_norm
             )

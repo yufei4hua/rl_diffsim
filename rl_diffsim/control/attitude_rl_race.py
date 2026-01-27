@@ -135,8 +135,9 @@ class AttitudeRL(Controller):
 
     def _obs_race(self, obs: dict[str, NDArray[np.floating]]) -> NDArray[np.floating]:
         """Extract the relevant parts of the observation for the RL policy."""
-        obs_rl_key = ["pos", "quat", "vel", "ang_vel"]
+        obs_rl_key = ["quat", "vel", "ang_vel"]
         obs_rl = {f"drone_{k}": obs[k] for k in obs_rl_key}
+        obs_rl["drone_pos_z"] = obs["pos"][2:3]  # (1,)
         obs_rl["last_action"] = self.last_action  # (4,)
         pos = obs["pos"]  # (3,)
         target_gate = obs["target_gate"]  # (,)

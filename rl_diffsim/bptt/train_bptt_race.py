@@ -45,13 +45,13 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 32
     """the number of parallel game environments"""
-    num_steps: int = 72
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
     actor_lr: float = 4e-3
     """the learning rate of the actor optimizer"""
-    gamma: float = 0.999
+    gamma: float = 0.95
     """the discount factor gamma"""
     hidden_size: int = 32
     """the hidden size of actor and critic networks"""
@@ -63,18 +63,18 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    min_vel: float = 0.6
-    max_vel: float = 3.2
+    min_vel: float = 0.7
+    max_vel: float = 2.2
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.11
-    cont_obst_safe_dist: float = 0.17
-    gate_size: float = 0.3
-    gate_pos_coef: float = 1.0
-    gate_vel_coef: tuple = (4.0, 1.5)
+    cont_gate_safe_dist: float = 0.14
+    cont_obst_safe_dist: float = 0.22
+    gate_size: float = 0.22
+    gate_pos_coef: float = 1.5
+    gate_vel_coef: tuple = (2.3, 1.4)
     gate_pass_coef: float = 0.0
-    gate_pass_pos_coef: float = 40.0
-    gate_pass_vel_coef: float = 30.0
-    contact_coef: tuple = (10.0, 60.0)
+    gate_pass_pos_coef: float = 90.0
+    gate_pass_vel_coef: float = 20.0
+    contact_coef: tuple = (8.0, 80.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
@@ -104,7 +104,7 @@ def make_jitted_envs(
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
-    end_on_gate_bypass: bool = False,
+    end_on_gate_bypass: bool = True,
 ) -> DroneRaceEnv:
     """Make environments for training RL policy."""
     env: DroneRaceEnv = DroneRaceEnv.create(
@@ -439,29 +439,13 @@ def evaluate_bptt(
         "act_coefs": (0.0,) * 4,
         "d_act_coefs": (0.0,) * 4,
     }
-    r_coefs = {
-        "gate_pos_coef": args.gate_pos_coef,
-        "gate_vel_coef": args.gate_vel_coef,
-        "gate_pass_coef": args.gate_pass_coef,
-        "gate_pass_pos_coef": args.gate_pass_pos_coef,
-        "gate_pass_vel_coef": args.gate_pass_vel_coef,
-        "min_vel": args.min_vel,
-        "max_vel": args.max_vel,
-        "cont_floor_safe_dist": args.cont_floor_safe_dist,
-        "cont_gate_safe_dist": args.cont_gate_safe_dist,
-        "cont_obst_safe_dist": args.cont_obst_safe_dist,
-        "contact_coef": args.contact_coef,
-        "gate_size": args.gate_size,
-        "act_coefs": args.act_coefs,
-        "d_act_coefs": args.d_act_coefs,
-    }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
         num_envs=1,
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=False,
+        check_contacts=True,
     )
     eval_env = RecordRaceData.create(eval_env)
 

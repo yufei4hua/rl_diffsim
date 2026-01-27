@@ -61,54 +61,54 @@ rpy = [0.0, 0.0, 0.0]
 vel = [0, 0, 0]
 ang_vel = [0, 0, 0]
 
-# [env.disturbances.action]
-# fn = "normal"
-# scale = 0.001
+[env.disturbances.action]
+fn = "normal"
+scale = 0.001
 
-# [env.disturbances.dynamics]
-# fn = "uniform"
-# [env.disturbances.dynamics.kwargs]
-# minval = [-0.1, -0.1, -0.1]
-# maxval = [0.1, 0.1, 0.1]
+[env.disturbances.dynamics]
+fn = "uniform"
+[env.disturbances.dynamics.kwargs]
+minval = [-0.1, -0.1, -0.1]
+maxval = [0.1, 0.1, 0.1]
 
-# [env.randomizations.drone_pos]
-# fn = "uniform"
-# [env.randomizations.drone_pos.kwargs]
-# minval = [-0.1, -0.1, 0.0]
-# maxval = [0.1, 0.1, 0.02]
+[env.randomizations.drone_pos]
+fn = "uniform"
+[env.randomizations.drone_pos.kwargs]
+minval = [-0.1, -0.1, 0.0]
+maxval = [0.1, 0.1, 0.02]
 
-# [env.randomizations.drone_rpy]
-# fn = "uniform"
-# [env.randomizations.drone_rpy.kwargs]
-# minval = [-0.1, -0.1, -0.1]
-# maxval = [0.1, 0.1, 0.1]
+[env.randomizations.drone_rpy]
+fn = "uniform"
+[env.randomizations.drone_rpy.kwargs]
+minval = [-0.1, -0.1, -0.1]
+maxval = [0.1, 0.1, 0.1]
 
-# [env.randomizations.drone_mass]
-# fn = "uniform"
-# [env.randomizations.drone_mass.kwargs]
-# minval = -0.005
-# maxval = 0.005
+[env.randomizations.drone_mass]
+fn = "uniform"
+[env.randomizations.drone_mass.kwargs]
+minval = -0.005
+maxval = 0.005
 
-# [env.randomizations.drone_inertia]
-# fn = "uniform"
-# [env.randomizations.drone_inertia.kwargs]
-# minval = [-0.000001, -0.000001, -0.000001]
-# maxval = [0.000001, 0.000001, 0.000001]
+[env.randomizations.drone_inertia]
+fn = "uniform"
+[env.randomizations.drone_inertia.kwargs]
+minval = [-0.000001, -0.000001, -0.000001]
+maxval = [0.000001, 0.000001, 0.000001]
 
-# [env.randomizations.gate_pos]
-# fn = "uniform"
-# [env.randomizations.gate_pos.kwargs]
-# minval = [-0.15, -0.15, -0.1]
-# maxval = [0.15, 0.15, 0.1]
+[env.randomizations.gate_pos]
+fn = "uniform"
+[env.randomizations.gate_pos.kwargs]
+minval = [-0.15, -0.15, -0.1]
+maxval = [0.15, 0.15, 0.1]
 
-# [env.randomizations.gate_rpy]
-# fn = "uniform"
-# [env.randomizations.gate_rpy.kwargs]
-# minval = [-0.05, -0.1, -0.2]
-# maxval = [0.05, 0.1, 0.2]
+[env.randomizations.gate_rpy]
+fn = "uniform"
+[env.randomizations.gate_rpy.kwargs]
+minval = [-0.05, -0.1, -0.2]
+maxval = [0.05, 0.1, 0.2]
 
-# [env.randomizations.obstacle_pos]
-# fn = "uniform"
-# [env.randomizations.obstacle_pos.kwargs]
-# minval = [-0.15, -0.15, -0.05]
-# maxval = [0.15, 0.15, 0.05]
+[env.randomizations.obstacle_pos]
+fn = "uniform"
+[env.randomizations.obstacle_pos.kwargs]
+minval = [-0.15, -0.15, -0.05]
+maxval = [0.15, 0.15, 0.05]

@@ -20,6 +20,7 @@ from rl_diffsim.bptt.bptt_agent_deterministic import Agent
 from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.envs.wrappers import (
     ActionPenalty,
+    AngleReward,
     FlattenJaxObservation,
     NormalizeActions,
     RecordData,
@@ -44,7 +45,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 200_000
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
@@ -52,11 +53,11 @@ class Args:
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 1.2e-2
+    actor_lr: float = 1.0e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
-    hidden_size: int = 8
+    hidden_size: int = 12
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -66,9 +67,9 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.0
-    act_coefs: tuple = (0.19, 0.19, 0.0, 0.12)
-    d_act_coefs: tuple = (0.9, 0.9, 0.0, 0.5)
+    rpy_coef: float = 0.1
+    act_coefs: tuple = (0.22, 0.18, 0.0, 0.03)
+    d_act_coefs: tuple = (1.4, 1.4, 0.0, 0.2)
     """reward coefficients for training"""
 
     @staticmethod
@@ -98,21 +99,24 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
-        max_episode_time=5.5,
-        trajectory_time=5.5,
-        n_samples=10,
+        max_episode_time=8.0,
+        trajectory_time=4.0,
+        n_samples=12,
+        samples_dt=0.04,
         num_envs=num_envs,
-        freq=50,
+        freq=100,
         drone_model="cf21B_500",
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
         reset_randomization=None if reset_random else lambda data, mask: data,
+        reset_velocity=True,
+        multi_start=False,
     )
 
     env = NormalizeActions.create(env)
     env = ZeroYaw.create(env)
-    # env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.04))
+    env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.0))
     env = ActionPenalty.create(
         env,
         num_actions=1,

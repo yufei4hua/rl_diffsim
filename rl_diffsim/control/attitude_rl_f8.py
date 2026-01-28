@@ -57,9 +57,9 @@ class AttitudeRL(Controller):
         self.thrust_max = drone_params["thrust_max"] * 4  # max total thrust
 
         # # Set trajectory parameters
-        self.n_samples = 10
-        self.samples_dt = 0.1
-        self.trajectory_time = 10.0
+        self.n_samples = 15
+        self.samples_dt = 0.05
+        self.trajectory_time = 4.0
         self.sample_offsets = np.array(
             np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
         )
@@ -68,7 +68,7 @@ class AttitudeRL(Controller):
         # Figure-8 trajectory
         # Create the figure eight trajectory
         num_loops = 3
-        self.trajectory_time = 6.0 * num_loops
+        self.trajectory_time *= num_loops
         n_steps = int(np.ceil(self.trajectory_time * self.freq))
         t = np.linspace(0, 2 * np.pi * num_loops, n_steps)
         radius = 1  # Radius for the circles

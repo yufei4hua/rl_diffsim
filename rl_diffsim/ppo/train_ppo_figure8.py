@@ -45,11 +45,11 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 4_000_000
+    total_timesteps: int = 6_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 32
     """the number of mini-batches"""
@@ -57,11 +57,11 @@ class Args:
     """Toggle learning rate annealing for policy and value networks"""
     actor_lr: float = 8e-4
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 2.5e-3
+    critic_lr: float = 1.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.93
+    gamma: float = 0.96
     """the discount factor gamma"""
-    gae_lambda: float = 0.90
+    gae_lambda: float = 0.98
     """the lambda for the general advantage estimation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
@@ -79,7 +79,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 24
+    hidden_size: int = 32
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -92,8 +92,8 @@ class Args:
 
     # Wrapper settings
     rpy_coef: float = 0.0
-    act_coefs: tuple = (0.06, 0.06, 0.0, 0.1)
-    d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.5)
+    act_coefs: tuple = (0.14, 0.14, 0.0, 0.19)
+    d_act_coefs: tuple = (0.27, 0.27, 0.0, 0.54)
     """reward coefficients for training"""
 
     @staticmethod
@@ -103,11 +103,15 @@ class Args:
         batch_size = int(args.num_envs * args.num_steps)
         minibatch_size = int(batch_size // args.num_minibatches)
         num_iterations = args.total_timesteps // batch_size
+        act_coefs = (args.act_coefs[0],) * 2 + (0.0, args.act_coefs[3])
+        d_act_coefs = (args.d_act_coefs[0],) * 2 + (0.0, args.d_act_coefs[3])
         return replace(
             args,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
             num_iterations=num_iterations,
+            act_coefs=act_coefs,
+            d_act_coefs=d_act_coefs,
         )
 
 
@@ -121,11 +125,11 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
-        max_episode_time=5.5,
-        trajectory_time=5.5,
+        max_episode_time=4.0,
+        trajectory_time=4.0,
         n_samples=10,
         num_envs=num_envs,
-        freq=50,
+        freq=100,
         drone_model="cf21B_500",
         physics="first_principles",
         device=jax_device,
@@ -542,8 +546,8 @@ def evaluate_ppo(
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1

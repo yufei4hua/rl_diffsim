@@ -41,7 +41,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 300_000
+    total_timesteps: int = 400_000
     """total timesteps of the experiments"""
     num_envs: int = 32
     """the number of parallel game environments"""
@@ -53,7 +53,7 @@ class Args:
     """Toggle learning rate annealing for policy networks"""
     anneal_critic_lr: bool = True
     """Toggle learning rate annealing for value networks"""
-    actor_lr: float = 8e-3
+    actor_lr: float = 1e-2
     """the learning rate of the actor optimizer"""
     critic_lr: float = 8e-4
     """the learning rate of the critic optimizer"""
@@ -77,18 +77,18 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    min_vel: float = 0.7
-    max_vel: float = 3.6
+    min_vel: float = 0.66
+    max_vel: float = 2.2
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.15
+    cont_gate_safe_dist: float = 0.12
     cont_obst_safe_dist: float = 0.22
-    gate_size: float = 0.3
+    gate_size: float = 0.20
     gate_pos_coef: float = 1.5
-    gate_vel_coef: tuple = (3.6, 2.4)
-    gate_pass_coef: float = 64.0
-    gate_pass_pos_coef: float = 25.0
-    gate_pass_vel_coef: float = 30.0
-    contact_coef: tuple = (8.0, 80.0)
+    gate_vel_coef: tuple = (3.2, 1.1)
+    gate_pass_coef: float = 52.0
+    gate_pass_pos_coef: float = 8.0
+    gate_pass_vel_coef: float = 10.0
+    contact_coef: tuple = (8.0, 99.5)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""

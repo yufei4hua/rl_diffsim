@@ -75,13 +75,13 @@ sweep_configuration = {
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
         # "num_envs": {"values": [1024]},
-        "num_steps": {"values": [32, 48, 64]},
-        "num_minibatches": {"values": [32, 48, 64]},
+        # "num_steps": {"values": [32, 48, 64]},
+        # "num_minibatches": {"values": [32, 48, 64]},
         "actor_lr": {"distribution": "log_uniform_values", "min": 4e-4, "max": 3e-3},
-        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-2},
-        "gamma": {"min": 0.85, "max": 0.99},
-        "gae_lambda": {"min": 0.85, "max": 0.99},
-
+        # "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-2},
+        # "gamma": {"min": 0.85, "max": 0.99},
+        # "gae_lambda": {"min": 0.85, "max": 0.99},
+        "hidden_size": {"values": [16, 24, 32]},
 
         # "seed": {"values": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
         # "num_envs": {"values": [1024, 2048]},
@@ -122,4 +122,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=f"{Args().wandb_project_name}-sweep", entity="fresssack"
 )
 
-wandb.agent(sweep_id, function=train, count=100)
+wandb.agent(sweep_id, function=train, count=50)

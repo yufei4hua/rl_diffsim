@@ -88,6 +88,8 @@ class FigureEightEnv(DroneEnv):
         samples_dt: float = 0.1,
         reset_rotor: bool = False,
         reset_randomization: Callable[[SimData, Array], SimData] | None = None,
+        reset_velocity: bool = True,
+        multi_start: bool = False,
     ) -> "FigureEightEnv":
         """Create a jittable drone environment without render support.
 
@@ -109,6 +111,8 @@ class FigureEightEnv(DroneEnv):
             reset_rotor: Whether to reset rotor speeds on environment reset.
             reset_randomization: A function that randomizes the initial state of the simulation. If
                 None, the default randomization for pos and vel is used.
+            reset_velocity: Reset to reference velocity to avoid unfeasible acceleration.
+            multi_start: Whether to start at multiple points along the trajectory.
 
         Returns:
             An instance of FigureEightEnv with jittable functions and data.
@@ -132,6 +136,26 @@ class FigureEightEnv(DroneEnv):
         if control == "rotor_vel":
             sim.step_pipeline = sim.step_pipeline[2:]  # remove all controllers
             sim.build_step_fn()
+
+        # Create the figure eight trajectory
+        sample_offsets = jp.array(jp.arange(n_samples) * freq * samples_dt, dtype=int)
+        n_steps = int(jp.ceil(trajectory_time * freq).item())
+        n_steps = int(max_episode_time * freq)  # ensure enough steps for max episode time
+        n_loops = max_episode_time / trajectory_time
+        ts = jp.linspace(0, 2 * jp.pi * n_loops, n_steps)[None, :]
+        offset = jp.linspace(0, 2 * jp.pi, num_envs, endpoint=False)
+        if not multi_start:
+            offset = jp.zeros_like(offset)
+        ts += offset[:, None]
+        radius = 1  # Radius for the circles
+        x = radius * jp.sin(ts)  # Scale amplitude for 1-meter diameter
+        y = jp.zeros_like(ts)  # y is 0 everywhere
+        z = radius / 2 * jp.sin(2 * ts) + 1.25  # Scale amplitude for 1-meter diameter
+        trajectories = jp.array([x.T, y.T, z.T]).T  # (num_envs, n_steps, 3)
+        d_x = radius * jp.cos(ts) * (2 * jp.pi / trajectory_time)
+        d_y = jp.zeros_like(ts)
+        d_z = radius * jp.cos(2 * ts) * (2 * jp.pi / trajectory_time)
+        trajectory_vel = jp.array([d_x.T, d_y.T, d_z.T]).T  # (num_envs, n_steps, 3)
 
         # Override reset randomization function
         def build_reset_rotor_fn(physics: str) -> Callable[[SimData, Array], SimData]:
@@ -187,7 +211,19 @@ class FigureEightEnv(DroneEnv):
                 _reset_randomization, pmin=-0.1, pmax=0.1, vmin=-0.5, vmax=0.5
             )
 
-        sim.reset_pipeline += (reset_randomization, reset_rotor_randomization)
+        if reset_velocity:
+            
+            def _reset_velocity(
+                data: SimData, mask: Array, ref_vel: Array
+            ) -> SimData:
+                data = data.replace(
+                    states=leaf_replace(data.states, mask, vel=ref_vel)
+                )
+                return data
+
+            reset_velocity_fn = functools.partial(_reset_velocity, ref_vel=trajectory_vel[:, 0:1, :])
+
+        sim.reset_pipeline += (reset_randomization, reset_rotor_randomization, reset_velocity_fn)
         sim.build_reset_fn()
 
         # Prepare immutable constants
@@ -202,21 +238,6 @@ class FigureEightEnv(DroneEnv):
             }
         )
         n_substeps = sim.freq // freq
-
-        # Create the figure eight trajectory
-        sample_offsets = jp.array(jp.arange(n_samples) * freq * samples_dt, dtype=int)
-        n_steps = int(jp.ceil(trajectory_time * freq).item())
-        n_steps = int(max_episode_time * freq)  # ensure enough steps for max episode time
-        n_loops = max_episode_time / trajectory_time
-        t = jp.linspace(0, 2 * jp.pi * n_loops, n_steps)
-        offset = jp.linspace(0, 2 * jp.pi, num_envs, endpoint=False)
-        offset = jp.zeros_like(offset)  # no phase shift between envs
-        ts = t[None, :] + offset[:, None]  # random phase shift
-        radius = 1  # Radius for the circles
-        x = radius * jp.sin(ts)  # Scale amplitude for 1-meter diameter
-        y = jp.zeros_like(ts)  # y is 0 everywhere
-        z = radius / 2 * jp.sin(2 * ts) + 1.25  # Scale amplitude for 1-meter diameter
-        trajectories = jp.array([x.T, y.T, z.T]).T  # (num_envs, n_steps, 3)
 
         # Set takeoff position and build default reset position
         takeoff_pos = trajectories[:, :1, :]
@@ -244,13 +265,13 @@ class FigureEightEnv(DroneEnv):
             trajectories: Array, steps: Array, pos: Array, sample_offsets: Array
         ) -> dict[str, Array]:
             """Static method version of obs for jitting."""
-            idx = jp.clip(steps + sample_offsets[None, ...], 0, trajectories.shape[1] - 1)
-            # idx = steps + sample_offsets[None, ...]
-            # idx = jp.where(
-            #     idx >= trajectories.shape[1],
-            #     idx - trajectories.shape[1],
-            #     idx,
-            # )
+            # idx = jp.clip(steps + sample_offsets[None, ...], 0, trajectories.shape[1] - 1)
+            idx = steps + sample_offsets[None, ...]
+            idx = jp.where(
+                idx >= trajectories.shape[1],
+                idx - trajectories.shape[1],
+                idx,
+            )
             dpos = trajectories[jp.arange(trajectories.shape[0])[:, None], idx] - pos
             local_samples = dpos.reshape(dpos.shape[0], dpos.shape[1] * dpos.shape[2])
             return local_samples

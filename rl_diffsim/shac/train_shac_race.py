@@ -77,18 +77,18 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    min_vel: float = 0.8
-    max_vel: float = 3.4
+    min_vel: float = 0.66
+    max_vel: float = 2.2
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.12
     cont_obst_safe_dist: float = 0.22
-    gate_size: float = 0.3
+    gate_size: float = 0.20
     gate_pos_coef: float = 1.5
-    gate_vel_coef: tuple = (2.2, 1.2)
-    gate_pass_coef: float = 45.0
-    gate_pass_pos_coef: float = 40.0
-    gate_pass_vel_coef: float = 40.0
-    contact_coef: tuple = (8.0, 80.0)
+    gate_vel_coef: tuple = (3.2, 1.1)
+    gate_pass_coef: float = 52.0
+    gate_pass_pos_coef: float = 8.0
+    gate_pass_vel_coef: float = 10.0
+    contact_coef: tuple = (8.0, 99.5)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
@@ -118,10 +118,15 @@ def make_jitted_envs(
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
+    end_on_gate_bypass: bool = False,
 ) -> DroneRaceEnv:
     """Make environments for training RL policy."""
     env: DroneRaceEnv = DroneRaceEnv.create(
-        num_envs=num_envs, device=jax_device, check_contacts=check_contacts, **config
+        num_envs=num_envs,
+        device=jax_device,
+        check_contacts=check_contacts,
+        end_on_gate_bypass=end_on_gate_bypass,
+        **config,
     )
 
     env = RaceWrapper.create(
@@ -408,6 +413,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         coefs=r_coefs,
         config=config.env,
         check_contacts=False,
+        end_on_gate_bypass=False,
     )
 
     # setup annealing learning rate
@@ -580,6 +586,7 @@ def evaluate_shac(
         coefs=r_coefs,
         config=config.env,
         check_contacts=True,
+        end_on_gate_bypass=False,
     )
     eval_env = RecordRaceData.create(eval_env)
 

@@ -61,7 +61,7 @@ def train():
 
 # 2: Define the search space
 sweep_configuration = {
-    "method": "bayes",  # "random", "bayes", "grid"
+    "method": "random",  # "random", "bayes", "grid"
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
         # "num_envs": {"values": [16, 32, 64]},
@@ -77,14 +77,16 @@ sweep_configuration = {
         # wrapper settings (race-specific)
         "min_vel": {"distribution": "uniform", "min": 0.5, "max": 1.0},
         "max_vel": {"distribution": "uniform", "min": 2.0, "max": 3.6},
-        "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.08, "max": 0.15},
-        "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.15, "max": 0.25},
-        "gate_size": {"distribution": "uniform", "min": 0.2, "max": 0.5},
+        # "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.08, "max": 0.15},
+        # "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.15, "max": 0.25},
+        # "gate_size": {"distribution": "uniform", "min": 0.2, "max": 0.5},
         "gate_pos_coef": {"distribution": "uniform", "min": 0.2, "max": 2.0},
         "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 4.0},
         "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.5},
         "gate_pass_coef": {"distribution": "uniform", "min": 0.0, "max": 70.0},
-        "contact_coef_0": {"distribution": "uniform", "min": 0.0, "max": 30.0},
+        "gate_pass_pos_coef": {"distribution": "uniform", "min": 0.0, "max": 50.0},
+        "gate_pass_vel_coef": {"distribution": "uniform", "min": 0.0, "max": 50.0},
+        # "contact_coef_0": {"distribution": "uniform", "min": 0.0, "max": 30.0},
         "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 100.0},
         # "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
         # # # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
@@ -102,4 +104,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=f"{Args().wandb_project_name}-sweep", entity="lsy-tum"
 )
 
-wandb.agent(sweep_id, function=train, count=50)
+wandb.agent(sweep_id, function=train, count=100)

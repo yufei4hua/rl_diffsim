@@ -104,7 +104,7 @@ def make_jitted_envs(
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
-    end_on_gate_bypass: bool = True,
+    end_on_gate_bypass: bool = False,
 ) -> DroneRaceEnv:
     """Make environments for training RL policy."""
     env: DroneRaceEnv = DroneRaceEnv.create(

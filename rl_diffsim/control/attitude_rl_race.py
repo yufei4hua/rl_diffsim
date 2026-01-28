@@ -23,8 +23,9 @@ os.environ["SCIPY_ARRAY_API"] = "1"
 from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 
-from rl_diffsim.bptt.bptt_agent import Agent
+# from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.control.controller import Controller
+from rl_diffsim.shac.shac_agent import Agent
 
 # from rl_diffsim.ppo.ppo_agent import Agent
 
@@ -67,7 +68,7 @@ class AttitudeRL(Controller):
         self._tick = 0
 
         # Load RL policy
-        self.algo_name = "bptt"
+        self.algo_name = "shac"
         self.exp_name = "race"
         model_path = (
             Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"

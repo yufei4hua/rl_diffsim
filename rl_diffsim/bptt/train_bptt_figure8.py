@@ -45,19 +45,19 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 26_000
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 64
+    num_steps: int = 40
     """the number of steps to run in each environment per policy rollout"""
     anneal_actor_lr: bool = False
     """Toggle learning rate annealing for policy networks"""
-    actor_lr: float = 1.0e-2
+    actor_lr: float = 4.6e-2
     """the learning rate of the actor optimizer"""
     gamma: float = 1.0
     """the discount factor gamma"""
-    hidden_size: int = 12
+    hidden_size: int = 6
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -67,9 +67,11 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    rpy_coef: float = 0.1
-    act_coefs: tuple = (0.22, 0.18, 0.0, 0.03)
-    d_act_coefs: tuple = (1.4, 1.4, 0.0, 0.2)
+    n_samples: int = 11
+    samples_dt: float = 0.06
+    rpy_coef: float = 0.0
+    act_coefs: tuple = (0.12, 0.12, 0.0, 0.02)
+    d_act_coefs: tuple = (1.4, 1.4, 0.0, 0.8)
     """reward coefficients for training"""
 
     @staticmethod
@@ -99,24 +101,24 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
-        max_episode_time=8.0,
-        trajectory_time=4.0,
-        n_samples=12,
-        samples_dt=0.04,
+        max_episode_time=20.0,
+        trajectory_time=10.0,
+        n_samples=coefs.get("n_samples", 10),
+        samples_dt=coefs.get("samples_dt", 0.1),
         num_envs=num_envs,
-        freq=100,
+        freq=50,
         drone_model="cf21B_500",
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
         reset_randomization=None if reset_random else lambda data, mask: data,
         reset_velocity=True,
-        multi_start=False,
+        multi_start=True,
     )
 
     env = NormalizeActions.create(env)
     env = ZeroYaw.create(env)
-    env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.0))
+    # env = AngleReward.create(env, rpy_coef=coefs.get("rpy_coef", 0.0))
     env = ActionPenalty.create(
         env,
         num_actions=1,
@@ -254,6 +256,8 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     # make envs
     r_coefs = {
+        "n_samples": args.n_samples,
+        "samples_dt": args.samples_dt,
         "rpy_coef": args.rpy_coef,
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,
@@ -385,6 +389,8 @@ def evaluate_bptt(
     `n_eval` episodes with deterministic actions.
     """
     r_coefs = {
+        "n_samples": args.n_samples,
+        "samples_dt": args.samples_dt,
         "rpy_coef": args.rpy_coef,
         "act_coefs": args.act_coefs,
         "d_act_coefs": args.d_act_coefs,

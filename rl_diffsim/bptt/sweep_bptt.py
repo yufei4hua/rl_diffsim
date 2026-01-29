@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 import wandb
-from rl_diffsim.bptt.train_bptt_race import Args, evaluate_bptt, train_bptt
+from rl_diffsim.bptt.train_bptt_figure8 import Args, evaluate_bptt, train_bptt
 
 
 # 1: Define objective/training function
@@ -26,19 +26,19 @@ def train():
         #     cfg.pop(f"gate_size_{i}") if f"gate_size_{i}" in cfg else Args.gate_size[i]
         #     for i in range(len(Args.gate_size))
         # )
-        gate_vel_coef = tuple(
-            cfg.pop(f"gate_vel_coef_{i}") if f"gate_vel_coef_{i}" in cfg else Args.gate_vel_coef[i]
-            for i in range(len(Args.gate_vel_coef))
-        )
-        contact_coef = tuple(
-            cfg.pop(f"contact_coef_{i}") if f"contact_coef_{i}" in cfg else Args.contact_coef[i]
-            for i in range(len(Args.contact_coef))
-        )
+        # gate_vel_coef = tuple(
+        #     cfg.pop(f"gate_vel_coef_{i}") if f"gate_vel_coef_{i}" in cfg else Args.gate_vel_coef[i]
+        #     for i in range(len(Args.gate_vel_coef))
+        # )
+        # contact_coef = tuple(
+        #     cfg.pop(f"contact_coef_{i}") if f"contact_coef_{i}" in cfg else Args.contact_coef[i]
+        #     for i in range(len(Args.contact_coef))
+        # )
         cfg["act_coefs"] = act_coefs
         cfg["d_act_coefs"] = d_act_coefs
         # cfg["gate_size"] = gate_size
-        cfg["gate_vel_coef"] = gate_vel_coef
-        cfg["contact_coef"] = contact_coef
+        # cfg["gate_vel_coef"] = gate_vel_coef
+        # cfg["contact_coef"] = contact_coef
         args = Args.create(**cfg)
         model_path = Path(__file__).parents[2] / "saves/bptt_model_flax_sweep.ckpt"
         jax_device = args.jax_device
@@ -47,16 +47,29 @@ def train():
         )
         # average over rewards curve: aiming at faster convergence
         mean_rewards = np.asarray(sum_rewards_hist).mean()
-        # score based on final performance
-        _, success_count, episode_rewards, avg_lap_time = evaluate_bptt(
-            args=args, n_eval=20, model_path=model_path, render=False, plot=False
+        # # score based on final performance
+        # _, success_count, episode_rewards, avg_lap_time = evaluate_bptt(
+        #     args=args, n_eval=20, model_path=model_path, render=False, plot=False
+        # )
+        # score = success_count - avg_lap_time * 5.0
+        # run.log({"score": score})
+        # run.log({"mean_rewards": mean_rewards})
+        # run.log({"final_reward": np.mean(episode_rewards)})
+        # run.log({"success_count": success_count})
+        # run.log({"avg_lap_time": avg_lap_time})
+
+        _, rmse_pos, episode_rewards, _ = evaluate_bptt(
+            args=args, n_eval=1, model_path=model_path, render=False
         )
-        score = success_count - avg_lap_time * 5.0
+        score = 0.0
+        # score += mean_rewards
+        score += -rmse_pos
+        # score += -10 * training_time
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})
+        run.log({"training_time": training_time})
         run.log({"final_reward": np.mean(episode_rewards)})
-        run.log({"success_count": success_count})
-        run.log({"avg_lap_time": avg_lap_time})
+        run.log({"rmse_pos": rmse_pos})
 
 
 # 2: Define the search space
@@ -66,28 +79,31 @@ sweep_configuration = {
     "parameters": {
         # "num_envs": {"distribution": "int_uniform", "min": 8, "max": 64},
         # "num_steps": {"distribution": "int_uniform", "min": 48, "max": 128},
-        # "actor_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-2},
-        "gamma": {"min": 0.94, "max": 1.0},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 1e-1},
+        # "gamma": {"min": 0.94, "max": 1.0},
         # "hidden_size": {"values": [16, 32, 48, 64]},
         # "hidden_size": {"distribution": "int_uniform", "min": 16, "max": 64},
-        # wrapper settings (race-specific)
-        "min_vel": {"distribution": "uniform", "min": 0.5, "max": 1.0},
-        "max_vel": {"distribution": "uniform", "min": 2.0, "max": 3.6},
-        "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.08, "max": 0.15},
-        "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.15, "max": 0.25},
-        "gate_size": {"distribution": "uniform", "min": 0.2, "max": 0.5},
-        "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 4.0},
-        "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.5},
-        "contact_coef_0": {"distribution": "uniform", "min": 0.0, "max": 30.0},
-        "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 100.0},
-        # "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
-        # # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
-        # # "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
-        # "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
-        # "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
-        # # "d_act_coefs_1": {"distribution": "uniform", "min": 0.5, "max": 1.5},
-        # # "d_act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.2},
-        # "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
+        # # wrapper settings (race-specific)
+        # "min_vel": {"distribution": "uniform", "min": 0.5, "max": 1.0},
+        # "max_vel": {"distribution": "uniform", "min": 2.0, "max": 3.6},
+        # "cont_gate_safe_dist": {"distribution": "uniform", "min": 0.08, "max": 0.15},
+        # "cont_obst_safe_dist": {"distribution": "uniform", "min": 0.15, "max": 0.25},
+        # "gate_size": {"distribution": "uniform", "min": 0.2, "max": 0.5},
+        # "gate_vel_coef_0": {"distribution": "uniform", "min": 1.5, "max": 4.0},
+        # "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.5},
+        # "contact_coef_0": {"distribution": "uniform", "min": 0.0, "max": 30.0},
+        # "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 100.0},
+        
+        "n_samples": {"distribution": "int_uniform", "min": 8, "max": 15},
+        "samples_dt": {"distribution": "uniform", "min": 0.05, "max": 0.15},
+        "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.25},
+        # "act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.1},
+        "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.2},
+        "d_act_coefs_0": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        # "d_act_coefs_1": {"distribution": "uniform", "min": 0.5, "max": 1.5},
+        # "d_act_coefs_2": {"distribution": "uniform", "min": 0.0, "max": 0.2},
+        "d_act_coefs_3": {"distribution": "uniform", "min": 0.2, "max": 0.8},
     },
 }
 

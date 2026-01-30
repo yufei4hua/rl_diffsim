@@ -45,29 +45,29 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 1_500_000
     """total timesteps of the experiments"""
-    num_envs: int = 1024
+    num_envs: int = 2048
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 16
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 32
+    num_minibatches: int = 16
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 3e-4
+    actor_lr: float = 8e-4
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 4e-3
+    critic_lr: float = 5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.96
+    gamma: float = 0.92
     """the discount factor gamma"""
     gae_lambda: float = 0.94
     """the lambda for the general advantage estimation"""
-    update_epochs: int = 15
+    update_epochs: int = 10
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
-    clip_coef: float = 0.5
+    clip_coef: float = 0.7
     """the surrogate clipping coefficient"""
     clip_vloss: bool = True
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
@@ -79,7 +79,7 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    hidden_size: int = 32
+    hidden_size: int = 24
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -93,7 +93,7 @@ class Args:
     # Wrapper settings
     rpy_coef: float = 0.1
     act_coefs: tuple = (0.1, 0.1, 0.0, 0.02)
-    d_act_coefs: tuple = (0.9, 0.9, 0.0, 0.2)
+    d_act_coefs: tuple = (0.9, 0.9, 0.0, 0.6)
     """reward coefficients for training"""
 
     @staticmethod
@@ -125,19 +125,19 @@ def make_jitted_envs(
 ) -> FigureEightEnv:
     """Make environments for training RL policy."""
     env: FigureEightEnv = FigureEightEnv.create(
-        max_episode_time=8.0,
-        trajectory_time=4.0,
-        n_samples=12,
-        samples_dt=0.04,
+        max_episode_time=20.0,
+        trajectory_time=10.0,
+        n_samples=11,
+        samples_dt=0.06,
         num_envs=num_envs,
-        freq=100,
+        freq=50,
         drone_model="cf21B_500",
         physics="first_principles",
         device=jax_device,
         reset_rotor=reset_rotor,
         reset_randomization=None if reset_random else lambda data, mask: data,
         reset_velocity=True,
-        multi_start=False,
+        multi_start=True,
     )
 
     env = NormalizeActions.create(env)

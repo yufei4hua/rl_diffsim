@@ -25,14 +25,14 @@ from drone_models.core import load_params
 
 # from rl_diffsim.bptt.bptt_agent import Agent
 from rl_diffsim.control.controller import Controller
-from rl_diffsim.shac.shac_agent import Agent
+# from rl_diffsim.shac.shac_agent import Agent
 
-# from rl_diffsim.ppo.ppo_agent import Agent
+from rl_diffsim.ppo.ppo_agent import Agent
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-from scripts.utils import EvalRecorder
+from scripts.utils import RaceRecorder
 
 
 class AttitudeRL(Controller):
@@ -57,6 +57,13 @@ class AttitudeRL(Controller):
         self.drone_mass = drone_params["mass"]  # alternatively from sim.drone_mass
         self.thrust_min = drone_params["thrust_min"] * 4  # min total thrust
         self.thrust_max = drone_params["thrust_max"] * 4  # max total thrust
+        self.scale = np.array(
+            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0],
+            dtype=np.float32,
+        )
+        self.mean = np.array(
+            [0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32
+        )
 
         # # Set trajectory parameters
         self.n_samples = 10
@@ -68,7 +75,7 @@ class AttitudeRL(Controller):
         self._tick = 0
 
         # Load RL policy
-        self.algo_name = "shac"
+        self.algo_name = "ppo"
         self.exp_name = "race"
         model_path = (
             Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
@@ -98,7 +105,7 @@ class AttitudeRL(Controller):
         self._finished = False
 
         # Initialize evaluation recorder
-        self.eval_recorder = EvalRecorder(control="attitude")
+        self.race_recorder = RaceRecorder(control="attitude")
 
         self.sim = sim  # For visualization
 
@@ -188,14 +195,7 @@ class AttitudeRL(Controller):
 
     def _scale_actions(self, actions: NDArray) -> NDArray:
         """Rescale and clip actions from [-1, 1] to [action_sim_low, action_sim_high]."""
-        scale = np.array(
-            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0],
-            dtype=np.float32,
-        )
-        mean = np.array(
-            [0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32
-        )
-        return np.clip(actions, -1.0, 1.0) * scale + mean
+        return np.clip(actions, -1.0, 1.0) * self.scale + self.mean
 
     def _render(self):
         """Render the trajectory and the next waypoints."""
@@ -228,13 +228,15 @@ class AttitudeRL(Controller):
             True if the controller is finished, False otherwise.
         """
         # Record data with batch dimension (1, dim)
-        goal = obs["gates_pos"][obs["target_gate"]]
         rpy = R.from_quat(obs["quat"]).as_euler("xyz")
-        self.eval_recorder.record_step(
+        self.race_recorder.record_step(
             action=action.copy()[None, :],
             position=obs["pos"].copy()[None, :],
-            goal=goal[None, :],
+            velocity=obs["vel"].copy()[None, :],
             rpy=rpy[None, :],
+        )
+        self.race_recorder.update_track(
+            gates=obs["gates_pos"], obstacles=obs["obstacles_pos"]
         )
 
         self._tick += 1
@@ -243,6 +245,6 @@ class AttitudeRL(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
-        self.eval_recorder.plot_eval(
-            save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png", traj_plane=[0, 1]
+        self.race_recorder.plot_eval(
+            save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png"
         )

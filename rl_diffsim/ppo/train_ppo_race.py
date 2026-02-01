@@ -41,23 +41,23 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 20_000_000
+    total_timesteps: int = 5_000_000
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
-    num_steps: int = 64
+    num_steps: int = 48
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 64
+    num_minibatches: int = 48
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 1.2e-3
+    actor_lr: float = 6e-4
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.95
+    gamma: float = 0.93
     """the discount factor gamma"""
-    gae_lambda: float = 0.81
+    gae_lambda: float = 0.96
     """the lambda for the general advantage estimation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
@@ -88,16 +88,18 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 2.2
+    max_vel: float = 2.5
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.17
-    cont_obst_safe_dist: float = 0.16
-    gate_size: tuple = (0.6, 0.25)
+    cont_gate_safe_dist: float = 0.14
+    cont_obst_safe_dist: float = 0.25
+    gate_size: float = 0.6
     gate_pos_coef: float = 0.0
-    gate_vel_coef: tuple = (2.8, 1.0)
-    gate_pass_coef: tuple = (5.0, 15.0)
-    contact_coef: tuple = (20.0, 50.0)
-    act_coefs: tuple = (0.16, 0.16, 0.0, 0.06)
+    gate_vel_coef: float = 2.0
+    gate_pass_coef: float = 10.0
+    gate_pass_pos_coef: float = 0.0
+    gate_pass_vel_coef: float = 0.0
+    contact_coef: float = 13.0
+    act_coefs: tuple = (0.4, 0.4, 0.0, 0.06)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.8)
     """reward coefficients for training"""
 
@@ -128,10 +130,15 @@ def make_jitted_envs(
     coefs: dict = {},
     config: ConfigDict = ConfigDict(),
     check_contacts: bool = True,
+    end_on_gate_bypass: bool = False,
 ) -> DroneRaceEnv:
     """Make environments for training RL policy."""
     env: DroneRaceEnv = DroneRaceEnv.create(
-        num_envs=num_envs, device=jax_device, check_contacts=check_contacts, **config
+        num_envs=num_envs,
+        device=jax_device,
+        check_contacts=check_contacts,
+        end_on_gate_bypass=end_on_gate_bypass,
+        **config,
     )
 
     env = RaceWrapper.create(
@@ -139,6 +146,9 @@ def make_jitted_envs(
         gate_pos_coef=coefs.get("gate_pos_coef", 0.0),
         gate_vel_coef=coefs.get("gate_vel_coef", 0.0),
         gate_pass_coef=coefs.get("gate_pass_coef", 0.0),
+        gate_pass_pos_coef=coefs.get("gate_pass_pos_coef", 0.0),
+        gate_pass_vel_coef=coefs.get("gate_pass_vel_coef", 0.0),
+        use_radial_field=True,
         min_vel=coefs.get("min_vel", 0.0),
         max_vel=coefs.get("max_vel", 0.0),
         cont_floor_safe_dist=coefs.get("cont_floor_safe_dist", 0.0),
@@ -369,6 +379,8 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         "gate_pos_coef": args.gate_pos_coef,
         "gate_vel_coef": args.gate_vel_coef,
         "gate_pass_coef": args.gate_pass_coef,
+        "gate_pass_pos_coef": args.gate_pass_pos_coef,
+        "gate_pass_vel_coef": args.gate_pass_vel_coef,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": args.cont_floor_safe_dist,
@@ -387,6 +399,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         coefs=r_coefs,
         config=config.env,
         check_contacts=False,
+        end_on_gate_bypass=False,
     )
 
     # setup annealing learning rate
@@ -548,6 +561,8 @@ def evaluate_ppo(
         "gate_pos_coef": 0.0,
         "gate_vel_coef": 0.0,
         "gate_pass_coef": 0.0,
+        "gate_pass_pos_coef": 0.0,
+        "gate_pass_vel_coef": 0.0,
         "min_vel": args.min_vel,
         "max_vel": args.max_vel,
         "cont_floor_safe_dist": -1.0,
@@ -564,7 +579,7 @@ def evaluate_ppo(
         jax_device=args.jax_device,
         coefs=r_coefs,
         config=config.env,
-        check_contacts=True,
+        check_contacts=False,
     )
     eval_env = RecordRaceData.create(eval_env)
 

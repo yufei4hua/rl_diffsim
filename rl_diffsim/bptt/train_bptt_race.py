@@ -41,9 +41,9 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 400_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
-    num_envs: int = 32
+    num_envs: int = 16
     """the number of parallel game environments"""
     num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
@@ -53,7 +53,7 @@ class Args:
     """the learning rate of the actor optimizer"""
     gamma: float = 0.95
     """the discount factor gamma"""
-    hidden_size: int = 32
+    hidden_size: int = 24
     """the hidden size of actor and critic networks"""
 
     # to be filled in runtime
@@ -64,16 +64,16 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.7
-    max_vel: float = 2.2
+    max_vel: float = 3.6
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.14
+    cont_gate_safe_dist: float = 0.15
     cont_obst_safe_dist: float = 0.22
-    gate_size: float = 0.22
+    gate_size: float = 0.3
     gate_pos_coef: float = 1.5
-    gate_vel_coef: tuple = (2.3, 1.4)
+    gate_vel_coef: tuple = (3.6, 1.6)
     gate_pass_coef: float = 0.0
     gate_pass_pos_coef: float = 90.0
-    gate_pass_vel_coef: float = 20.0
+    gate_pass_vel_coef: float = 10.0
     contact_coef: tuple = (8.0, 80.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)

@@ -85,6 +85,7 @@ class RaceWrapper(Wrapper):
         gate_pass_coef: float | tuple[float, float] = 0.0,
         gate_pass_pos_coef: float | tuple[float, float] = 0.0,
         gate_pass_vel_coef: float | tuple[float, float] = 0.0,
+        use_radial_field: bool = False,
         min_vel: float = 0.5,
         max_vel: float = 2.0,
         cont_floor_safe_dist: float = 0.1,
@@ -244,14 +245,17 @@ class RaceWrapper(Wrapper):
             r_gate_pos = jp.exp(-2.0 * gate_dist)  # (num_envs,)
 
             # 2. Relative velocity (velocity projected onto gate_rel_pos)
-            ref_vel = (
-                gate_rel_pos
-                + (
-                    (1.0 / (gate_dist[:, None] + 1.0) - 0.8) * gate_rel_pos_proj_norm[:, None]
-                    + (1.0 / (10.0 * gate_dist[:, None] + 1.0) - 0.4)
+            if use_radial_field:
+                ref_vel = gate_rel_pos
+            else:
+                ref_vel = (
+                    gate_rel_pos
+                    + (
+                        (1.0 / (gate_dist[:, None] + 1.0) - 0.8) * gate_rel_pos_proj_norm[:, None]
+                        + (1.0 / (10.0 * gate_dist[:, None] + 1.0) - 0.4)
+                    )
+                    * gate_norm
                 )
-                * gate_norm
-            )
             ref_vel_unit = ref_vel / (jp.linalg.norm(ref_vel, axis=-1, keepdims=True) + 1e-8)
 
             ref_vel_unit = jp.where(race_data.target_gate == -1, gate_norm, ref_vel_unit)
@@ -446,6 +450,7 @@ class RecordRaceData(Wrapper):
         pos = np.array(self._record_pos)[:episode_length]
         vel = np.array(self._record_vel)[:episode_length]
         rpy = np.array(self._record_rpy)[:episode_length]
+        lap_time = episode_length / self.unwrapped.freq
 
         fig = plt.figure(figsize=(18, 12), constrained_layout=True)
         gs = GridSpec(nrows=3, ncols=4, figure=fig, hspace=0.05, wspace=0.05)
@@ -499,7 +504,7 @@ class RecordRaceData(Wrapper):
         axes[4].scatter(
             obstacles[:, 0], obstacles[:, 1], c="red", s=80, marker="x", label="Obstacles", zorder=5
         )
-        axes[4].set_title("Race Trajectory XY Plane")
+        axes[4].set_title(f"Race Trajectory XY Plane (Lap Time: {lap_time:.2f}s)")
         axes[4].set_xlabel("X Position (m)")
         axes[4].set_ylabel("Y Position (m)")
         axes[4].grid(True)

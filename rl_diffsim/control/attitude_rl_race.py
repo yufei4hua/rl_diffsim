@@ -23,11 +23,10 @@ os.environ["SCIPY_ARRAY_API"] = "1"
 from crazyflow.sim.visualize import draw_line, draw_points
 from drone_models.core import load_params
 
-# from rl_diffsim.bptt.bptt_agent import Agent
+from rl_diffsim.bptt.bptt_agent import Agent as BPTTAgent
 from rl_diffsim.control.controller import Controller
-# from rl_diffsim.shac.shac_agent import Agent
-
-from rl_diffsim.ppo.ppo_agent import Agent
+from rl_diffsim.ppo.ppo_agent import Agent as PPOAgent
+from rl_diffsim.shac.shac_agent import Agent as SHACAgent
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -75,8 +74,8 @@ class AttitudeRL(Controller):
         self._tick = 0
 
         # Load RL policy
-        self.algo_name = "ppo"
-        self.exp_name = "race"
+        self.algo_name = "bptt"
+        self.exp_name = "race_lv2"
         model_path = (
             Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
         )
@@ -90,12 +89,21 @@ class AttitudeRL(Controller):
                 num_layers -= 1
             obs_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
             act_dim = params["actor"]["params"][f"Dense_{num_layers}"]["kernel"].shape[1]
+        match self.algo_name:
+            case "ppo":
+                Agent = PPOAgent
+            case "shac":
+                Agent = SHACAgent
+            case "bptt":
+                Agent = BPTTAgent
+            case _:
+                raise ValueError(f"Unknown algo_name {self.algo_name}!")
         agent = Agent.create(
             key=jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=hidden_size
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-
+  
         # warm up jax policy
         obs_rl = self._obs_race(obs)
         obs_rl = jp.array([obs_rl])

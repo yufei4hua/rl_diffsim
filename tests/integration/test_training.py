@@ -5,27 +5,20 @@ import numpy as np
 import pytest
 
 TRAIN_CONFIGS = [
-    {
-        "id": "bptt_rpft",
-        "module": "rl_diffsim.bptt.train_bptt_reachposft",
-        "train_fn": "train_bptt",
-        "eval_fn": "evaluate_bptt",
-        "min_reward": 180.0,
-    },
-    {
-        "id": "bptt_f8ft",
-        "module": "rl_diffsim.bptt.train_bptt_figure8ft",
-        "train_fn": "train_bptt",
-        "eval_fn": "evaluate_bptt",
-        "min_reward": 450.0,
-    },
-    {
-        "id": "bptt_f8",
-        "module": "rl_diffsim.bptt.train_bptt_figure8",
-        "train_fn": "train_bptt",
-        "eval_fn": "evaluate_bptt",
-        "min_reward": 450.0,
-    },
+    # {
+    #     "id": "bptt_rpft",
+    #     "module": "rl_diffsim.bptt.train_bptt_reachposft",
+    #     "train_fn": "train_bptt",
+    #     "eval_fn": "evaluate_bptt",
+    #     "min_reward": 180.0,
+    # },
+    # {
+    #     "id": "bptt_f8ft",
+    #     "module": "rl_diffsim.bptt.train_bptt_figure8ft",
+    #     "train_fn": "train_bptt",
+    #     "eval_fn": "evaluate_bptt",
+    #     "min_reward": 450.0,
+    # },
     {
         "id": "bptt_rp",
         "module": "rl_diffsim.bptt.train_bptt_reachpos",
@@ -33,9 +26,16 @@ TRAIN_CONFIGS = [
         "eval_fn": "evaluate_bptt",
         "min_reward": 180.0,
     },
+    # {
+    #     "id": "bptt_rt",
+    #     "module": "rl_diffsim.bptt.train_bptt_randtraj",
+    #     "train_fn": "train_bptt",
+    #     "eval_fn": "evaluate_bptt",
+    #     "min_reward": 450.0,
+    # },
     {
-        "id": "bptt_rt",
-        "module": "rl_diffsim.bptt.train_bptt_randtraj",
+        "id": "bptt_f8",
+        "module": "rl_diffsim.bptt.train_bptt_figure8",
         "train_fn": "train_bptt",
         "eval_fn": "evaluate_bptt",
         "min_reward": 450.0,

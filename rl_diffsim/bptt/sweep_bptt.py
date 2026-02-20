@@ -93,7 +93,6 @@ sweep_configuration = {
         # "gate_vel_coef_1": {"distribution": "uniform", "min": 0.0, "max": 1.5},
         # "contact_coef_0": {"distribution": "uniform", "min": 0.0, "max": 30.0},
         # "contact_coef_1": {"distribution": "uniform", "min": 20.0, "max": 100.0},
-        
         "n_samples": {"distribution": "int_uniform", "min": 8, "max": 15},
         "samples_dt": {"distribution": "uniform", "min": 0.05, "max": 0.15},
         "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.25},

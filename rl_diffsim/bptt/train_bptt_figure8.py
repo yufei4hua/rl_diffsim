@@ -20,7 +20,6 @@ from rl_diffsim.bptt.bptt_agent_deterministic import Agent
 from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.envs.wrappers import (
     ActionPenalty,
-    AngleReward,
     FlattenJaxObservation,
     NormalizeActions,
     RecordData,

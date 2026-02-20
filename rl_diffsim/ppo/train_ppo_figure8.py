@@ -19,6 +19,7 @@ import wandb
 from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.envs.wrappers import (
     ActionPenalty,
+    AngleReward,
     FlattenJaxObservation,
     NormalizeActions,
     RecordData,

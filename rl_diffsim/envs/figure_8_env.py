@@ -212,16 +212,14 @@ class FigureEightEnv(DroneEnv):
             )
 
         if reset_velocity:
-            
-            def _reset_velocity(
-                data: SimData, mask: Array, ref_vel: Array
-            ) -> SimData:
-                data = data.replace(
-                    states=leaf_replace(data.states, mask, vel=ref_vel)
-                )
+
+            def _reset_velocity(data: SimData, mask: Array, ref_vel: Array) -> SimData:
+                data = data.replace(states=leaf_replace(data.states, mask, vel=ref_vel))
                 return data
 
-            reset_velocity_fn = functools.partial(_reset_velocity, ref_vel=trajectory_vel[:, 0:1, :])
+            reset_velocity_fn = functools.partial(
+                _reset_velocity, ref_vel=trajectory_vel[:, 0:1, :]
+            )
 
         sim.reset_pipeline += (reset_randomization, reset_rotor_randomization, reset_velocity_fn)
         sim.build_reset_fn()
@@ -267,11 +265,7 @@ class FigureEightEnv(DroneEnv):
             """Static method version of obs for jitting."""
             # idx = jp.clip(steps + sample_offsets[None, ...], 0, trajectories.shape[1] - 1)
             idx = steps + sample_offsets[None, ...]
-            idx = jp.where(
-                idx >= trajectories.shape[1],
-                idx - trajectories.shape[1],
-                idx,
-            )
+            idx = jp.where(idx >= trajectories.shape[1], idx - trajectories.shape[1], idx)
             dpos = trajectories[jp.arange(trajectories.shape[0])[:, None], idx] - pos
             local_samples = dpos.reshape(dpos.shape[0], dpos.shape[1] * dpos.shape[2])
             return local_samples

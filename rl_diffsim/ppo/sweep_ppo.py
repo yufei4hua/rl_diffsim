@@ -82,7 +82,6 @@ sweep_configuration = {
         # "gamma": {"min": 0.85, "max": 0.99},
         # "gae_lambda": {"min": 0.85, "max": 0.99},
         "hidden_size": {"values": [16, 24, 32]},
-
         # "seed": {"values": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
         # "num_envs": {"values": [1024, 2048]},
         # "num_steps": {"values": [48, 64, 96, 128]},

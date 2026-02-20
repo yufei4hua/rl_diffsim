@@ -607,7 +607,7 @@ class RealDroneEnv(RealDroneCoreEnv, Env):
             freq: Environment step frequency.
             pos_limit_low: Lower position limits for safety [x, y, z].
             pos_limit_high: Upper position limits for safety [x, y, z].
-            control_mode: Control mode of the drone.
+            control: Control mode of the drone.
             kwargs: Additional keyword arguments.
         """
         super().__init__(

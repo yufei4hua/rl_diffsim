@@ -103,7 +103,7 @@ class AttitudeRL(Controller):
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.last_action = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-  
+
         # warm up jax policy
         obs_rl = self._obs_race(obs)
         obs_rl = jp.array([obs_rl])
@@ -243,9 +243,7 @@ class AttitudeRL(Controller):
             velocity=obs["vel"].copy()[None, :],
             rpy=rpy[None, :],
         )
-        self.race_recorder.update_track(
-            gates=obs["gates_pos"], obstacles=obs["obstacles_pos"]
-        )
+        self.race_recorder.update_track(gates=obs["gates_pos"], obstacles=obs["obstacles_pos"])
 
         self._tick += 1
         return self._finished
@@ -253,6 +251,4 @@ class AttitudeRL(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
-        self.race_recorder.plot_eval(
-            save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png"
-        )
+        self.race_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png")

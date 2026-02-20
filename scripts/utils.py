@@ -286,7 +286,12 @@ class RaceRecorder:
     action_scale: NDArray
     action_mean: NDArray
 
-    def __init__(self, control: str = "attitude", action_scale: NDArray = np.ones(4), action_mean: NDArray = np.zeros(4)):
+    def __init__(
+        self,
+        control: str = "attitude",
+        action_scale: NDArray = np.ones(4),
+        action_mean: NDArray = np.zeros(4),
+    ):
         """Initialize the recorder."""
         self._record_act = []
         self._record_pos = []
@@ -328,7 +333,7 @@ class RaceRecorder:
         pos = np.array(self._record_pos)
         vel = np.array(self._record_vel)
         rpy = np.array(self._record_rpy)
-        lap_time = pos.shape[0] * 0.02 
+        lap_time = pos.shape[0] * 0.02
 
         fig = plt.figure(figsize=(18, 12), constrained_layout=True)
         gs = GridSpec(nrows=3, ncols=4, figure=fig, hspace=0.05, wspace=0.05)

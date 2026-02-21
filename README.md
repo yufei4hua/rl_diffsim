@@ -133,8 +133,8 @@ All training scripts support the following optional flags:
 | --- | --- |
 | -w False | Disable Weights & Biases logging |
 | -t False | Skip training and directly run evaluation |
-| -n N | Number of evaluation episodes |
-| -r False | Disable rendering during evaluation |
+| -n N | Evaluate multiple episodes |
+| -r True | Enable rendering during evaluation |
 | -p False | Disable plotting during evaluation |
 
 #### Example Usage

@@ -41,7 +41,7 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 400_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
     num_envs: int = 32
     """the number of parallel game environments"""
@@ -53,7 +53,7 @@ class Args:
     """Toggle learning rate annealing for policy networks"""
     anneal_critic_lr: bool = True
     """Toggle learning rate annealing for value networks"""
-    actor_lr: float = 1e-2
+    actor_lr: float = 8e-3
     """the learning rate of the actor optimizer"""
     critic_lr: float = 8e-4
     """the learning rate of the critic optimizer"""
@@ -77,18 +77,18 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Wrapper settings
-    min_vel: float = 0.66
-    max_vel: float = 2.2
+    min_vel: float = 0.7
+    max_vel: float = 3.6
     cont_floor_safe_dist: float = 0.05
-    cont_gate_safe_dist: float = 0.12
+    cont_gate_safe_dist: float = 0.15
     cont_obst_safe_dist: float = 0.22
-    gate_size: float = 0.20
+    gate_size: float = 0.3
     gate_pos_coef: float = 1.5
-    gate_vel_coef: tuple = (3.2, 1.1)
-    gate_pass_coef: float = 52.0
-    gate_pass_pos_coef: float = 8.0
-    gate_pass_vel_coef: float = 10.0
-    contact_coef: tuple = (8.0, 99.5)
+    gate_vel_coef: tuple = (3.6, 2.4)
+    gate_pass_coef: float = 64.0
+    gate_pass_pos_coef: float = 25.0
+    gate_pass_vel_coef: float = 30.0
+    contact_coef: tuple = (8.0, 80.0)
     act_coefs: tuple = (0.3, 0.3, 0.0, 0.1)
     d_act_coefs: tuple = (0.6, 0.6, 0.0, 0.3)
     """reward coefficients for training"""
@@ -599,8 +599,8 @@ def evaluate_shac(
         ]
         success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
         print(
-            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, \
-                Lap time: {steps / config.env.freq:.2f} s"
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)},",
+            f"Lap time: {steps / config.env.freq:.2f} s",
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
 
@@ -616,7 +616,7 @@ def evaluate_shac(
 
 # region Main
 def main(
-    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True, plot: bool = True
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = False, plot: bool = True
 ):
     """Main entry.
 

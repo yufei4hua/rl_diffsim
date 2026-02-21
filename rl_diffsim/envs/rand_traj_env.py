@@ -45,9 +45,7 @@ class RandTrajEnv(DroneEnv):
     # Non-jittable functions
     def render(self, world: int = 0, **kwargs: dict) -> None:
         """Override base class render to show random trajectory."""
-        idx = jp.clip(
-            self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1
-        )
+        idx = jp.clip(self.steps + self.sample_offsets[None, ...], 0, self.trajectories[0].shape[0] - 1)
         next_trajectory = self.trajectories[jp.arange(self.trajectories.shape[0])[:, None], idx]
         trajectories = np.array(self.trajectories)
         next_trajectory = np.array(next_trajectory)
@@ -58,13 +56,7 @@ class RandTrajEnv(DroneEnv):
             start_size=2.0,
             end_size=2.0,
         )
-        draw_line(
-            self.sim,
-            next_trajectory[world],
-            rgba=jp.array([1, 0, 0, 1]),
-            start_size=3.0,
-            end_size=3.0,
-        )
+        draw_line(self.sim, next_trajectory[world], rgba=jp.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
         draw_points(self.sim, next_trajectory[world], rgba=jp.array([1.0, 0, 0, 1]), size=0.01)
         self.sim.data = self.data
         return self.sim.render(world=world, **kwargs)
@@ -74,8 +66,7 @@ class RandTrajEnv(DroneEnv):
         cls,
         num_envs: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.so_rpy_rotor_drag,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.so_rpy_rotor_drag,
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
@@ -157,9 +148,7 @@ class RandTrajEnv(DroneEnv):
                 case "no_reset_rotor":
                     return _no_reset_rotor
 
-        reset_rotor_randomization = build_reset_rotor_fn(
-            physics if reset_rotor else "no_reset_rotor"
-        )
+        reset_rotor_randomization = build_reset_rotor_fn(physics if reset_rotor else "no_reset_rotor")
 
         if reset_randomization is None:
 
@@ -277,9 +266,7 @@ class RandTrajEnv(DroneEnv):
         def _terminated(pos: Array) -> Array:
             lower_bounds = jp.array([-4.0, -4.0, 0.0])
             upper_bounds = jp.array([4.0, 4.0, 4.0])
-            terminate = jp.any(
-                (pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1
-            )
+            terminate = jp.any((pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1)
             return terminate
 
         def _truncated(time: Array, max_episode_time: float) -> Array:
@@ -296,9 +283,7 @@ class RandTrajEnv(DroneEnv):
             low, high = action_space.low, action_space.high
             action = _sanitize_action(action, low, high)
             data = data.replace(
-                controls=data.controls.replace(
-                    attitude=data.controls.attitude.replace(staged_cmd=action)
-                )
+                controls=data.controls.replace(attitude=data.controls.attitude.replace(staged_cmd=action))
             )
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)

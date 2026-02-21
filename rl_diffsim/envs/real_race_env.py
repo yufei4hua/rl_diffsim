@@ -29,12 +29,7 @@ from drone_models.transform import force2pwm
 from gymnasium import Env
 from scipy.spatial.transform import Rotation as R
 
-from rl_diffsim.envs.race_utils import (
-    check_drone_start_pos,
-    check_race_track,
-    gate_passed,
-    load_track,
-)
+from rl_diffsim.envs.race_utils import check_drone_start_pos, check_race_track, gate_passed, load_track
 
 if TYPE_CHECKING:
     from ml_collections import ConfigDict
@@ -147,14 +142,10 @@ class RealRaceCoreEnv:
         self._drone_healthy = mp.Event()
         self._drone_healthy.set()
         self._ros_connector = ROSConnector(
-            estimator_names=self.drone_names,
-            cmd_topic=f"/drones/{self.drone_name}/command",
-            timeout=10.0,
+            estimator_names=self.drone_names, cmd_topic=f"/drones/{self.drone_name}/command", timeout=10.0
         )
         # Dynamic data
-        self.data = EnvData.create(
-            n_drones=self.n_drones, n_gates=self.n_gates, n_obstacles=self.n_obstacles
-        )
+        self.data = EnvData.create(n_drones=self.n_drones, n_gates=self.n_gates, n_obstacles=self.n_obstacles)
         self._jit()
 
     def _reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:
@@ -183,9 +174,7 @@ class RealRaceCoreEnv:
             )
         self.data.reset(np.stack([self._ros_connector.pos[n] for n in self.drone_names]))
 
-        self._connect_radio(
-            radio_id=self.rank, radio_channel=self.drone_channel, drone_id=self.drone_id
-        )
+        self._connect_radio(radio_id=self.rank, radio_channel=self.drone_channel, drone_id=self.drone_id)
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
         self._reset_drone()
 
@@ -242,9 +231,7 @@ class RealRaceCoreEnv:
         gates_pos = np.where(mask, self.gates.pos, self.gates.nominal_pos).astype(np.float32)
         gates_quat = np.where(mask, self.gates.quat, self.gates.nominal_quat).astype(np.float32)
         mask = self.data.obstacles_visited[..., None]
-        obstacles_pos = np.where(mask, self.obstacles.pos, self.obstacles.nominal_pos).astype(
-            np.float32
-        )
+        obstacles_pos = np.where(mask, self.obstacles.pos, self.obstacles.nominal_pos).astype(np.float32)
         drone_pos = np.stack([self._ros_connector.pos[drone] for drone in self.drone_names])
         drone_quat = np.stack([self._ros_connector.quat[drone] for drone in self.drone_names])
         drone_vel = np.stack([self._ros_connector.vel[drone] for drone in self.drone_names])
@@ -281,8 +268,7 @@ class RealRaceCoreEnv:
         terminated = self.data.target_gate == -1
         terminated[self.rank] |= not self._drone_healthy.is_set()
         terminated |= np.any(
-            (self.pos_limit_low > self.data.last_drone_pos)
-            | (self.data.last_drone_pos > self.pos_limit_high)
+            (self.pos_limit_low > self.data.last_drone_pos) | (self.data.last_drone_pos > self.pos_limit_high)
         )
 
         return terminated
@@ -335,9 +321,7 @@ class RealRaceCoreEnv:
             yaw_force = tau_z / thrust2torque
             torque_force = np.array([roll_force, pitch_force, yaw_force])
             torque_pwm = force2pwm(
-                torque_force,
-                self.drone_parameters["thrust_max"] * 4,
-                self.drone_parameters["pwm_max"],
+                torque_force, self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
             )
             # use attitude setpoint UI for force_torque command
             self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
@@ -346,16 +330,12 @@ class RealRaceCoreEnv:
             acc = np.zeros(3)  # currently we don't have acc command for RL policy
             quat = np.array([0.0, 0.0, 0.0, 1.0])  # currently no orientation command for RL policy
             rollrate, pitchrate, yawrate = 0.0, 0.0, 0.0  # currently no rate command for RL policy
-            self.drone.commander.send_full_state_setpoint(
-                pos, vel, acc, quat, rollrate, pitchrate, yawrate
-            )
+            self.drone.commander.send_full_state_setpoint(pos, vel, acc, quat, rollrate, pitchrate, yawrate)
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
             quat = R.from_euler("z", action[9]).as_quat()
             rollrate, pitchrate, yawrate = action[10:]
-            self.drone.commander.send_full_state_setpoint(
-                pos, vel, acc, quat, rollrate, pitchrate, yawrate
-            )
+            self.drone.commander.send_full_state_setpoint(pos, vel, acc, quat, rollrate, pitchrate, yawrate)
 
     def _update_track_poses(self):
         """Update the track poses from the motion capture system."""
@@ -401,12 +381,8 @@ class RealRaceCoreEnv:
 
         self.drone.fully_connected.add_callback(connect_callback)
         self.drone.disconnected.add_callback(lambda _: self._drone_healthy.clear())
-        self.drone.connection_failed.add_callback(
-            lambda _, msg: logger.warning(f"Connection failed: {msg}")
-        )
-        self.drone.connection_lost.add_callback(
-            lambda _, msg: logger.warning(f"Connection lost: {msg}")
-        )
+        self.drone.connection_failed.add_callback(lambda _, msg: logger.warning(f"Connection failed: {msg}"))
+        self.drone.connection_lost.add_callback(lambda _, msg: logger.warning(f"Connection lost: {msg}"))
         self.drone.open_link(uri)
 
         logger.info(f"Waiting for drone {drone_id} to connect...")
@@ -461,9 +437,7 @@ class RealRaceCoreEnv:
         FREQ = 50  # Hz
         START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
         TAKEOFF_DURATION = max(START_HEIGHT / 0.5, 0.5)  # s
-        MOVE_DURATION = max(
-            np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0
-        )  # s
+        MOVE_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0)  # s
         HOVER_DURATION = 2.0  # get ready for episode
         if use_attitude_interface:
             # use attitude interface to be compatible with UKF estimator
@@ -489,13 +463,9 @@ class RealRaceCoreEnv:
                 obs = {k: v[self.rank] for k, v in obs.items()}
                 action = start_controller.compute_control(obs, None)
                 pwm = force2pwm(
-                    action[3],
-                    self.drone_parameters["thrust_max"] * 4,
-                    self.drone_parameters["pwm_max"],
+                    action[3], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
                 )
-                pwm = np.clip(
-                    pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"]
-                )
+                pwm = np.clip(pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"])
                 action = (*np.rad2deg(action[:3]), int(pwm))
                 self.drone.commander.send_setpoint(*action)
                 self._ros_connector.publish_cmd(action)
@@ -551,9 +521,7 @@ class RealRaceCoreEnv:
         RETURN_HEIGHT = 1.75  # m
         BREAKING_DISTANCE = 0.5  # m
         BREAKING_DURATION = 2.0  # s
-        RETURN_DURATION = max(
-            np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0
-        )  # s
+        RETURN_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0)  # s
         LAND_DURATION = 3.0  # s
 
         def wait_for_action(dt: float):
@@ -590,9 +558,7 @@ class RealRaceCoreEnv:
         gate_pos = np.zeros((self.n_drones, 3), dtype=np.float32)
         gate_quat = np.zeros((self.n_drones, 4), dtype=np.float32)
         with jax.default_device(self.device):
-            jax.block_until_ready(
-                gate_passed(drone_pos, drone_pos, gate_pos, gate_quat, (0.45, 0.45))
-            )
+            jax.block_until_ready(gate_passed(drone_pos, drone_pos, gate_pos, gate_quat, (0.45, 0.45)))
 
     def close(self):
         """Close the environment.

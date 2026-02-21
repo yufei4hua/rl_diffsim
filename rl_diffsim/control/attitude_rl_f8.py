@@ -36,9 +36,7 @@ from scripts.utils import EvalRecorder
 class AttitudeRL(Controller):
     """Example of a controller using the collective thrust and attitude interface."""
 
-    def __init__(
-        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
-    ):
+    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None):
         """Initialize the attitude controller.
 
         Args:
@@ -60,9 +58,7 @@ class AttitudeRL(Controller):
         self.n_samples = 15
         self.samples_dt = 0.05
         self.trajectory_time = 4.0
-        self.sample_offsets = np.array(
-            np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
-        )
+        self.sample_offsets = np.array(np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
         self._tick = 0
 
         # Figure-8 trajectory
@@ -80,9 +76,7 @@ class AttitudeRL(Controller):
         # Load RL policy
         self.algo_name = "ppo"
         self.exp_name = "f8"
-        model_path = (
-            Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
-        )
+        model_path = Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
         with open(model_path, "rb") as f:
             import pickle
 
@@ -159,12 +153,9 @@ class AttitudeRL(Controller):
     def _scale_actions(self, actions: NDArray) -> NDArray:
         """Rescale and clip actions from [-1, 1] to [action_sim_low, action_sim_high]."""
         scale = np.array(
-            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0],
-            dtype=np.float32,
+            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0], dtype=np.float32
         )
-        mean = np.array(
-            [0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32
-        )
+        mean = np.array([0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32)
         return np.clip(actions, -1.0, 1.0) * scale + mean
 
     def _render(self):
@@ -172,15 +163,9 @@ class AttitudeRL(Controller):
         idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
         next_trajectory = self.trajectory[idx]
         draw_line(
-            self.sim,
-            self.trajectory[0:-1:2, :],
-            rgba=np.array([1, 1, 1, 0.4]),
-            start_size=2.0,
-            end_size=2.0,
+            self.sim, self.trajectory[0:-1:2, :], rgba=np.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0
         )
-        draw_line(
-            self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
-        )
+        draw_line(self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
         draw_points(self.sim, next_trajectory, rgba=np.array([1.0, 0, 0, 1]), size=0.01)
 
     def step_callback(

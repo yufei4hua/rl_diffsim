@@ -37,9 +37,7 @@ from scripts.utils import RaceRecorder
 class AttitudeRL(Controller):
     """Example of a controller using the collective thrust and attitude interface."""
 
-    def __init__(
-        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
-    ):
+    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None):
         """Initialize the attitude controller.
 
         Args:
@@ -57,28 +55,21 @@ class AttitudeRL(Controller):
         self.thrust_min = drone_params["thrust_min"] * 4  # min total thrust
         self.thrust_max = drone_params["thrust_max"] * 4  # max total thrust
         self.scale = np.array(
-            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0],
-            dtype=np.float32,
+            [np.pi / 2, np.pi / 2, np.pi / 2, (self.thrust_max - self.thrust_min) / 2.0], dtype=np.float32
         )
-        self.mean = np.array(
-            [0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32
-        )
+        self.mean = np.array([0.0, 0.0, 0.0, (self.thrust_max + self.thrust_min) / 2.0], dtype=np.float32)
 
         # # Set trajectory parameters
         self.n_samples = 10
         self.samples_dt = 0.1
         self.trajectory_time = 10.0
-        self.sample_offsets = np.array(
-            np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
-        )
+        self.sample_offsets = np.array(np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
         self._tick = 0
 
         # Load RL policy
         self.algo_name = "bptt"
         self.exp_name = "race_lv2"
-        model_path = (
-            Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
-        )
+        model_path = Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
         with open(model_path, "rb") as f:
             import pickle
 
@@ -131,9 +122,7 @@ class AttitudeRL(Controller):
             The collective thrust and orientation [r_des, p_des, y_des, t_des] as a numpy array.
         """
         i = min(self._tick, 6.0 * self.freq)  # 6 seconds max for the race
-        if obs["target_gate"] == -1 or i >= int(
-            6.0 * self.freq
-        ):  # Finish track or maximum duration reached
+        if obs["target_gate"] == -1 or i >= int(6.0 * self.freq):  # Finish track or maximum duration reached
             self._finished = True
 
         obs_rl = self._obs_race(obs)
@@ -210,15 +199,9 @@ class AttitudeRL(Controller):
         idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
         next_trajectory = self.trajectory[idx]
         draw_line(
-            self.sim,
-            self.trajectory[0:-1:2, :],
-            rgba=np.array([1, 1, 1, 0.4]),
-            start_size=2.0,
-            end_size=2.0,
+            self.sim, self.trajectory[0:-1:2, :], rgba=np.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0
         )
-        draw_line(
-            self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
-        )
+        draw_line(self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
         draw_points(self.sim, next_trajectory, rgba=np.array([1.0, 0, 0, 1]), size=0.01)
 
     def step_callback(

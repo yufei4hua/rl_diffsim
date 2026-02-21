@@ -36,9 +36,7 @@ from scripts.utils import EvalRecorder
 class RotvelRL(Controller):
     """Example of a controller using the collective thrust and rotor_vel interface."""
 
-    def __init__(
-        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
-    ):
+    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None):
         """Initialize the rotor_vel controller.
 
         Args:
@@ -65,9 +63,7 @@ class RotvelRL(Controller):
         self.n_samples = 1
         self.samples_dt = 0.1
         self.trajectory_time = 10.0
-        self.sample_offsets = np.array(
-            np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
-        )
+        self.sample_offsets = np.array(np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
         self._tick = 0
 
         # Figure-8 trajectory
@@ -87,9 +83,7 @@ class RotvelRL(Controller):
         # Load RL policy
         self.algo_name = "bptt"
         self.exp_name = "rprv"
-        model_path = (
-            Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
-        )
+        model_path = Path(__file__).parents[2] / f"saves/{self.algo_name}_{self.exp_name}_model.ckpt"
         with open(model_path, "rb") as f:
             import pickle
 
@@ -179,15 +173,9 @@ class RotvelRL(Controller):
         idx = np.clip(self._tick + self.sample_offsets, 0, self.trajectory.shape[0] - 1)
         next_trajectory = self.trajectory[idx]
         draw_line(
-            self.sim,
-            self.trajectory[0:-1:2, :],
-            rgba=np.array([1, 1, 1, 0.4]),
-            start_size=2.0,
-            end_size=2.0,
+            self.sim, self.trajectory[0:-1:2, :], rgba=np.array([1, 1, 1, 0.4]), start_size=2.0, end_size=2.0
         )
-        draw_line(
-            self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0
-        )
+        draw_line(self.sim, next_trajectory, rgba=np.array([1, 0, 0, 1]), start_size=3.0, end_size=3.0)
         draw_points(self.sim, next_trajectory, rgba=np.array([1.0, 0, 0, 1]), size=0.01)
 
     def step_callback(

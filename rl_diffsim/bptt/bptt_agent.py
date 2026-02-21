@@ -63,9 +63,7 @@ class Agent(struct.PyTreeNode):
         init_logstd = jp.broadcast_to(init_logstd[None, :], (1, act_dim))
         actor_params["params"]["actor_logstd"] = init_logstd
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
-        actor_states = train_state.TrainState.create(
-            apply_fn=actor.apply, params=actor_params, tx=actor_tx
-        )
+        actor_states = train_state.TrainState.create(apply_fn=actor.apply, params=actor_params, tx=actor_tx)
 
         # Build jittable actor and critic inference functions
         def _get_action_sample(params: dict, obs: Array, key: Array) -> tuple[Array, Array]:

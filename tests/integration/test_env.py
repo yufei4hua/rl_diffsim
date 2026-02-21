@@ -1,3 +1,5 @@
+"""Integration tests for environment structure and basic functionality."""
+
 from typing import Generator
 
 import flax.struct as struct
@@ -87,9 +89,7 @@ def test_rollout_scan_and_jit_shape(env: struct.PyTreeNode) -> None:
     # Start from a deterministic reset state
     env, _ = env.reset(env, seed=42)
 
-    def step_once(
-        env: struct.PyTreeNode, _
-    ) -> tuple[struct.PyTreeNode, tuple[jax.Array, jax.Array]]:
+    def step_once(env: struct.PyTreeNode, _) -> tuple[struct.PyTreeNode, tuple[jax.Array, jax.Array]]:
         """Single env step body for lax.scan."""
         base_action = jp.array([0.0, 0.0, 0.0, 0.4], dtype=jp.float32)
         action = jp.broadcast_to(base_action, env.action_space.shape)  # (num_envs, act_dim)

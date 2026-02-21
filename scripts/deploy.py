@@ -48,9 +48,7 @@ def main(config: str = "config.toml", controller: str | None = None):
         controller_cls = load_controller(controller_path)
         obs, info = env.reset()
         controller = controller_cls(obs, info, config, None)
-        att_controller = AttitudeController(
-            obs, info, config, None
-        )  # used for flying to start point
+        att_controller = AttitudeController(obs, info, config, None)  # used for flying to start point
 
         print("Moving to start position...")
         env._move_to_start(start_controller=att_controller)

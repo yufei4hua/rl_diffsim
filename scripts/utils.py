@@ -255,11 +255,7 @@ class EvalRecorder:
         # trajectory plot
         axes[11].plot(pos[:, 0, traj_plane[0]], pos[:, 0, traj_plane[1]], label="Actual")
         axes[11].plot(
-            goal[:, 0, traj_plane[0]],
-            goal[:, 0, traj_plane[1]],
-            linestyle="--",
-            linewidth=0.5,
-            label="Goal",
+            goal[:, 0, traj_plane[0]], goal[:, 0, traj_plane[1]], linestyle="--", linewidth=0.5, label="Goal"
         )
         axes[11].set_title(f"Trajectory Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
         axes[11].set_xlabel(f"{['X', 'Y', 'Z'][traj_plane[0]]} Position (m)")
@@ -269,9 +265,7 @@ class EvalRecorder:
         axes[11].axis("equal")
 
         plt.tight_layout()
-        plt.savefig(
-            Path(__file__).parents[1] / "saves" / save_path
-        )  # TODO: nicer way to get root path
+        plt.savefig(Path(__file__).parents[1] / "saves" / save_path)  # TODO: nicer way to get root path
 
         return fig
 
@@ -375,9 +369,7 @@ class RaceRecorder:
         lc_xy = LineCollection(segments_xy, cmap="turbo", linewidth=2)
         lc_xy.set_array(vel_norm[:-1])  # Use velocity at start of each segment
         line_xy = axes[4].add_collection(lc_xy)
-        axes[4].scatter(
-            gates[:, 0], gates[:, 1], c="green", s=80, marker="o", label="Gates", zorder=5
-        )
+        axes[4].scatter(gates[:, 0], gates[:, 1], c="green", s=80, marker="o", label="Gates", zorder=5)
         axes[4].scatter(
             obstacles[:, 0], obstacles[:, 1], c="red", s=80, marker="x", label="Obstacles", zorder=5
         )
@@ -398,9 +390,7 @@ class RaceRecorder:
         lc_xz = LineCollection(segments_xz, cmap="turbo", linewidth=2)
         lc_xz.set_array(vel_norm[:-1])  # Use velocity at start of each segment
         line_xz = axes[5].add_collection(lc_xz)
-        axes[5].scatter(
-            gates[:, 0], gates[:, 2], c="green", s=80, marker="o", label="Gates", zorder=5
-        )
+        axes[5].scatter(gates[:, 0], gates[:, 2], c="green", s=80, marker="o", label="Gates", zorder=5)
         axes[5].set_title("Race Trajectory XZ Plane")
         axes[5].set_xlabel("X Position (m)")
         axes[5].set_ylabel("Z Position (m)")

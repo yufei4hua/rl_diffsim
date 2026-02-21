@@ -43,9 +43,7 @@ class ReachPosEnv(DroneEnv):
     # Non-jittable functions
     def render(self, world: int = 0) -> None:
         """Override base class render to show reach position."""
-        draw_points(
-            self.sim, self.goal_pos[None, world], rgba=jp.array([1.0, 0, 0, 1.0]), size=0.01
-        )
+        draw_points(self.sim, self.goal_pos[None, world], rgba=jp.array([1.0, 0, 0, 1.0]), size=0.01)
         self.sim.data = self.data
         self.sim.render(world=world)
 
@@ -54,8 +52,7 @@ class ReachPosEnv(DroneEnv):
         cls,
         num_envs: int = 1,
         max_episode_time: float = 5.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.first_principles,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.first_principles,
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
@@ -148,9 +145,7 @@ class ReachPosEnv(DroneEnv):
             data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel))
             return data
 
-        reset_rotor_randomization = build_reset_rotor_fn(
-            physics if reset_rotor else "no_reset_rotor"
-        )
+        reset_rotor_randomization = build_reset_rotor_fn(physics if reset_rotor else "no_reset_rotor")
 
         reset_randomization = functools.partial(
             _reset_randomization, pmin=pos_min, pmax=pos_max, vmin=vel_min, vmax=vel_max
@@ -235,9 +230,7 @@ class ReachPosEnv(DroneEnv):
         def _terminated(pos: Array) -> Array:
             lower_bounds = jp.array([-4.0, -4.0, 0.0])
             upper_bounds = jp.array([4.0, 4.0, 4.0])
-            terminate = jp.any(
-                (pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1
-            )
+            terminate = jp.any((pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1)
             return terminate
 
         def _truncated(time: Array, max_episode_time: float) -> Array:

@@ -55,9 +55,7 @@ class Agent(struct.PyTreeNode):
         dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
         actor_params = actor.init(key, dummy_obs)
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
-        actor_states = train_state.TrainState.create(
-            apply_fn=actor.apply, params=actor_params, tx=actor_tx
-        )
+        actor_states = train_state.TrainState.create(apply_fn=actor.apply, params=actor_params, tx=actor_tx)
 
         # Build jittable actor and critic inference functions
         def _get_action_sample(params: dict, obs: Array, key: Array) -> tuple[Array, Array]:
@@ -82,12 +80,7 @@ if __name__ == "__main__":
     # initialization
     obs_dim, act_dim = 13, 4
     agent = Agent.create(
-        jax.random.PRNGKey(0),
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        hidden_size=64,
-        actor_lr=3e-4,
-        num_layers=2,
+        jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=64, actor_lr=3e-4, num_layers=2
     )
 
     obs = jp.ones((2, obs_dim), dtype=jp.float32)

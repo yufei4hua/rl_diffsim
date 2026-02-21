@@ -100,9 +100,7 @@ class RealDroneCoreEnv:
         self._last_drone_pos_update = 0  # Last time a position was sent to the drone estimator
 
         self._ros_connector = ROSConnector(
-            estimator_names=self.drone_names,
-            cmd_topic=f"/drones/{self.drone_name}/command",
-            timeout=10.0,
+            estimator_names=self.drone_names, cmd_topic=f"/drones/{self.drone_name}/command", timeout=10.0
         )
 
     def _reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple[dict, dict]:
@@ -220,9 +218,7 @@ class RealDroneCoreEnv:
             yaw_force = tau_z / thrust2torque
             torque_force = np.array([roll_force, pitch_force, yaw_force])
             torque_pwm = force2pwm(
-                torque_force,
-                self.drone_parameters["thrust_max"] * 4,
-                self.drone_parameters["pwm_max"],
+                torque_force, self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
             )
             # use attitude setpoint UI for force_torque command
             self.drone.commander.send_position_setpoint(*torque_pwm, thrust_pwm)
@@ -231,16 +227,12 @@ class RealDroneCoreEnv:
             acc = np.zeros(3)  # currently we don't have acc command for RL policy
             quat = np.array([0.0, 0.0, 0.0, 1.0])  # currently no orientation command for RL policy
             rollrate, pitchrate, yawrate = 0.0, 0.0, 0.0  # currently no rate command for RL policy
-            self.drone.commander.send_full_state_setpoint(
-                pos, vel, acc, quat, rollrate, pitchrate, yawrate
-            )
+            self.drone.commander.send_full_state_setpoint(pos, vel, acc, quat, rollrate, pitchrate, yawrate)
         else:
             pos, vel, acc = action[:3], action[3:6], action[6:9]
             quat = R.from_euler("z", action[9]).as_quat()
             rollrate, pitchrate, yawrate = action[10:]
-            self.drone.commander.send_full_state_setpoint(
-                pos, vel, acc, quat, rollrate, pitchrate, yawrate
-            )
+            self.drone.commander.send_full_state_setpoint(pos, vel, acc, quat, rollrate, pitchrate, yawrate)
 
     def _connect_to_drone(self, radio_id: int, radio_channel: int, drone_id: int) -> Crazyflie:
         cflib.crtp.init_drivers()
@@ -258,9 +250,7 @@ class RealDroneCoreEnv:
 
         drone.fully_connected.add_callback(connect_callback)
         drone.disconnected.add_callback(lambda _: self._drone_healthy.clear())
-        drone.connection_failed.add_callback(
-            lambda _, msg: logger.warning(f"Connection failed: {msg}")
-        )
+        drone.connection_failed.add_callback(lambda _, msg: logger.warning(f"Connection failed: {msg}"))
         drone.connection_lost.add_callback(lambda _, msg: logger.warning(f"Connection lost: {msg}"))
         drone.open_link(uri)
 
@@ -335,24 +325,26 @@ class RealDroneCoreEnv:
         def _on_state_log(ts_ms: int, data: dict, _logconf):
             self._state_log_ts_ms = ts_ms
             self._state_log_data = {
-                # "pos": np.array([data["stateEstimateZ.x"], data["stateEstimateZ.y"], data["stateEstimateZ.z"]], dtype=np.float32) / 1000.0,  # mm -> m
+                # "pos": np.array(
+                #     [data["stateEstimateZ.x"], data["stateEstimateZ.y"], data["stateEstimateZ.z"]],
+                #     dtype=np.float32,
+                # )
+                # / 1000.0,  # mm -> m
                 "vel": np.array(
-                    [
-                        data["stateEstimateZ.vx"],
-                        data["stateEstimateZ.vy"],
-                        data["stateEstimateZ.vz"],
-                    ],
+                    [data["stateEstimateZ.vx"], data["stateEstimateZ.vy"], data["stateEstimateZ.vz"]],
                     dtype=np.float32,
                 )
                 / 1000.0,  # mm/s -> m/s
-                # "acc": np.array([data["stateEstimateZ.ax"], data["stateEstimateZ.ay"], data["stateEstimateZ.az"]], dtype=np.float32) / 1000.0,  # mm/s² -> m/s²
+                # "acc": np.array(
+                #     [data["stateEstimateZ.ax"], data["stateEstimateZ.ay"], data["stateEstimateZ.az"]],
+                #     dtype=np.float32,
+                # )
+                # / 1000.0,  # mm/s² -> m/s²
                 # "quat": data["stateEstimateZ.quat"],  # compressed quaternion
                 "ang_vel": np.array(
                     [
                         data["stateEstimateZ.rateRoll"],
-                        -data[
-                            "stateEstimateZ.ratePitch"
-                        ],  # this data pack added a minus sign for pitch rate
+                        -data["stateEstimateZ.ratePitch"],  # this data pack added a minus sign for pitch rate
                         data["stateEstimateZ.rateYaw"],
                     ],
                     dtype=np.float32,
@@ -411,9 +403,7 @@ class RealDroneCoreEnv:
         FREQ = 50  # Hz
         START_HEIGHT = max(self.takeoff_pos[self.rank][2], 0.2)  # m
         TAKEOFF_DURATION = max(START_HEIGHT / 0.5, 0.5)  # s
-        MOVE_DURATION = max(
-            np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0
-        )  # s
+        MOVE_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 1.0)  # s
         HOVER_DURATION = 2.0  # get ready for episode
         if use_attitude_interface:
             # use attitude interface to be compatible with UKF estimator
@@ -439,13 +429,9 @@ class RealDroneCoreEnv:
                 obs = {k: v[self.rank] for k, v in obs.items()}
                 action = start_controller.compute_control(obs, None)
                 pwm = force2pwm(
-                    action[3],
-                    self.drone_parameters["thrust_max"] * 4,
-                    self.drone_parameters["pwm_max"],
+                    action[3], self.drone_parameters["thrust_max"] * 4, self.drone_parameters["pwm_max"]
                 )
-                pwm = np.clip(
-                    pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"]
-                )
+                pwm = np.clip(pwm, self.drone_parameters["pwm_min"], self.drone_parameters["pwm_max"])
                 action = (*np.rad2deg(action[:3]), int(pwm))
                 self.drone.commander.send_setpoint(*action)
                 self._ros_connector.publish_cmd(action)
@@ -501,9 +487,7 @@ class RealDroneCoreEnv:
         RETURN_HEIGHT = 1.75  # m
         BREAKING_DISTANCE = 0.0  # m
         BREAKING_DURATION = 1.0  # s
-        RETURN_DURATION = max(
-            np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0
-        )  # s
+        RETURN_DURATION = max(np.linalg.norm(self.takeoff_pos[self.rank][:2] - pos[:2]) / 1.0, 2.0)  # s
         LAND_DURATION = 3.0  # s
 
         def wait_for_action(dt: float):

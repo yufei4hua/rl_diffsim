@@ -26,10 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def simulate(
-    config: str = "config.toml",
-    controller: str | None = None,
-    n_runs: int = 1,
-    render: bool | None = True,
+    config: str = "config.toml", controller: str | None = None, n_runs: int = 1, render: bool | None = True
 ) -> tuple[list[float], list[float]]:
     """Evaluate the drone controller over multiple episodes.
 
@@ -76,9 +73,7 @@ def simulate(
             truncated = bool(truncated[0])
             total_reward += reward
             # Update the controller internal state and models.
-            controller_finished = controller.step_callback(
-                action, obs, reward, terminated, truncated, info
-            )
+            controller_finished = controller.step_callback(action, obs, reward, terminated, truncated, info)
             # Add up reward, collisions
             if terminated or truncated or controller_finished:
                 break

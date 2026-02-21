@@ -27,9 +27,7 @@ if TYPE_CHECKING:
 class StateController(Controller):
     """State controller following a pre-defined trajectory."""
 
-    def __init__(
-        self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None
-    ):
+    def __init__(self, obs: dict[str, NDArray[np.floating]], info: dict, config: dict, sim: object = None):
         """Initialization of the controller.
 
         Args:

@@ -168,9 +168,7 @@ class RaceWrapper(Wrapper):
                 ),
                 axis=-2,
             )
-            gate_corner_rel_pos = (
-                gate_rel_pos[:, None, :] + corner_offsets_world
-            )  # (num_envs, 4, 3)
+            gate_corner_rel_pos = gate_rel_pos[:, None, :] + corner_offsets_world  # (num_envs, 4, 3)
 
             # Relative xy-position to all obstacles
             obstacles_pos = obs["obstacles_pos"]  # (num_envs, n_obstacles, 2)
@@ -201,9 +199,7 @@ class RaceWrapper(Wrapper):
             dists = mjx_data._impl.contact.dist  # (num_envs, num_contacts)
             floor_dists = jp.where(floor_contact_masks[:, 0], dists - cont_floor_safe_dist, 0.0)
             gate_dists = jp.where(gate_contact_masks[:, 0], dists - cont_gate_safe_dist, 0.0)
-            obstacle_dists = jp.where(
-                obstacle_contact_masks[:, 0], dists - cont_obst_safe_dist, 0.0
-            )
+            obstacle_dists = jp.where(obstacle_contact_masks[:, 0], dists - cont_obst_safe_dist, 0.0)
             r_floor = jp.sum(jp.where(floor_dists < 0.0, -floor_dists * floor_dists, 0.0), axis=-1)
             r_gate = jp.sum(jp.where(gate_dists < 0.0, -gate_dists * gate_dists, 0.0), axis=-1)
             r_obstacle = jp.sum(
@@ -212,11 +208,7 @@ class RaceWrapper(Wrapper):
             return r_floor + r_gate + r_obstacle
 
         def _race_reward(
-            env: RaceWrapper,
-            data: SimData,
-            mjx_data: Data,
-            race_data: RaceData,
-            obs: dict[str, Array],
+            env: RaceWrapper, data: SimData, mjx_data: Data, race_data: RaceData, obs: dict[str, Array]
         ) -> Array:
             """Compute race reward for rl training.
 
@@ -234,9 +226,7 @@ class RaceWrapper(Wrapper):
             gate_norm = obs["gate_normal"]  # (num_envs, 3)
             gate_rel_pos_proj_norm = jp.sum(gate_rel_pos * gate_norm, axis=-1)  # (num_envs,)
             passed = (
-                jp.logical_or(
-                    race_data.target_gate > env.last_target_gate, race_data.target_gate == -1
-                )
+                jp.logical_or(race_data.target_gate > env.last_target_gate, race_data.target_gate == -1)
                 .astype(jp.float32)
                 .squeeze(-1)
             )  # (num_envs,)
@@ -269,7 +259,9 @@ class RaceWrapper(Wrapper):
             env = env.replace(last_target_gate=race_data.target_gate)
 
             # 5. Position & velocity bonus when passing gate
-            # gate_vel_diff = jp.linalg.norm(vel / jp.linalg.norm(vel, axis=-1, keepdims=True) - gate_norm, axis=-1)  # (num_envs,)
+            # gate_vel_diff = jp.linalg.norm(
+            #     vel / jp.linalg.norm(vel, axis=-1, keepdims=True) - gate_norm, axis=-1
+            # )  # (num_envs,)
             # r_gate_vel_aligned = jp.exp(-4.0 * gate_vel_diff)  # (num_envs,)
             r_pass_gate_pos = passed * r_gate_pos  # (num_envs,)
             r_pass_gate_vel = passed * r_gate_vel  # (num_envs,)
@@ -288,15 +280,6 @@ class RaceWrapper(Wrapper):
             rewards += k_gate_pass * r_pass_gate
             rewards += k_gate_pass_pos * r_pass_gate_pos
             rewards += k_gate_pass_vel * r_pass_gate_vel
-            # jax.debug.print("ref_vel: {ref_vel_unit}, gate_rel_vel_norm: {gate_rel_vel_norm}", ref_vel_unit=ref_vel_unit, gate_rel_vel_norm=gate_rel_vel_norm)
-            # jax.debug.print(
-            #     "r_pos: {r_gate_pos}, r_vel: {r_gate_vel}, r_coll: {r_collision}, r_pass: {r_pass_gate}, r_pass_diff: {r_pass_gate_diff}",
-            #     r_gate_pos=k_gate_pos * r_gate_pos,
-            #     r_gate_vel=k_gate_vel * r_gate_vel,
-            #     r_collision=k_contact * r_collision,
-            #     r_pass_gate=k_gate_pass * r_pass_gate,
-            #     r_pass_gate_diff=k_gate_pass_diff * r_pass_gate_diff,
-            # )
             return env, rewards
 
         # region Reset & Step
@@ -308,9 +291,7 @@ class RaceWrapper(Wrapper):
             race_obs = _race_obs(obs)
             obs = {**basic_obs, **race_obs}
             env = env.replace(
-                base=base_env,
-                progress_coef=0.0,
-                last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32),
+                base=base_env, progress_coef=0.0, last_target_gate=jp.zeros((n_envs, 1), dtype=jp.int32)
             )
             return env, (obs, info)
 
@@ -319,9 +300,7 @@ class RaceWrapper(Wrapper):
             basic_obs = _basic_obs(obs)  # (num_envs, 13)
             race_obs = _race_obs(obs)  # (num_envs, 15)
             obs = {**basic_obs, **race_obs}  # (num_envs, 28)
-            env, reward = _race_reward(
-                env, base_env.data, base_env.mjx_data, base_env.race_data, obs
-            )
+            env, reward = _race_reward(env, base_env.data, base_env.mjx_data, base_env.race_data, obs)
             if total_timesteps > 0:
                 progress_coef = env.progress_coef + env.num_envs / total_timesteps
             else:
@@ -367,9 +346,7 @@ class RecordRaceData(Wrapper):
         Returns:
             RecordRaceData: Configured wrapper instance.
         """
-        assert hasattr(base.unwrapped, "max_episode_time"), (
-            "Base env must have max_episode_time attribute"
-        )
+        assert hasattr(base.unwrapped, "max_episode_time"), "Base env must have max_episode_time attribute"
         max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
         num_envs = int(base.num_envs)
         act_dim = int(base.action_space.shape[-1])
@@ -498,9 +475,7 @@ class RecordRaceData(Wrapper):
         lc_xy = LineCollection(segments_xy, cmap="turbo", linewidth=2)
         lc_xy.set_array(vel_norm[:-1])  # Use velocity at start of each segment
         line_xy = axes[4].add_collection(lc_xy)
-        axes[4].scatter(
-            gates[:, 0], gates[:, 1], c="green", s=80, marker="o", label="Gates", zorder=5
-        )
+        axes[4].scatter(gates[:, 0], gates[:, 1], c="green", s=80, marker="o", label="Gates", zorder=5)
         axes[4].scatter(
             obstacles[:, 0], obstacles[:, 1], c="red", s=80, marker="x", label="Obstacles", zorder=5
         )
@@ -521,9 +496,7 @@ class RecordRaceData(Wrapper):
         lc_xz = LineCollection(segments_xz, cmap="turbo", linewidth=2)
         lc_xz.set_array(vel_norm[:-1])  # Use velocity at start of each segment
         line_xz = axes[5].add_collection(lc_xz)
-        axes[5].scatter(
-            gates[:, 0], gates[:, 2], c="green", s=80, marker="o", label="Gates", zorder=5
-        )
+        axes[5].scatter(gates[:, 0], gates[:, 2], c="green", s=80, marker="o", label="Gates", zorder=5)
         axes[5].set_title("Race Trajectory XZ Plane")
         axes[5].set_xlabel("X Position (m)")
         axes[5].set_ylabel("Z Position (m)")

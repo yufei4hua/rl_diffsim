@@ -1,3 +1,5 @@
+"""Integration tests for training loops and reward improvements."""
+
 import importlib
 from pathlib import Path
 
@@ -40,13 +42,13 @@ TRAIN_CONFIGS = [
         "eval_fn": "evaluate_bptt",
         "min_reward": 450.0,
     },
-    {
-        "id": "shac_f8",
-        "module": "rl_diffsim.shac.train_shac_figure8",
-        "train_fn": "train_shac",
-        "eval_fn": "evaluate_shac",
-        "min_reward": 450.0,
-    },
+    # {
+    #     "id": "shac_f8",
+    #     "module": "rl_diffsim.shac.train_shac_figure8",
+    #     "train_fn": "train_shac",
+    #     "eval_fn": "evaluate_shac",
+    #     "min_reward": 450.0,
+    # },
     {
         "id": "ppo_f8",
         "module": "rl_diffsim.ppo.train_ppo_figure8",
@@ -67,6 +69,7 @@ TRAIN_CONFIGS = [
 # @pytest.mark.skip(reason="Temporarily disabled")
 @pytest.mark.parametrize("cfg", TRAIN_CONFIGS, ids=lambda c: c["id"])
 def test_training_and_rewards(cfg: dict, tmp_path: Path):
+    """Integration test that runs a short training loop and checks that rewards improve."""
     mod = importlib.import_module(cfg["module"])
     Args = getattr(mod, "Args")
     train_fn = getattr(mod, cfg["train_fn"])

@@ -62,8 +62,7 @@ class RandTrajEnv(DroneEnv):
         cls,
         num_envs: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.so_rpy_rotor_drag,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.so_rpy_rotor_drag,
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
@@ -142,9 +141,7 @@ class RandTrajEnv(DroneEnv):
                 case "no_reset_rotor":
                     return _no_reset_rotor
 
-        reset_rotor_randomization = build_reset_rotor_fn(
-            physics if reset_rotor else "no_reset_rotor"
-        )
+        reset_rotor_randomization = build_reset_rotor_fn(physics if reset_rotor else "no_reset_rotor")
 
         if reset_randomization is None:
 
@@ -275,9 +272,7 @@ class RandTrajEnv(DroneEnv):
             _marked_for_reset = env._marked_for_reset.at[...].set(False)
             return env.replace(data=data, _marked_for_reset=_marked_for_reset), (_obs(data), {})
 
-        def _reward(
-            terminated: Array, pos: Array, goal_pos: Array, vel: Array, goal_vel: Array
-        ) -> Array:
+        def _reward(terminated: Array, pos: Array, goal_pos: Array, vel: Array, goal_vel: Array) -> Array:
             # distance to next trajectory point
             norm_distance = jp.linalg.norm(pos - goal_pos, axis=-1)
             norm_velocity = jp.linalg.norm(vel - goal_vel, axis=-1)
@@ -289,9 +284,7 @@ class RandTrajEnv(DroneEnv):
         def _terminated(pos: Array) -> Array:
             lower_bounds = jp.array([-4.0, -4.0, 0.0])
             upper_bounds = jp.array([4.0, 4.0, 4.0])
-            terminate = jp.any(
-                (pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1
-            )
+            terminate = jp.any((pos[:, 0, :] < lower_bounds) | (pos[:, 0, :] > upper_bounds), axis=-1)
             return terminate
 
         def _truncated(time: Array, max_episode_time: float) -> Array:
@@ -308,9 +301,7 @@ class RandTrajEnv(DroneEnv):
             low, high = action_space.low, action_space.high
             action = _sanitize_action(action, low, high)
             data = data.replace(
-                controls=data.controls.replace(
-                    attitude=data.controls.attitude.replace(staged_cmd=action)
-                )
+                controls=data.controls.replace(attitude=data.controls.attitude.replace(staged_cmd=action))
             )
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)

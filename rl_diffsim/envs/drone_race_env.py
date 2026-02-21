@@ -200,8 +200,7 @@ class DroneRaceEnv(DroneEnv):
         num_envs: int = 1,
         num_drones: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.first_principles,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.first_principles,
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
@@ -300,9 +299,7 @@ class DroneRaceEnv(DroneEnv):
                 case "no_reset_rotor":
                     return _no_reset_rotor
 
-        reset_rotor_randomization = build_reset_rotor_fn(
-            physics if reset_rotor else "no_reset_rotor"
-        )
+        reset_rotor_randomization = build_reset_rotor_fn(physics if reset_rotor else "no_reset_rotor")
         sim.reset_pipeline += (reset_rotor_randomization,)
 
         # Env settings
@@ -336,9 +333,7 @@ class DroneRaceEnv(DroneEnv):
             device=jax_device,
             gate_size=0.45,
         )
-        _randomize_track: Callable = build_track_randomization_fn(
-            randomizations, gate_ids, obstacle_ids
-        )
+        _randomize_track: Callable = build_track_randomization_fn(randomizations, gate_ids, obstacle_ids)
 
         # Create action/observation space
         single_action_space = create_action_space(control, sim.drone_model)
@@ -357,9 +352,7 @@ class DroneRaceEnv(DroneEnv):
             action = action + jax.lax.stop_gradient(action_clipped - action)
             return jp.array(action, device=jax_device).reshape((num_envs, num_drones, -1))
 
-        def _apply_action(
-            data: SimData, action: Array, control: Control, disturbances: dict
-        ) -> SimData:
+        def _apply_action(data: SimData, action: Array, control: Control, disturbances: dict) -> SimData:
             low, high = action_space.low, action_space.high
             action = _sanitize_action(action, low, high)
             if "action" in disturbances:
@@ -509,10 +502,7 @@ class DroneRaceEnv(DroneEnv):
             data, mjx_data, race_data = _reset_data(data, mjx_data, race_data)
             _marked_for_reset = env._marked_for_reset.at[...].set(False)
             return env.replace(
-                data=data,
-                mjx_data=mjx_data,
-                race_data=race_data,
-                _marked_for_reset=_marked_for_reset,
+                data=data, mjx_data=mjx_data, race_data=race_data, _marked_for_reset=_marked_for_reset
             ), (_obs(data, mjx_data, race_data), {})
 
         # region Step
@@ -532,11 +522,7 @@ class DroneRaceEnv(DroneEnv):
             return disabled
 
         def _step_race(
-            race_data: RaceData,
-            drone_pos: Array,
-            mocap_pos: Array,
-            mocap_quat: Array,
-            contacts: Array,
+            race_data: RaceData, drone_pos: Array, mocap_pos: Array, mocap_quat: Array, contacts: Array
         ) -> RaceData:
             """Step the environment data."""
             n_gates = len(race_data.gate_mj_ids)
@@ -566,9 +552,7 @@ class DroneRaceEnv(DroneEnv):
             dpos = drone_pos[..., None, :2] - gates_pos[:, None, :, :2]
             gates_visited = race_data.gates_visited | (jp.linalg.norm(dpos, axis=-1) < sensor_range)
             dpos = drone_pos[..., None, :2] - obstacles_pos[:, None, :, :2]
-            obstacles_visited = race_data.obstacles_visited | (
-                jp.linalg.norm(dpos, axis=-1) < sensor_range
-            )
+            obstacles_visited = race_data.obstacles_visited | (jp.linalg.norm(dpos, axis=-1) < sensor_range)
             race_data = race_data.replace(
                 last_drone_pos=drone_pos,
                 target_gate=target_gate,
@@ -592,14 +576,9 @@ class DroneRaceEnv(DroneEnv):
             (data, mjx_data), contacts = _contacts(data, mjx_data)
             race_data = _step_race(race_data, drone_pos, mocap_pos, mocap_quat, contacts)
             # 3. handle autoreset & update mask
-            data, mjx_data, race_data = _reset_data(
-                data, mjx_data, race_data, mask=_marked_for_reset
-            )
+            data, mjx_data, race_data = _reset_data(data, mjx_data, race_data, mask=_marked_for_reset)
             sim_time = data.core.steps / data.core.freq
-            terminated, truncated = (
-                _terminated(race_data),
-                _truncated(sim_time[..., 0], max_episode_time),
-            )
+            terminated, truncated = (_terminated(race_data), _truncated(sim_time[..., 0], max_episode_time))
             _marked_for_reset = _done(terminated, truncated)
             # 4. construct obs & rewards
             steps = data.core.steps // (sim.freq // freq)
@@ -609,13 +588,7 @@ class DroneRaceEnv(DroneEnv):
                 race_data=race_data,
                 steps=steps,
                 _marked_for_reset=_marked_for_reset,
-            ), (
-                _obs(data, mjx_data, race_data),
-                _reward(data, race_data),
-                terminated,
-                truncated,
-                _info(),
-            )
+            ), (_obs(data, mjx_data, race_data), _reward(data, race_data), terminated, truncated, _info())
 
         # Initialize reset mask and step count
         steps = jp.zeros((num_envs, 1), dtype=jp.int32, device=jax_device)

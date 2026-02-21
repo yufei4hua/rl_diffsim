@@ -87,9 +87,7 @@ class Agent(struct.PyTreeNode):
         critic_params = critic.init(k2, dummy_obs)
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
         critic_tx = optax.adamw(learning_rate=critic_lr, eps=1e-5)
-        actor_states = train_state.TrainState.create(
-            apply_fn=actor.apply, params=actor_params, tx=actor_tx
-        )
+        actor_states = train_state.TrainState.create(apply_fn=actor.apply, params=actor_params, tx=actor_tx)
         critic_states = train_state.TrainState.create(
             apply_fn=critic.apply, params=critic_params, tx=critic_tx
         )
@@ -111,9 +109,7 @@ class Agent(struct.PyTreeNode):
             """Get log probability and entropy of given action for training."""
             mean, logstd = actor.apply(params, obs)
             std = jp.exp(logstd)
-            logp = -0.5 * (
-                ((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi)
-            )
+            logp = -0.5 * (((action - mean) / (std + 1e-8)) ** 2 + 2.0 * logstd + jp.log(2.0 * jp.pi))
             logp = jp.sum(logp, axis=-1)
             entropy = jp.sum(0.5 * (1.0 + jp.log(2.0 * jp.pi)) + logstd, axis=-1)
             return logp, entropy
@@ -141,12 +137,7 @@ if __name__ == "__main__":
     # initialization
     obs_dim, act_dim = 13, 4
     agent = Agent.create(
-        jax.random.PRNGKey(0),
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        hidden_size=64,
-        actor_lr=3e-4,
-        critic_lr=1e-3,
+        jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=64, actor_lr=3e-4, critic_lr=1e-3
     )
 
     obs = jp.ones((2, obs_dim), dtype=jp.float32)

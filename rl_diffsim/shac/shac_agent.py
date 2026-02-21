@@ -86,9 +86,7 @@ class Agent(struct.PyTreeNode):
         critic_params = critic.init(k2, dummy_obs)
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
         critic_tx = optax.adamw(learning_rate=critic_lr, eps=1e-5)
-        actor_states = train_state.TrainState.create(
-            apply_fn=actor.apply, params=actor_params, tx=actor_tx
-        )
+        actor_states = train_state.TrainState.create(apply_fn=actor.apply, params=actor_params, tx=actor_tx)
         critic_states = train_state.TrainState.create(
             apply_fn=critic.apply, params=critic_params, tx=critic_tx
         )
@@ -128,12 +126,7 @@ if __name__ == "__main__":
     # initialization
     obs_dim, act_dim = 13, 4
     agent = Agent.create(
-        jax.random.PRNGKey(0),
-        obs_dim=obs_dim,
-        act_dim=act_dim,
-        hidden_size=64,
-        actor_lr=3e-4,
-        critic_lr=1e-3,
+        jax.random.PRNGKey(0), obs_dim=obs_dim, act_dim=act_dim, hidden_size=64, actor_lr=3e-4, critic_lr=1e-3
     )
 
     obs = jp.ones((2, obs_dim), dtype=jp.float32)

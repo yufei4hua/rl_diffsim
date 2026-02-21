@@ -193,9 +193,7 @@ def update_policy(
             )
 
         (envs, key, sum_rewards, next_discounts, next_obs, next_done), rollout_data = jax.lax.scan(
-            step_once,
-            (envs, key, sum_rewards, discounts, next_obs, next_done),
-            length=args.num_steps,
+            step_once, (envs, key, sum_rewards, discounts, next_obs, next_done), length=args.num_steps
         )
 
         return envs, rollout_data, next_discounts, next_obs, next_done, sum_rewards, key
@@ -214,14 +212,7 @@ def update_policy(
         )
         # compute loss as in SHAC paper Eq(5)
         losses = jp.sum(data.losses)
-        return losses / (args.num_envs * args.num_steps), (
-            envs,
-            data,
-            next_obs,
-            next_done,
-            sum_rewards,
-            key,
-        )
+        return losses / (args.num_envs * args.num_steps), (envs, data, next_obs, next_done, sum_rewards, key)
 
     policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
@@ -249,14 +240,8 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     print("Training on device:", jax_device)
 
     # make envs
-    r_coefs = {
-        "rpy_coef": args.rpy_coef,
-        "act_coefs": args.act_coefs,
-        "d_act_coefs": args.d_act_coefs,
-    }
-    envs = make_jitted_envs(
-        num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
-    )
+    r_coefs = {"rpy_coef": args.rpy_coef, "act_coefs": args.act_coefs, "d_act_coefs": args.d_act_coefs}
+    envs = make_jitted_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True)
 
     # setup annealing learning rate
     if args.anneal_actor_lr:
@@ -321,9 +306,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     # Run training loop using scan
     (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
-        train_iteration,
-        (envs, agent, key, next_obs, next_done, sum_rewards),
-        jp.arange(args.num_iterations),
+        train_iteration, (envs, agent, key, next_obs, next_done, sum_rewards), jp.arange(args.num_iterations)
     )
 
     next_obs.block_until_ready()
@@ -370,22 +353,14 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
 
 # region Evaluate
-def evaluate_bptt(
-    args: Args, n_eval: int, model_path: Path, render: bool
-) -> tuple[float, float, list, list]:
+def evaluate_bptt(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
     `n_eval` episodes with deterministic actions.
     """
-    r_coefs = {
-        "rpy_coef": args.rpy_coef,
-        "d_act_coefs": args.d_act_coefs,
-        "act_coefs": args.act_coefs,
-    }
-    eval_env = make_jitted_envs(
-        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
-    )
+    r_coefs = {"rpy_coef": args.rpy_coef, "d_act_coefs": args.d_act_coefs, "act_coefs": args.act_coefs}
+    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
     eval_env = RecordData.create(eval_env)
     agent = Agent.create(
         key=jax.random.PRNGKey(0),
@@ -450,9 +425,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
         train_bptt(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_bptt(
-            args, n_eval, model_path, render
-        )
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_bptt(args, n_eval, model_path, render)
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

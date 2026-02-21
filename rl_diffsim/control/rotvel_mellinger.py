@@ -73,9 +73,7 @@ class MellingerController(Controller):
         self.n_samples = 1
         self.samples_dt = 0.1
         self.trajectory_time = 10.0
-        self.sample_offsets = np.array(
-            np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int
-        )
+        self.sample_offsets = np.array(np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
         self._tick = 0
 
         # Figure-8 trajectory
@@ -167,7 +165,7 @@ class MellingerController(Controller):
         # 3. Step controllers
         self.data = self._ctrl_step(self.data)
         # 4. Extract command outputs
-        # rpyt_cmd = self.data.controls.attitude.cmd[0, 0, :] # TODO: publish this action to estimator, or use legacy
+        # rpyt_cmd = self.data.controls.attitude.cmd[0, 0, :] # TODO: use legacy estimator or publish cmds
         # if self._ros_connector is not None:
         #     self._ros_connector.publish_cmd(rpyt_cmd)
         # force_torque = self.data.controls.force_torque.cmd[0, 0, :]

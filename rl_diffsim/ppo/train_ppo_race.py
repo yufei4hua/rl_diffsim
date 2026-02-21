@@ -205,9 +205,7 @@ def collect_rollout(
     def step_once(carry: tuple, _) -> tuple[tuple, tuple]:
         env, key, sum_rewards, obs, dones = carry
         # 1. get action from policy
-        (action, logprob, entropy), key = agent.get_action_sample(
-            agent.actor_states.params, obs, key
-        )
+        (action, logprob, entropy), key = agent.get_action_sample(agent.actor_states.params, obs, key)
         value = agent.get_value(agent.critic_states.params, obs)
 
         # 2. step environment
@@ -249,9 +247,7 @@ def compute_gae(
     dones = jp.concatenate([data.dones, next_done[None, :]], axis=0)
     values = jp.concatenate([data.values, last_value[None, :]], axis=0)
 
-    def compute_gae_once(
-        carry: Array, inp: tuple[Array, Array, Array, Array]
-    ) -> tuple[Array, Array]:
+    def compute_gae_once(carry: Array, inp: tuple[Array, Array, Array, Array]) -> tuple[Array, Array]:
         """Compute one step of GAE in scan."""
         advantages = carry
         nextdone, nextvalues, curvalues, reward = inp
@@ -262,10 +258,7 @@ def compute_gae(
         return advantages, advantages
 
     _, advantages = jax.lax.scan(
-        compute_gae_once,
-        advantages,
-        (dones[1:], values[1:], values[:-1], data.rewards),
-        reverse=True,
+        compute_gae_once, advantages, (dones[1:], values[1:], values[:-1], data.rewards), reverse=True
     )
     data = data.replace(advantages=advantages, returns=advantages + data.values)
     return data
@@ -309,9 +302,7 @@ def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> fl
     grad_fn = jax.value_and_grad(loss_fn, argnums=(0, 1), has_aux=True)
 
     # batch: loop over epochs
-    def update_epoch(
-        carry: tuple[Agent, jax.random.PRNGKey], inp: int
-    ) -> tuple[Agent, jax.random.PRNGKey]:
+    def update_epoch(carry: tuple[Agent, jax.random.PRNGKey], inp: int) -> tuple[Agent, jax.random.PRNGKey]:
         agent, key = carry
         key, subkey = jax.random.split(key)
 
@@ -341,9 +332,7 @@ def update_policy(args: Args, agent: Agent, data: RolloutData, key: Array) -> fl
                 critic_states=agent.critic_states.apply_gradients(grads=g_critic),
             ), (pg_loss, v_loss, entropy_loss, approx_kl)
 
-        agent, (pg_loss, v_loss, entropy_loss, approx_kl) = jax.lax.scan(
-            update_minibatch, agent, minibatches
-        )
+        agent, (pg_loss, v_loss, entropy_loss, approx_kl) = jax.lax.scan(update_minibatch, agent, minibatches)
 
         return (agent, key), (pg_loss, v_loss, entropy_loss, approx_kl)
 
@@ -491,9 +480,7 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         (envs, agent, key, next_obs, next_done, sum_rewards),
         (all_data, all_pg_loss, all_v_loss, all_entropy_loss, all_approx_kl, all_explained_var),
     ) = jax.lax.scan(
-        train_iteration,
-        (envs, agent, key, next_obs, next_done, sum_rewards),
-        jp.arange(args.num_iterations),
+        train_iteration, (envs, agent, key, next_obs, next_done, sum_rewards), jp.arange(args.num_iterations)
     )
 
     next_obs.block_until_ready()
@@ -575,11 +562,7 @@ def evaluate_ppo(
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
-        num_envs=1,
-        jax_device=args.jax_device,
-        coefs=r_coefs,
-        config=config.env,
-        check_contacts=False,
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, config=config.env, check_contacts=False
     )
     eval_env = RecordRaceData.create(eval_env)
 
@@ -624,15 +607,14 @@ def evaluate_ppo(
         ]
         success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
         print(
-            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, \
+                Lap time: {steps / config.env.freq:.2f} s"
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
 
     success_count = np.sum(success_mask)
     episode_lengths = np.array(episode_lengths)
-    avg_lap_time = (
-        np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
-    )
+    avg_lap_time = np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
     print(f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s")
 
     eval_env.close()
@@ -642,11 +624,7 @@ def evaluate_ppo(
 
 # region Main
 def main(
-    wandb_enabled: bool = True,
-    train: bool = True,
-    n_eval: int = 1,
-    render: bool = True,
-    plot: bool = True,
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True, plot: bool = True
 ):
     """Main entry.
 

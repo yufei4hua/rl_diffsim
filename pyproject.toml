@@ -32,7 +32,7 @@ sim = [
     "packaging >= 24.0",
     "drone-models",
     "drone-controllers",
-    "crazyflow @ git+https://github.com/utiasDSL/crazyflow.git@dev", # TODO: wait for beta release
+    "crazyflow @ git+https://github.com/utiasDSL/crazyflow.git@0.1.0b0",
     "jax >= 0.7",
     "warp-lang",
 ]
@@ -78,23 +78,15 @@ exclude = [
     "docs/conf.py",
 ]
 
-line-length = 100
+line-length = 110
 indent-width = 4
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "D", "TCH", "ANN"]
+select = ["E", "F", "I", "D", "TCH", "ANN"]
 ignore = ["ANN401"]
 fixable = ["ALL"]
 unfixable = []
-
-[tool.ruff.lint.per-file-ignores]
-"benchmark/*" = ["D100", "D103"]
-"tests/*" = ["D100", "D103", "D104"]
-"examples/*" = ["D100", "D103"]
-"tutorials/*" = ["D", "ANN"]
-# TODO: Remove once everything is stable and document
-"crazyflow/*" = ["D100", "D101", "D102", "D104", "D107"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

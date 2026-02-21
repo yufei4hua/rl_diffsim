@@ -36,6 +36,8 @@ class Args:
     """seed of the experiment"""
     jax_device: str = "cpu"
     """environment device"""
+    exp_name: str = "shac_f8"
+    """environment device"""
     wandb_project_name: str = "rl-shac-f8"
     """the wandb's project name"""
     wandb_entity: str = "fresssack"
@@ -46,7 +48,7 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 72
     """the number of steps to run in each environment per policy rollout"""
     num_minibatches: int = 8
     """the number of mini-batches"""
@@ -54,7 +56,7 @@ class Args:
     """Toggle learning rate annealing for policy networks"""
     anneal_critic_lr: bool = True
     """Toggle learning rate annealing for value networks"""
-    actor_lr: float = 6e-2
+    actor_lr: float = 3.6e-2
     """the learning rate of the actor optimizer"""
     critic_lr: float = 4e-3
     """the learning rate of the critic optimizer"""
@@ -91,10 +93,7 @@ class Args:
         minibatch_size = int(batch_size // args.num_minibatches)
         num_iterations = args.total_timesteps // batch_size
         return replace(
-            args,
-            batch_size=batch_size,
-            minibatch_size=minibatch_size,
-            num_iterations=num_iterations,
+            args, batch_size=batch_size, minibatch_size=minibatch_size, num_iterations=num_iterations
         )
 
 
@@ -197,9 +196,7 @@ def update_policy(
             )
 
         (envs, key, sum_rewards, next_discounts, next_obs, next_done), rollout_data = jax.lax.scan(
-            step_once,
-            (envs, key, sum_rewards, discounts, next_obs, next_done),
-            length=args.num_steps,
+            step_once, (envs, key, sum_rewards, discounts, next_obs, next_done), length=args.num_steps
         )
 
         return envs, rollout_data, next_discounts, next_obs, next_done, sum_rewards, key
@@ -220,24 +217,11 @@ def update_policy(
         # compute loss as in SHAC paper Eq(5)
         last_value = agent.get_value(critic_params, next_obs)  # (args.num_envs, )
         losses = jp.sum(data.losses) - jp.sum(next_discounts * last_value)  # terminal value loss
-        return losses / (args.num_envs * args.num_steps), (
-            envs,
-            data,
-            next_obs,
-            next_done,
-            sum_rewards,
-            key,
-        )
+        return losses / (args.num_envs * args.num_steps), (envs, data, next_obs, next_done, sum_rewards, key)
 
     policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
-        envs,
-        agent.actor_states.params,
-        agent.critic_states.params,
-        next_obs,
-        next_done,
-        sum_rewards,
-        key,
+        envs, agent.actor_states.params, agent.critic_states.params, next_obs, next_done, sum_rewards, key
     )
 
     agent = agent.replace(actor_states=agent.actor_states.apply_gradients(grads=g_actor))
@@ -256,9 +240,7 @@ def compute_td_lambda(
     dones = jp.concatenate([data.dones, next_done[None, :]], axis=0)
     values = jp.concatenate([data.values, last_value[None, :]], axis=0)
 
-    def compute_td_lambda_once(
-        carry: Array, inp: tuple[Array, Array, Array, Array]
-    ) -> tuple[Array, Array]:
+    def compute_td_lambda_once(carry: Array, inp: tuple[Array, Array, Array, Array]) -> tuple[Array, Array]:
         """Compute one step of TD(lambda) in scan."""
         returns = carry
         nextdone, nextvalues, reward = inp
@@ -298,9 +280,7 @@ def update_value(args: Args, agent: Agent, data: RolloutData, key: Array) -> flo
     value_grad_fn = jax.value_and_grad(value_loss_fn)
 
     # batch: loop over epochs
-    def update_epoch(
-        carry: tuple[Agent, jax.random.PRNGKey], inp: int
-    ) -> tuple[Agent, jax.random.PRNGKey]:
+    def update_epoch(carry: tuple[Agent, jax.random.PRNGKey], inp: int) -> tuple[Agent, jax.random.PRNGKey]:
         agent, key = carry
         key, subkey = jax.random.split(key)
 
@@ -316,14 +296,9 @@ def update_value(args: Args, agent: Agent, data: RolloutData, key: Array) -> flo
         def update_minibatch(carry: Agent, minibatch: int) -> Agent:
             agent = carry
             v_loss, g_critic = value_grad_fn(
-                agent.critic_states.params,
-                minibatch.observations,
-                minibatch.returns,
-                minibatch.values,
+                agent.critic_states.params, minibatch.observations, minibatch.returns, minibatch.values
             )
-            return agent.replace(
-                critic_states=agent.critic_states.apply_gradients(grads=g_critic)
-            ), v_loss
+            return agent.replace(critic_states=agent.critic_states.apply_gradients(grads=g_critic)), v_loss
 
         agent, v_loss = jax.lax.scan(update_minibatch, agent, minibatches)
 
@@ -355,14 +330,8 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     print("Training on device:", jax_device)
 
     # make envs
-    r_coefs = {
-        "rpy_coef": args.rpy_coef,
-        "act_coefs": args.act_coefs,
-        "d_act_coefs": args.d_act_coefs,
-    }
-    envs = make_jitted_envs(
-        num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True
-    )
+    r_coefs = {"rpy_coef": args.rpy_coef, "act_coefs": args.act_coefs, "d_act_coefs": args.d_act_coefs}
+    envs = make_jitted_envs(num_envs=args.num_envs, jax_device=jax_device, coefs=r_coefs, reset_rotor=True)
 
     # setup annealing learning rate
     if args.anneal_actor_lr:
@@ -428,12 +397,7 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
         # 3. value update
         (agent, key), (v_loss, explained_var) = update_value(args, agent, data, key)
 
-        return (envs, agent, key, next_obs, next_done, sum_rewards), (
-            p_loss,
-            v_loss,
-            explained_var,
-            data,
-        )
+        return (envs, agent, key, next_obs, next_done, sum_rewards), (p_loss, v_loss, explained_var, data)
 
     # start the game
     train_start_time = time.time()
@@ -442,13 +406,10 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
     sum_rewards = jp.zeros((args.num_envs,))
     # envs, (next_obs, _) = envs.reset(envs, seed=args.seed) # already done in warmup
 
-    (
-        (envs, agent, key, next_obs, next_done, sum_rewards),
-        (p_losses, v_losses, explained_vars, all_data),
-    ) = jax.lax.scan(
-        training_step,
-        (envs, agent, key, next_obs, next_done, sum_rewards),
-        length=args.num_iterations,
+    ((envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, v_losses, explained_vars, all_data)) = (
+        jax.lax.scan(
+            training_step, (envs, agent, key, next_obs, next_done, sum_rewards), length=args.num_iterations
+        )
     )
 
     next_obs.block_until_ready()
@@ -497,22 +458,14 @@ def train_shac(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
 
 # region Evaluate
-def evaluate_shac(
-    args: Args, n_eval: int, model_path: Path, render: bool
-) -> tuple[float, float, list, list]:
+def evaluate_shac(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
     `n_eval` episodes with deterministic actions.
     """
-    r_coefs = {
-        "rpy_coef": args.rpy_coef,
-        "act_coefs": args.act_coefs,
-        "d_act_coefs": args.d_act_coefs,
-    }
-    eval_env = make_jitted_envs(
-        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True
-    )
+    r_coefs = {"rpy_coef": args.rpy_coef, "act_coefs": args.act_coefs, "d_act_coefs": args.d_act_coefs}
+    eval_env = make_jitted_envs(num_envs=1, jax_device=args.jax_device, coefs=r_coefs, reset_rotor=True)
     eval_env = RecordData.create(eval_env)
 
     agent = Agent.create(
@@ -552,7 +505,7 @@ def evaluate_shac(
         episode_lengths.append(steps)
         print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path="shac_eval_plot.png") if render else None
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
     rmse_pos = eval_env.calc_rmse()
 
     eval_env.close()
@@ -571,16 +524,14 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
       render: whether to render the environment during evaluation
     """
     args = Args.create()
-    model_path = Path(__file__).parents[2] / "saves/shac_model_flax.ckpt"
+    model_path = Path(__file__).parents[2] / f"saves/{args.exp_name}_model.ckpt"
     jax_device = args.jax_device
 
     if train:  # use "--train False" to skip training
         train_shac(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(
-            args, n_eval, model_path, render
-        )
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_shac(args, n_eval, model_path, render)
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

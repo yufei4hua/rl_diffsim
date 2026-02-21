@@ -113,9 +113,7 @@ class ActionTransform(Wrapper):
         scale = scale.at[:3].set(a_scale)
         mean = mean.at[:3].set(0.0)
 
-        def _step(
-            env: "ActionTransform", actions: Array
-        ) -> tuple["ActionTransform", tuple[Any, ...]]:
+        def _step(env: "ActionTransform", actions: Array) -> tuple["ActionTransform", tuple[Any, ...]]:
             # Normalize -> physical rotvec + thrust.
             actions = actions * scale + mean
 
@@ -190,9 +188,7 @@ class NormalizeActions(Wrapper):
             env = env.replace(base=base_env)
             return env, (obs, info)
 
-        def _step(
-            env: "NormalizeActions", actions: Array
-        ) -> tuple["NormalizeActions", tuple[Any, ...]]:
+        def _step(env: "NormalizeActions", actions: Array) -> tuple["NormalizeActions", tuple[Any, ...]]:
             # actions are expected in [-1, 1]; clip and rescale to simulator range
             action = jp.clip(actions, -1.0, 1.0) * scale + mean
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
@@ -357,11 +353,7 @@ class ActionNoise(Wrapper):
             return new_bias, new_additive
 
         return cls(
-            base=base,
-            rng_key=rng_key,
-            action_bias=action_bias,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
+            base=base, rng_key=rng_key, action_bias=action_bias, step=jax.jit(_step), reset=jax.jit(_reset)
         )
 
 
@@ -402,7 +394,7 @@ class ActionPenalty(Wrapper):
         act_coefs: tuple = (0.0,) * 4,
         d_act_coefs: tuple = (0.0,) * 4,
     ) -> "ActionPenalty":
-        """Create an ActionPenalty that augments observations with `last_action` and applies action-based penalties to rewards.
+        """Create an ActionPenalty that augments observations with `last_action` and applies action penalties.
 
         Parameters:
             base: The jittable environment to wrap.
@@ -476,9 +468,7 @@ class StackObs(Wrapper):
     def single_observation_space(self) -> spaces.Space:
         """Base single_observation_space augmented with `prev_obs`."""
         spec = {k: v for k, v in self.base.single_observation_space.items()}
-        spec["prev_obs"] = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(13 * self.n_obs,), dtype=np.float32
-        )
+        spec["prev_obs"] = spaces.Box(low=-np.inf, high=np.inf, shape=(13 * self.n_obs,), dtype=np.float32)
         return spaces.Dict(spec)
 
     @property
@@ -505,9 +495,7 @@ class StackObs(Wrapper):
         def _basic_obs(obs: dict[str, Array]) -> Array:
             """Extract the 13D basic observation [pos, quat, vel, ang_vel]."""
             basic_keys = ("pos", "quat", "vel", "ang_vel")
-            return jp.concatenate(
-                [jp.reshape(obs[k], (obs[k].shape[0], -1)) for k in basic_keys], axis=-1
-            )
+            return jp.concatenate([jp.reshape(obs[k], (obs[k].shape[0], -1)) for k in basic_keys], axis=-1)
 
         @jax.jit
         def _update_prev_obs(prev_obs: Array, obs: dict[str, Array]) -> Array:
@@ -536,9 +524,7 @@ class StackObs(Wrapper):
             env = env.replace(base=base_env, prev_obs=new_prev)
             return env, (obs, reward, terminated, truncated, info)
 
-        return cls(
-            base=base, n_obs=n_obs, prev_obs=prev_obs, step=jax.jit(_step), reset=jax.jit(_reset)
-        )
+        return cls(base=base, n_obs=n_obs, prev_obs=prev_obs, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
 # region FlattenObs
@@ -573,9 +559,7 @@ class FlattenJaxObservation(Wrapper):
         """
 
         def flatten_obs(observations: dict[str, Array]) -> Array:
-            return jp.concatenate(
-                [jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1
-            )
+            return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for k, v in observations.items()], axis=-1)
 
         def _reset(
             env: "FlattenJaxObservation", *, seed: int | None = None, options: dict | None = None
@@ -612,9 +596,7 @@ class ObsNoise(Wrapper):
     reset: Callable = struct.field(pytree_node=False)
 
     @classmethod
-    def create(
-        cls, base: struct.PyTreeNode, noise_std: float = 0.01, seed: int | None = 0
-    ) -> "ObsNoise":
+    def create(cls, base: struct.PyTreeNode, noise_std: float = 0.01, seed: int | None = 0) -> "ObsNoise":
         """Create an ObsNoise around `base`.
 
         Parameters:
@@ -656,11 +638,7 @@ class ObsNoise(Wrapper):
             return env, (obs, reward, terminated, truncated, info)
 
         return cls(
-            base=base,
-            noise_std=noise_std,
-            rng_key=rng_key,
-            step=jax.jit(_step),
-            reset=jax.jit(_reset),
+            base=base, noise_std=noise_std, rng_key=rng_key, step=jax.jit(_step), reset=jax.jit(_reset)
         )
 
 
@@ -689,9 +667,7 @@ class RecordData(Wrapper):
         Returns:
             RecordData: Configured wrapper instance.
         """
-        assert hasattr(base.unwrapped, "max_episode_time"), (
-            "Base env must have max_episode_time attribute"
-        )
+        assert hasattr(base.unwrapped, "max_episode_time"), "Base env must have max_episode_time attribute"
         max_T = int(base.unwrapped.max_episode_time * base.unwrapped.freq)
         num_envs = int(base.num_envs)
         act_dim = int(base.action_space.shape[-1])
@@ -828,11 +804,7 @@ class RecordData(Wrapper):
         # trajectory plot
         axes[11].plot(pos[:, 0, traj_plane[0]], pos[:, 0, traj_plane[1]], label="Actual")
         axes[11].plot(
-            goal[:, 0, traj_plane[0]],
-            goal[:, 0, traj_plane[1]],
-            linestyle="--",
-            linewidth=0.5,
-            label="Goal",
+            goal[:, 0, traj_plane[0]], goal[:, 0, traj_plane[1]], linestyle="--", linewidth=0.5, label="Goal"
         )
         axes[11].set_title(f"Trajectory Plane (RMSE: {rmse_pos * 1000:.3f} mm)")
         axes[11].set_xlabel(f"{['X', 'Y', 'Z'][traj_plane[0]]} Position (m)")
@@ -842,9 +814,7 @@ class RecordData(Wrapper):
         axes[11].axis("equal")
 
         plt.tight_layout()
-        plt.savefig(
-            Path(__file__).parents[2] / "saves" / save_path
-        )  # TODO: nicer way to get root path
+        plt.savefig(Path(__file__).parents[2] / "saves" / save_path)  # TODO: nicer way to get root path
 
         return fig
 

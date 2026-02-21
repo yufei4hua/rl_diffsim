@@ -112,8 +112,7 @@ class DroneEnv(struct.PyTreeNode):
         cls,
         num_envs: int = 1,
         max_episode_time: float = 10.0,
-        physics: Literal["so_rpy_rotor_drag", "first_principles"]
-        | Physics = Physics.first_principles,
+        physics: Literal["so_rpy_rotor_drag", "first_principles"] | Physics = Physics.first_principles,
         control: Control | str = Control.default,
         drone_model: str = "cf21B_500",
         freq: int = 500,
@@ -240,9 +239,7 @@ class DroneEnv(struct.PyTreeNode):
             low, high = action_space.low, action_space.high
             action = _sanitize_action(action, low, high)
             data = data.replace(
-                controls=data.controls.replace(
-                    attitude=data.controls.attitude.replace(staged_cmd=action)
-                )
+                controls=data.controls.replace(attitude=data.controls.attitude.replace(staged_cmd=action))
             )
             # 2. step sim for n_substeps
             data = sim._step(data, n_substeps)

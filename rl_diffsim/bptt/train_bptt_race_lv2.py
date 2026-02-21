@@ -216,9 +216,7 @@ def update_policy(
             )
 
         (envs, key, sum_rewards, next_discounts, next_obs, next_done), rollout_data = jax.lax.scan(
-            step_once,
-            (envs, key, sum_rewards, discounts, next_obs, next_done),
-            length=args.num_steps,
+            step_once, (envs, key, sum_rewards, discounts, next_obs, next_done), length=args.num_steps
         )
 
         return envs, rollout_data, next_discounts, next_obs, next_done, sum_rewards, key
@@ -237,14 +235,7 @@ def update_policy(
         )
         # compute loss as in SHAC paper Eq(5)
         losses = jp.sum(data.losses)
-        return losses / (args.num_envs * args.num_steps), (
-            envs,
-            data,
-            next_obs,
-            next_done,
-            sum_rewards,
-            key,
-        )
+        return losses / (args.num_envs * args.num_steps), (envs, data, next_obs, next_done, sum_rewards, key)
 
     policy_grad_fn = jax.value_and_grad(policy_loss_fn, argnums=(1,), has_aux=True)
     (p_loss, (envs, data, next_obs, next_done, sum_rewards, key)), (g_actor,) = policy_grad_fn(
@@ -360,9 +351,7 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
     # Run training loop using scan
     (envs, agent, key, next_obs, next_done, sum_rewards), (p_losses, all_data) = jax.lax.scan(
-        train_iteration,
-        (envs, agent, key, next_obs, next_done, sum_rewards),
-        jp.arange(args.num_iterations),
+        train_iteration, (envs, agent, key, next_obs, next_done, sum_rewards), jp.arange(args.num_iterations)
     )
 
     next_obs.block_until_ready()
@@ -441,11 +430,7 @@ def evaluate_bptt(
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race_lv2.toml")
     eval_env = make_jitted_envs(
-        num_envs=1,
-        jax_device=args.jax_device,
-        coefs=r_coefs,
-        config=config.env,
-        check_contacts=True,
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, config=config.env, check_contacts=True
     )
     eval_env = RecordRaceData.create(eval_env)
 
@@ -487,15 +472,14 @@ def evaluate_bptt(
         ]
         success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
         print(
-            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, Lap time: {steps / config.env.freq:.2f} s"
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, \
+                Lap time: {steps / config.env.freq:.2f} s"
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
 
     success_count = np.sum(success_mask)
     episode_lengths = np.array(episode_lengths)
-    avg_lap_time = (
-        np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
-    )
+    avg_lap_time = np.mean(episode_lengths[success_mask]) / config.env.freq if success_count > 0 else 10.0
     print(f"Success rate: {success_count}/{n_eval}, Average lap time: {avg_lap_time:.2f} s")
 
     eval_env.close()
@@ -505,11 +489,7 @@ def evaluate_bptt(
 
 # region Main
 def main(
-    wandb_enabled: bool = True,
-    train: bool = True,
-    n_eval: int = 1,
-    render: bool = True,
-    plot: bool = True,
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True, plot: bool = True
 ):
     """Main entry.
 

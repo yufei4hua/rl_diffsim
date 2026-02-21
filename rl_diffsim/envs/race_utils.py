@@ -70,9 +70,7 @@ def load_track(track: ConfigDict) -> tuple[ConfigDict, ConfigDict, ConfigDict]:
     assert "obstacles" in track, "Track must contain obstacles field."
     assert "drones" in track, "Track must contain drones field."
     gate_pos = np.array([g["pos"] for g in track.gates], dtype=np.float32)
-    gate_quat = (
-        R.from_euler("xyz", np.array([g["rpy"] for g in track.gates])).as_quat().astype(np.float32)
-    )
+    gate_quat = R.from_euler("xyz", np.array([g["rpy"] for g in track.gates])).as_quat().astype(np.float32)
     gates = {
         "pos": gate_pos,
         "quat": gate_quat,
@@ -92,11 +90,7 @@ def load_track(track: ConfigDict) -> tuple[ConfigDict, ConfigDict, ConfigDict]:
 @jax.jit
 @partial(vectorize, signature="(3),(3),(3),(4)->(),()", excluded=[4])
 def gate_passed(
-    drone_pos: Array,
-    last_drone_pos: Array,
-    gate_pos: Array,
-    gate_quat: Array,
-    gate_size: tuple[float, float],
+    drone_pos: Array, last_drone_pos: Array, gate_pos: Array, gate_quat: Array, gate_size: tuple[float, float]
 ) -> tuple[bool, bool]:
     """Check if the drone has passed the current gate.
 
@@ -412,9 +406,7 @@ def generate_random_track(
 
     # --- Helper: yaw adjustment ---
     def adjust_yaw(i: int, yaw: jnp.floating, gates: Array, candidate: Array) -> jnp.floating:
-        prev_pos = jax.lax.cond(
-            i == 0, lambda _: start_pos, lambda _: gates[i - 1, :2], operand=None
-        )
+        prev_pos = jax.lax.cond(i == 0, lambda _: start_pos, lambda _: gates[i - 1, :2], operand=None)
         travel_dir = candidate - prev_pos
         yaw += jnp.arctan2(travel_dir[1], travel_dir[0])
         return yaw % (2 * jnp.pi)
@@ -484,10 +476,7 @@ def generate_random_track(
 
         # mask_corridors = jnp.maximum(mask_corridors, corridor_mask.astype(jnp.float32))
         mask_corridors = (
-            corridor_mask_obstacles
-            * gate_distance_mask_obstacles
-            * obstacle_distance_mask
-            * start_pos_mask
+            corridor_mask_obstacles * gate_distance_mask_obstacles * obstacle_distance_mask * start_pos_mask
         )
 
         # sample obstacle pos
@@ -592,14 +581,10 @@ def check_race_track(
 
     low, high = rng_config.obstacle_pos.kwargs.minval, rng_config.obstacle_pos.kwargs.maxval
     for i, (pos, nominal_pos) in enumerate(zip(obstacles_pos, nominal_obstacles_pos)):
-        check_bounds(
-            f"obstacle{i + 1}", pos[:2], nominal_pos[:2], np.array(low[:2]), np.array(high[:2])
-        )
+        check_bounds(f"obstacle{i + 1}", pos[:2], nominal_pos[:2], np.array(low[:2]), np.array(high[:2]))
 
 
-def check_drone_start_pos(
-    nominal_pos: NDArray, real_pos: NDArray, rng_config: ConfigDict, drone_name: str
-):
+def check_drone_start_pos(nominal_pos: NDArray, real_pos: NDArray, rng_config: ConfigDict, drone_name: str):
     """Check if the real drone start position matches the settings.
 
     Args:
@@ -608,13 +593,9 @@ def check_drone_start_pos(
         rng_config: Environment randomization config.
         drone_name: Name of the drone (e.g. cf10).
     """
-    assert rng_config.drone_pos.fn == "uniform", (
-        "Drone start position check expects uniform distributions"
-    )
+    assert rng_config.drone_pos.fn == "uniform", "Drone start position check expects uniform distributions"
     tol_min, tol_max = rng_config.drone_pos.kwargs.minval, rng_config.drone_pos.kwargs.maxval
-    check_bounds(
-        drone_name, real_pos[:2], nominal_pos[:2], np.array(tol_min[:2]), np.array(tol_max[:2])
-    )
+    check_bounds(drone_name, real_pos[:2], nominal_pos[:2], np.array(tol_min[:2]), np.array(tol_max[:2]))
 
 
 def check_bounds(name: str, actual: NDArray, desired: NDArray, low: NDArray, high: NDArray):
@@ -663,8 +644,7 @@ def check_rotation(name: str, actual_rot: R, desired_rot: R, low: NDArray, high:
     diff = (actual - desired + np.pi) % (2 * np.pi) - np.pi
     if np.any(diff < low):
         raise RuntimeError(
-            f"{name} exceeds lower rotation tolerances ({low}).\n"
-            f"Rotation is: {actual}, should be: {desired}"
+            f"{name} exceeds lower rotation tolerances ({low}).\nRotation is: {actual}, should be: {desired}"
         )
     elif np.any(diff > high):
         raise RuntimeError(

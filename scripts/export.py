@@ -142,8 +142,7 @@ def export_header(
     for li, (k, b) in enumerate(layers[:-1]):  # exclude output layer
         if int(k.shape[1]) != hidden_size:
             raise ValueError(
-                f"Hidden layer width mismatch at layer {li}: "
-                f"expected out_dim={hidden_size}, got {k.shape[1]}"
+                f"Hidden layer width mismatch at layer {li}: expected out_dim={hidden_size}, got {k.shape[1]}"
             )
 
     # --- Parameter counting and memory footprint ---
@@ -242,10 +241,7 @@ def main() -> None:
     out_path = Path(__file__).parents[1] / f"saves/{args.exp_name}_policy_params.h"
 
     export_header(
-        ckpt_path=model_path,
-        out_path=out_path,
-        header_guard=args.guard,
-        prefix_comment=args.comment,
+        ckpt_path=model_path, out_path=out_path, header_guard=args.guard, prefix_comment=args.comment
     )
     print(f"Wrote header: {out_path}")
 

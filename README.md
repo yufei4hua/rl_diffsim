@@ -1,5 +1,12 @@
 # Reinforcement Learning with Differentiable Simulation for Quadrotors
 
+<p align="center">
+  <img src="saves/figure8_snapshot.png" width="45%" alt="Figure8 Tracking">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="saves/race_snapshot.png" width="45%" alt="Autonomous Drone Racing">
+</p>
+
+
 [![Ruff Check]][Ruff Check URL] [![Tests]][Tests URL]
 
 [Ruff Check]: https://github.com/yufei4hua/rl_diffsim/actions/workflows/ruff.yml/badge.svg?style=flat-square

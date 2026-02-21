@@ -1,5 +1,14 @@
 # Reinforcement Learning with Differentiable Simulation for Quadrotors
 
+[![Ruff Check]][Ruff Check URL] [![Tests]][Tests URL]
+
+[Ruff Check]: https://github.com/yufei4hua/rl_diffsim/actions/workflows/ruff.yml/badge.svg?style=flat-square
+[Ruff Check URL]: https://github.com/yufei4hua/rl_diffsim/actions/workflows/ruff.yml  
+
+[Tests]: https://github.com/yufei4hua/rl_diffsim/actions/workflows/testing.yml/badge.svg  
+[Tests URL]: https://github.com/yufei4hua/rl_diffsim/actions/workflows/testing.yml  
+
+
 ## Overview
 
 An implementation of a reinforcement learning framework for quadrotor control using differentiable simulation, built on top of [Crazyflow](https://github.com/utiasDSL/crazyflow) and [JAX](https://github.com/jax-ml/jax). The core idea is to leverage gradients through the simulator dynamics to train policies via backpropagation through time (BPTT), enabling highly sample-efficient policy learning.

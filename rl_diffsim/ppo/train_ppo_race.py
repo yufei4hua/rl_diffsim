@@ -45,19 +45,19 @@ class Args:
     """total timesteps of the experiments"""
     num_envs: int = 1024
     """the number of parallel game environments"""
-    num_steps: int = 48
+    num_steps: int = 64
     """the number of steps to run in each environment per policy rollout"""
-    num_minibatches: int = 48
+    num_minibatches: int = 64
     """the number of mini-batches"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    actor_lr: float = 6e-4
+    actor_lr: float = 2.5e-4
     """the learning rate of the actor optimizer"""
     critic_lr: float = 2.5e-3
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.93
+    gamma: float = 0.956
     """the discount factor gamma"""
-    gae_lambda: float = 0.96
+    gae_lambda: float = 0.945
     """the lambda for the general advantage estimation"""
     update_epochs: int = 15
     """the K epochs to update the policy"""
@@ -88,18 +88,18 @@ class Args:
 
     # Wrapper settings
     min_vel: float = 0.4
-    max_vel: float = 2.5
+    max_vel: float = 4.0
     cont_floor_safe_dist: float = 0.05
     cont_gate_safe_dist: float = 0.14
-    cont_obst_safe_dist: float = 0.25
+    cont_obst_safe_dist: float = 0.24
     gate_size: float = 0.6
     gate_pos_coef: float = 0.0
-    gate_vel_coef: float = 2.0
+    gate_vel_coef: float = 4.4
     gate_pass_coef: float = 10.0
     gate_pass_pos_coef: float = 0.0
     gate_pass_vel_coef: float = 0.0
-    contact_coef: float = 13.0
-    act_coefs: tuple = (0.4, 0.4, 0.0, 0.06)
+    contact_coef: float = 14.0
+    act_coefs: tuple = (0.16, 0.16, 0.0, 0.06)
     d_act_coefs: tuple = (1.0, 1.0, 0.0, 0.8)
     """reward coefficients for training"""
 
@@ -562,7 +562,7 @@ def evaluate_ppo(
     }
     config = load_config(Path(__file__).parents[2] / "scripts/config_race.toml")
     eval_env = make_jitted_envs(
-        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, config=config.env, check_contacts=False
+        num_envs=1, jax_device=args.jax_device, coefs=r_coefs, config=config.env, check_contacts=True
     )
     eval_env = RecordRaceData.create(eval_env)
 
@@ -607,8 +607,8 @@ def evaluate_ppo(
         ]
         success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
         print(
-            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, \
-                Lap time: {steps / config.env.freq:.2f} s"
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)},",
+            f"Lap time: {steps / config.env.freq:.2f} s",
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
 
@@ -624,7 +624,7 @@ def evaluate_ppo(
 
 # region Main
 def main(
-    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True, plot: bool = True
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = False, plot: bool = True
 ):
     """Main entry.
 

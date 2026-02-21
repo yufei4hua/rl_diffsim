@@ -91,7 +91,7 @@ python rl_diffsim/bptt/train_bptt_randtraj.py
 #### Drone Racing
 ```bash
 python rl_diffsim/bptt/train_bptt_race.py
-python rl_diffsim/bptt/train_bptt_race_lv2.py       # Level 2
+python rl_diffsim/bptt/train_bptt_race_lv2.py
 ```
 
 ### SHAC
@@ -100,7 +100,7 @@ python rl_diffsim/bptt/train_bptt_race_lv2.py       # Level 2
 
 ```bash
 python rl_diffsim/shac/train_shac_race.py
-python rl_diffsim/shac/train_shac_race_lv2.py       # Level 2
+python rl_diffsim/shac/train_shac_race_lv2.py
 ```
 
 ### PPO (Baseline)
@@ -109,7 +109,6 @@ python rl_diffsim/shac/train_shac_race_lv2.py       # Level 2
 
 ```bash
 python rl_diffsim/ppo/train_ppo_figure8.py
-python rl_diffsim/ppo/train_ppo_figure8ft.py        # Force torque interface
 ```
 
 #### Reach Position
@@ -122,7 +121,7 @@ python rl_diffsim/ppo/train_ppo_reachpos.py
 
 ```bash
 python rl_diffsim/ppo/train_ppo_race.py
-python rl_diffsim/ppo/train_ppo_race_lv2.py         # Level 2
+python rl_diffsim/ppo/train_ppo_race_lv2.py
 ```
 
 ### CL Arguments
@@ -151,5 +150,12 @@ Evaluate a trained model 10 times without retraining:
 python rl_diffsim/bptt/train_bptt_race.py -t False -n 10
 ```
 
+### Time the training
 
+For optimized training times, run a training script **twice** with **wandb logging disabled** to fully leverage the JAX cache.
 
+```bash
+python rl_diffsim/bptt/train_bptt_figure8.py -w False
+# then run again to see the best training time
+python rl_diffsim/bptt/train_bptt_figure8.py -w False
+```

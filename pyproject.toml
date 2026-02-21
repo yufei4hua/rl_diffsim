@@ -57,10 +57,6 @@ find = {}
 [tool.pytest.ini_options]
 markers = ["unit", "integration"]
 
-[tool.ruff.lint.isort]  # Prevent ruff from reporting conflicting settings with isort
-known-first-party = ["rl_diffsim"]
-split-on-trailing-comma = false
-
 [tool.ruff]
 src = ["."]
 # Exclude a variety of commonly ignored directories.
@@ -86,6 +82,9 @@ exclude = [
 line-length = 110
 indent-width = 4
 target-version = "py312"
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "D", "TCH", "ANN"]

@@ -24,6 +24,10 @@ from rl_diffsim.envs.drone_env import DroneEnv, create_action_space
 class RandTrajEnv(DroneEnv):
     """Random Trajectory Environment.
 
+    This is an experimental environment for training state command policys directly
+    on a trajectory following task. The observation includes the current position
+    and velocity error to the next trajectory point, as well as the commanded acceleration.
+
     This class defines a subclass of DroneEnv that contains environment data and jittable functions,
     allowing for efficient execution with JAX's JIT compilation. Pass env as an argument to jitted functions.
 

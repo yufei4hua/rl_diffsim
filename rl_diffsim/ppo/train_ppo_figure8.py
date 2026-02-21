@@ -485,7 +485,9 @@ def train_ppo(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
 
 # region Evaluate
-def evaluate_ppo(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
+def evaluate_ppo(
+    args: Args, n_eval: int, model_path: Path, render: bool, plot: bool = True
+) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
@@ -522,17 +524,16 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path, render: bool) -> tup
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render()
+            if render:
+                eval_env.render()
             done = terminated | truncated
             episode_reward += float(np.asarray(reward).item())
             steps += 1
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
-        # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
     rmse_pos = eval_env.calc_rmse()
     print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
 
@@ -542,7 +543,9 @@ def evaluate_ppo(args: Args, n_eval: int, model_path: Path, render: bool) -> tup
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
+def main(
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = False, plot: bool = True
+):
     """Main entry.
 
     Flags:
@@ -559,7 +562,7 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
         train_ppo(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path, render)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_ppo(args, n_eval, model_path, render, plot)
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

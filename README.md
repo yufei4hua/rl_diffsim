@@ -24,7 +24,7 @@ This project implements and compares gradient-based reinforcement learning algor
 
 - Refactored the entire RL training pipeline in pure JAX, achieving **~17×** speedup over the original PyTorch implementation.
 
-- The environment is fully **JAX-native** and supports Gym-like wrapper usage—no PyTorch dependencies.
+- The environments are fully **JAX-native** and support Gym-like wrappers usage—no PyTorch dependency.
 
 - Demonstrated **~70×** higher sample efficiency of BPTT over PPO while reducing wall-clock training time by **~50%**.
 
@@ -51,15 +51,15 @@ pixi shell -e gpu
 
 ## Training
 
-Training scripts are organized under:
+The repository is organized as:
 
 ```
 rl_diffsim/
-├── envs/          # JAX Environments
+├── envs/          # JAX-native Environments
 ├── control/       # Controllers for deployment
-├── bptt/          # Back-Propagation Through Time
-├── shac/          # Short Horizon Actor-Critic
-├── ppo/           # Proximal Policy Optimization
+├── bptt/          # Algo: BPTT
+├── shac/          # Algo: SHAC
+├── ppo/           # Algo: PPO
 saves/             # Saved models and plots
 scripts/           # Deploy scripts
 ```
@@ -72,7 +72,6 @@ Each algorithm provides standalone training scripts for different tasks.
 
 ```bash
 python rl_diffsim/bptt/train_bptt_figure8.py
-python rl_diffsim/bptt/train_bptt_figure8ft.py      # Force torque interface
 python rl_diffsim/bptt/train_bptt_figure8rv.py      # Rotor velocity interface
 ```
 
@@ -80,7 +79,6 @@ python rl_diffsim/bptt/train_bptt_figure8rv.py      # Rotor velocity interface
 
 ```bash
 python rl_diffsim/bptt/train_bptt_reachpos.py
-python rl_diffsim/bptt/train_bptt_reachposft.py     # Force torque interface
 python rl_diffsim/bptt/train_bptt_reachposrv.py     # Rotor velocity interface
 ```
 
@@ -88,23 +86,15 @@ python rl_diffsim/bptt/train_bptt_reachposrv.py     # Rotor velocity interface
 
 ```bash
 python rl_diffsim/bptt/train_bptt_randtraj.py
-python rl_diffsim/bptt/train_bptt_randtrajrv.py     # Rotor velocity interface
 ```
 
 #### Drone Racing
-
 ```bash
 python rl_diffsim/bptt/train_bptt_race.py
 python rl_diffsim/bptt/train_bptt_race_lv2.py       # Level 2
 ```
 
 ### SHAC
-
-#### Figure-8 Tracking
-
-```bash
-python rl_diffsim/shac/train_shac_figure8.py
-```
 
 #### Drone Racing
 

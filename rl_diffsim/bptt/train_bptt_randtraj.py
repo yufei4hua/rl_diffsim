@@ -343,7 +343,9 @@ def train_bptt(args: Args, model_path: Path, jax_device: str, wandb_enabled: boo
 
 
 # region Evaluate
-def evaluate_bptt(args: Args, n_eval: int, model_path: Path, render: bool) -> tuple[float, float, list, list]:
+def evaluate_bptt(
+    args: Args, n_eval: int, model_path: Path, render: bool, plot: bool = True
+) -> tuple[float, float, list, list]:
     """Evaluate the trained policy (Flax/Agent).
 
     Loads params from `model_path` (pickle of {'actor':..., 'critic':...}) and runs
@@ -386,8 +388,8 @@ def evaluate_bptt(args: Args, n_eval: int, model_path: Path, render: bool) -> tu
         while not done:
             action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, info) = eval_env.step(eval_env, action)
-            # if render:
-            #     eval_env.render(world=episode, mode="human")
+            if render:
+                eval_env.render(world=episode)
             # frames.append(np.array(rgb_array))  # VIDEO RECORDING
             done = (terminated | truncated)[episode]
             episode_reward += float(np.mean(reward).item())
@@ -395,9 +397,8 @@ def evaluate_bptt(args: Args, n_eval: int, model_path: Path, render: bool) -> tu
 
         episode_rewards.append(episode_reward)
         episode_lengths.append(steps)
-        # print(f"Episode {episode + 1}: Reward = {episode_reward:.2f}, Length = {steps}")
 
-    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if render else None
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
     rmse_pos = eval_env.calc_rmse()
     print(f"Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
 
@@ -413,7 +414,9 @@ def evaluate_bptt(args: Args, n_eval: int, model_path: Path, render: bool) -> tu
 
 
 # region Main
-def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True):
+def main(
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = False, plot: bool = True
+):
     """Main entry.
 
     Flags:
@@ -430,7 +433,9 @@ def main(wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render
         train_bptt(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:  # use "--n_eval <N>" to perform N evaluation episodes
-        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_bptt(args, n_eval, model_path, render)
+        fig, rmse_pos, episode_rewards, episode_lengths = evaluate_bptt(
+            args, n_eval, model_path, render, plot
+        )
         if wandb_enabled and train:
             logs = {
                 "eval/mean_rewards": np.mean(episode_rewards),

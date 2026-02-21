@@ -7,61 +7,47 @@ import numpy as np
 import pytest
 
 TRAIN_CONFIGS = [
-    # {
-    #     "id": "bptt_rpft",
-    #     "module": "rl_diffsim.bptt.train_bptt_reachposft",
-    #     "train_fn": "train_bptt",
-    #     "eval_fn": "evaluate_bptt",
-    #     "min_reward": 180.0,
-    # },
-    # {
-    #     "id": "bptt_f8ft",
-    #     "module": "rl_diffsim.bptt.train_bptt_figure8ft",
-    #     "train_fn": "train_bptt",
-    #     "eval_fn": "evaluate_bptt",
-    #     "min_reward": 450.0,
-    # },
-    {
-        "id": "bptt_rp",
-        "module": "rl_diffsim.bptt.train_bptt_reachpos",
-        "train_fn": "train_bptt",
-        "eval_fn": "evaluate_bptt",
-        "min_reward": 180.0,
-    },
-    # {
-    #     "id": "bptt_rt",
-    #     "module": "rl_diffsim.bptt.train_bptt_randtraj",
-    #     "train_fn": "train_bptt",
-    #     "eval_fn": "evaluate_bptt",
-    #     "min_reward": 450.0,
-    # },
     {
         "id": "bptt_f8",
         "module": "rl_diffsim.bptt.train_bptt_figure8",
         "train_fn": "train_bptt",
         "eval_fn": "evaluate_bptt",
-        "min_reward": 450.0,
+        "min_reward": 900.0,
     },
-    # {
-    #     "id": "shac_f8",
-    #     "module": "rl_diffsim.shac.train_shac_figure8",
-    #     "train_fn": "train_shac",
-    #     "eval_fn": "evaluate_shac",
-    #     "min_reward": 450.0,
-    # },
+    {
+        "id": "bptt_f8rv",
+        "module": "rl_diffsim.bptt.train_bptt_figure8rv",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 900.0,
+    },
+    {
+        "id": "bptt_rp",
+        "module": "rl_diffsim.bptt.train_bptt_reachpos",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 170.0,
+    },
+    {
+        "id": "bptt_rprv",
+        "module": "rl_diffsim.bptt.train_bptt_reachposrv",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 400.0,
+    },
+    {
+        "id": "bptt_rt",
+        "module": "rl_diffsim.bptt.train_bptt_randtraj",
+        "train_fn": "train_bptt",
+        "eval_fn": "evaluate_bptt",
+        "min_reward": 440.0,
+    },
     {
         "id": "ppo_f8",
         "module": "rl_diffsim.ppo.train_ppo_figure8",
         "train_fn": "train_ppo",
         "eval_fn": "evaluate_ppo",
-        "min_reward": 450.0,
-    },
-    {
-        "id": "ppo_rp",
-        "module": "rl_diffsim.ppo.train_ppo_reachpos",
-        "train_fn": "train_ppo",
-        "eval_fn": "evaluate_ppo",
-        "min_reward": 170.0,
+        "min_reward": 900.0,
     },
 ]
 

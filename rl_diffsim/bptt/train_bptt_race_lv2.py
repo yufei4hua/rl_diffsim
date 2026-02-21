@@ -472,8 +472,8 @@ def evaluate_bptt(
         ]
         success_mask[episode] = np.max(gates_passed) == eval_env.unwrapped.race_data.n_gates
         print(
-            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)}, \
-                Lap time: {steps / config.env.freq:.2f} s"
+            f"Collision cost: {episode_reward:.2f}, Gates passed: {np.max(gates_passed)},",
+            f"Lap time: {steps / config.env.freq:.2f} s",
         )
         fig = eval_env.plot_eval(save_path=f"{args.exp_name}_eval_plot.png") if plot else None
 
@@ -489,7 +489,7 @@ def evaluate_bptt(
 
 # region Main
 def main(
-    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = True, plot: bool = True
+    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = False, plot: bool = True
 ):
     """Main entry.
 

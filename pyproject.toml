@@ -57,10 +57,12 @@ find = {}
 [tool.pytest.ini_options]
 markers = ["unit", "integration"]
 
-# [tool.ruff.lint.isort]  # Prevent ruff from reporting conflicting settings with isort
-# split-on-trailing-comma = false
+[tool.ruff.lint.isort]  # Prevent ruff from reporting conflicting settings with isort
+known-first-party = ["rl_diffsim"]
+split-on-trailing-comma = false
 
 [tool.ruff]
+src = ["."]
 # Exclude a variety of commonly ignored directories.
 exclude = [
     ".git",

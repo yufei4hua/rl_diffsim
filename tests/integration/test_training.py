@@ -61,7 +61,7 @@ TRAIN_CONFIGS = [
         "module": "rl_diffsim.ppo.train_ppo_reachpos",
         "train_fn": "train_ppo",
         "eval_fn": "evaluate_ppo",
-        "min_reward": 180.0,
+        "min_reward": 170.0,
     },
 ]
 

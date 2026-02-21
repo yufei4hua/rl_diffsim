@@ -6,6 +6,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v1
+        with:
+          version: "0.14.8"
+          args: "check ."
 
   ruff-format:
     runs-on: ubuntu-latest

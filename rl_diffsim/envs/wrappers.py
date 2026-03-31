@@ -448,6 +448,124 @@ class ActionPenalty(Wrapper):
         )
 
 
+# region PrivilegedCriticObs
+@struct.dataclass
+class PrivilegedCriticObs(Wrapper):
+    """Wrapper for asymmetric actor-critic with privileged observations for TD3.
+
+    The actor sees standard observations (pos, quat, vel, ang_vel, last_actions).
+    The critic additionally sees privileged info: rotor velocities (4D).
+
+    Also implements the TD3 reward function:
+    r = -C_rp * ||p||^2 - C_rq * (1-q_w^2) - C_rv * ||v||^2 - C_rw * ||w||^2
+        - C_ra * ||a - hover||^2 + C_rs
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(
+        cls,
+        base: struct.PyTreeNode,
+        hover_action: Array = jp.array([0.25, 0.25, 0.25, 0.25]),
+        C_rp: float = 1.0,
+        C_rq: float = 0.1,
+        C_rv: float = 0.1,
+        C_rw: float = 0.1,
+        C_ra: float = 0.01,
+        C_rs: float = 0.1,
+    ) -> "PrivilegedCriticObs":
+        """Create a PrivilegedCriticObs wrapper.
+
+        Parameters:
+            base: The jittable environment to wrap (should have dict observations).
+            hover_action: Normalized hover action baseline for action penalty.
+            C_rp, C_rq, C_rv, C_rw, C_ra, C_rs: Reward coefficients.
+
+        Returns:
+            PrivilegedCriticObs: Configured wrapper instance.
+        """
+        hover_action = jp.array(hover_action, dtype=jp.float32)
+
+        def _flatten_obs(obs: dict[str, Array]) -> Array:
+            """Flatten dict observations to array."""
+            return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for v in obs.values()], axis=-1)
+
+        def _compute_reward(
+            obs: dict[str, Array], action: Array, base_reward: Array, terminated: Array
+        ) -> Array:
+            """Compute TD3 reward function.
+
+            r = -C_rp * ||p||^2 - C_rq * (1-q_w^2) - C_rv * ||v||^2 - C_rw * ||w||^2
+                - C_ra * ||a - hover||^2 + C_rs
+            """
+            pos = obs["pos"]  # (num_envs, 3) - relative to goal
+            quat = obs["quat"]  # (num_envs, 4)
+            vel = obs["vel"]  # (num_envs, 3)
+            ang_vel = obs["ang_vel"]  # (num_envs, 3)
+
+            # Position error (squared L2 norm)
+            r_pos = -C_rp * jp.sum(pos**2, axis=-1)
+
+            # Orientation error: penalize deviation from upright (q_w = 1 when upright)
+            # quat is [x, y, z, w] format, so w is at index 3
+            q_w = quat[:, 3]
+            r_quat = -C_rq * (1.0 - q_w**2)
+
+            # Velocity penalty
+            r_vel = -C_rv * jp.sum(vel**2, axis=-1)
+
+            # Angular velocity penalty
+            r_angvel = -C_rw * jp.sum(ang_vel**2, axis=-1)
+
+            # Action penalty (deviation from hover)
+            action_diff = action - hover_action
+            r_action = -C_ra * jp.sum(action_diff**2, axis=-1)
+
+            # Survival bonus
+            r_survival = C_rs
+
+            reward = r_pos + r_quat + r_vel + r_angvel + r_action + r_survival
+
+            # Zero reward on termination
+            reward = jp.where(terminated, 0.0, reward)
+
+            return reward
+
+        def _reset(
+            env: "PrivilegedCriticObs", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["PrivilegedCriticObs", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+
+            # Build critic obs: flattened actor obs + rotor velocities
+            actor_obs_flat = _flatten_obs(obs)
+            rotor_vel = env.unwrapped.data.states.rotor_vel[:, 0, :]  # (num_envs, 4)
+            critic_obs = jp.concatenate([actor_obs_flat, rotor_vel], axis=-1)
+            info["critic_obs"] = critic_obs
+
+            return env, (obs, info)
+
+        def _step(env: "PrivilegedCriticObs", action: Array) -> tuple["PrivilegedCriticObs", tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            env = env.replace(base=base_env)
+
+            # Compute TD3 reward (replaces base reward)
+            reward = _compute_reward(obs, action, reward, terminated)
+
+            # Build critic obs: flattened actor obs + rotor velocities
+            actor_obs_flat = _flatten_obs(obs)
+            rotor_vel = env.unwrapped.data.states.rotor_vel[:, 0, :]  # (num_envs, 4)
+            critic_obs = jp.concatenate([actor_obs_flat, rotor_vel], axis=-1)
+            info["critic_obs"] = critic_obs
+
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
+
 # region StackObs
 @struct.dataclass
 class StackObs(Wrapper):

@@ -465,6 +465,18 @@ class PrivilegedCriticObs(Wrapper):
     step: Callable = struct.field(pytree_node=False)
     reset: Callable = struct.field(pytree_node=False)
 
+    @property
+    def single_observation_space(self) -> spaces.Space:
+        """Base single_observation_space augmented with `~privileged_obs`."""
+        spec = {k: v for k, v in self.base.single_observation_space.items()}
+        spec["~privileged_obs"] = spaces.Box(low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32)
+        return spaces.Dict(spec)
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        """Batched observation space matching the wrapper's num_envs."""
+        return batch_space(self.single_observation_space, self.num_envs)
+
     @classmethod
     def create(
         cls,
@@ -488,10 +500,6 @@ class PrivilegedCriticObs(Wrapper):
             PrivilegedCriticObs: Configured wrapper instance.
         """
         hover_action = jp.array(hover_action, dtype=jp.float32)
-
-        def _flatten_obs(obs: dict[str, Array]) -> Array:
-            """Flatten dict observations to array."""
-            return jp.concatenate([jp.reshape(v, (v.shape[0], -1)) for v in obs.values()], axis=-1)
 
         def _compute_reward(
             obs: dict[str, Array], action: Array, base_reward: Array, terminated: Array
@@ -540,11 +548,9 @@ class PrivilegedCriticObs(Wrapper):
             base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
             env = env.replace(base=base_env)
 
-            # Build critic obs: flattened actor obs + rotor velocities
-            actor_obs_flat = _flatten_obs(obs)
+            # Add privileged obs: rotor velocities (key sorts last alphabetically)
             rotor_vel = env.unwrapped.data.states.rotor_vel[:, 0, :]  # (num_envs, 4)
-            critic_obs = jp.concatenate([actor_obs_flat, rotor_vel], axis=-1)
-            info["critic_obs"] = critic_obs
+            obs["~privileged_obs"] = rotor_vel
 
             return env, (obs, info)
 
@@ -555,11 +561,9 @@ class PrivilegedCriticObs(Wrapper):
             # Compute TD3 reward (replaces base reward)
             reward = _compute_reward(obs, action, reward, terminated)
 
-            # Build critic obs: flattened actor obs + rotor velocities
-            actor_obs_flat = _flatten_obs(obs)
+            # Add privileged obs: rotor velocities (key sorts last alphabetically)
             rotor_vel = env.unwrapped.data.states.rotor_vel[:, 0, :]  # (num_envs, 4)
-            critic_obs = jp.concatenate([actor_obs_flat, rotor_vel], axis=-1)
-            info["critic_obs"] = critic_obs
+            obs["~privileged_obs"] = rotor_vel
 
             return env, (obs, reward, terminated, truncated, info)
 

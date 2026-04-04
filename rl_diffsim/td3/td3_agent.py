@@ -83,15 +83,16 @@ class TD3Agent(struct.PyTreeNode):
     # Inference functions (not part of pytree)
     get_action_mean: Callable = struct.field(pytree_node=False)
     get_action_sample: Callable = struct.field(pytree_node=False)
+    get_random_action: Callable = struct.field(pytree_node=False)
     get_q: Callable = struct.field(pytree_node=False)
 
     @classmethod
     def create(
         cls,
         key: jax.random.PRNGKey,
-        actor_obs_dim: int,
-        critic_obs_dim: int,
+        obs_dim: int,
         act_dim: int,
+        actor_obs_dim: int | None = None,
         hidden_size: int = 64,
         num_layers: int = 2,
         actor_lr: float = 3e-4,
@@ -103,14 +104,15 @@ class TD3Agent(struct.PyTreeNode):
         critic = CriticNet(hidden_size=hidden_size, num_layers=num_layers)
 
         # Initialize parameters
+        actor_obs_dim = actor_obs_dim if actor_obs_dim is not None else obs_dim
         k1, k2, k3 = jax.random.split(key, 3)
-        dummy_actor_obs = jp.zeros((1, actor_obs_dim), dtype=jp.float32)
-        dummy_critic_obs = jp.zeros((1, critic_obs_dim), dtype=jp.float32)
+        dummy_obs = jp.zeros((1, obs_dim), dtype=jp.float32)
+        dummy_actor_obs = dummy_obs[..., :actor_obs_dim]  # Slice for actor input
         dummy_action = jp.zeros((1, act_dim), dtype=jp.float32)
 
         actor_params = actor.init(k1, dummy_actor_obs)
-        critic1_params = critic.init(k2, dummy_critic_obs, dummy_action)
-        critic2_params = critic.init(k3, dummy_critic_obs, dummy_action)
+        critic1_params = critic.init(k2, dummy_obs, dummy_action)
+        critic2_params = critic.init(k3, dummy_obs, dummy_action)
 
         # Create optimizers
         actor_tx = optax.adamw(learning_rate=actor_lr, eps=1e-5)
@@ -130,21 +132,27 @@ class TD3Agent(struct.PyTreeNode):
         target_critic1_params = critic1_params
         target_critic2_params = critic2_params
 
-        # Build jittable inference functions
+        # Build jittable inference functions (slice obs for actor)
         def _get_action_mean(params: dict, obs: Array) -> Array:
-            """Get deterministic action (for evaluation)."""
-            return actor.apply(params, obs)
+            """Get deterministic action (for evaluation). Slices first actor_obs_dim dims."""
+            return actor.apply(params, obs[..., :actor_obs_dim])
 
         def _get_action_sample(
             params: dict, obs: Array, key: Array, std: float, noise_clip: float | None = None
         ) -> tuple[Array, Array]:
-            """Get action with exploration noise (for training)."""
-            mean = actor.apply(params, obs)
+            """Get action with exploration noise (for training). Slices first actor_obs_dim dims."""
+            mean = actor.apply(params, obs[..., :actor_obs_dim])
             new_key, sub = jax.random.split(key)
             noise = jax.random.normal(sub, mean.shape, dtype=mean.dtype) * std
             if noise_clip is not None:
                 noise = jp.clip(noise, -noise_clip, noise_clip)
             action = jp.clip(mean + noise, -1.0, 1.0)
+            return action, new_key
+
+        def _get_random_action(num_envs: int, key: Array) -> tuple[Array, Array]:
+            """Get action with exploration noise (for training). Slices first actor_obs_dim dims."""
+            new_key, sub = jax.random.split(key)
+            action = jax.random.uniform(sub, (num_envs, act_dim), minval=-1.0, maxval=1.0, dtype=jp.float32)
             return action, new_key
 
         def _get_q(params: dict, obs: Array, action: Array) -> Array:
@@ -160,184 +168,9 @@ class TD3Agent(struct.PyTreeNode):
             target_critic2_params=target_critic2_params,
             get_action_mean=jax.jit(_get_action_mean),
             get_action_sample=jax.jit(_get_action_sample, static_argnames=("std", "noise_clip")),
+            get_random_action=jax.jit(_get_random_action, static_argnames=("num_envs",)),
             get_q=jax.jit(_get_q),
         )
-
-
-# region Replay Buffer
-
-
-class ReplayBuffer(struct.PyTreeNode):
-    """Preallocated circular replay buffer for off-policy learning.
-
-    Stores transitions with separate actor and critic observations for
-    asymmetric actor-critic training.
-    """
-
-    actor_obs: Array = struct.field(pytree_node=True)
-    critic_obs: Array = struct.field(pytree_node=True)
-    actions: Array = struct.field(pytree_node=True)
-    rewards: Array = struct.field(pytree_node=True)
-    next_actor_obs: Array = struct.field(pytree_node=True)
-    next_critic_obs: Array = struct.field(pytree_node=True)
-    dones: Array = struct.field(pytree_node=True)
-    ptr: Array = struct.field(pytree_node=True)
-    size: Array = struct.field(pytree_node=True)
-    capacity: int = struct.field(pytree_node=False)
-
-    # Jitted callables
-    add: Callable = struct.field(pytree_node=False)
-    sample: Callable = struct.field(pytree_node=False)
-    reset: Callable = struct.field(pytree_node=False)
-
-    @classmethod
-    def create(cls, capacity: int, actor_obs_dim: int, critic_obs_dim: int, act_dim: int) -> "ReplayBuffer":
-        """Create an empty preallocated replay buffer."""
-
-        def _add(
-            buffer: "ReplayBuffer",
-            actor_obs: Array,
-            critic_obs: Array,
-            action: Array,
-            reward: Array,
-            next_actor_obs: Array,
-            next_critic_obs: Array,
-            done: Array,
-        ) -> "ReplayBuffer":
-            """Add a batch of transitions to the buffer."""
-            batch_size = actor_obs.shape[0]
-            indices = (buffer.ptr + jp.arange(batch_size)) % capacity
-            return buffer.replace(
-                actor_obs=buffer.actor_obs.at[indices].set(actor_obs),
-                critic_obs=buffer.critic_obs.at[indices].set(critic_obs),
-                actions=buffer.actions.at[indices].set(action),
-                rewards=buffer.rewards.at[indices].set(reward),
-                next_actor_obs=buffer.next_actor_obs.at[indices].set(next_actor_obs),
-                next_critic_obs=buffer.next_critic_obs.at[indices].set(next_critic_obs),
-                dones=buffer.dones.at[indices].set(done),
-                ptr=(buffer.ptr + batch_size) % capacity,
-                size=jp.minimum(buffer.size + batch_size, capacity),
-            )
-
-        def _sample(buffer: "ReplayBuffer", batch_size: int, key: Array) -> dict[str, Array]:
-            """Sample a random batch of transitions."""
-            # Clamp size to capacity for safety (should already be bounded)
-            valid_size = jp.minimum(buffer.size, capacity)
-            indices = jax.random.randint(key, (batch_size,), 0, valid_size)
-            return {
-                "actor_obs": buffer.actor_obs[indices],
-                "critic_obs": buffer.critic_obs[indices],
-                "actions": buffer.actions[indices],
-                "rewards": buffer.rewards[indices],
-                "next_actor_obs": buffer.next_actor_obs[indices],
-                "next_critic_obs": buffer.next_critic_obs[indices],
-                "dones": buffer.dones[indices],
-            }
-
-        def _reset(buffer: "ReplayBuffer") -> "ReplayBuffer":
-            """Reset buffer by setting ptr and size to 0."""
-            return buffer.replace(ptr=jp.array(0, dtype=jp.int32), size=jp.array(0, dtype=jp.int32))
-
-        return cls(
-            actor_obs=jp.zeros((capacity, actor_obs_dim), dtype=jp.float32),
-            critic_obs=jp.zeros((capacity, critic_obs_dim), dtype=jp.float32),
-            actions=jp.zeros((capacity, act_dim), dtype=jp.float32),
-            rewards=jp.zeros((capacity,), dtype=jp.float32),
-            next_actor_obs=jp.zeros((capacity, actor_obs_dim), dtype=jp.float32),
-            next_critic_obs=jp.zeros((capacity, critic_obs_dim), dtype=jp.float32),
-            dones=jp.zeros((capacity,), dtype=jp.bool_),
-            ptr=jp.array(0, dtype=jp.int32),
-            size=jp.array(0, dtype=jp.int32),
-            capacity=capacity,
-            add=jax.jit(_add),
-            sample=jax.jit(_sample, static_argnames=("batch_size",)),
-            reset=jax.jit(_reset),
-        )
-
-
-# region Updates
-
-
-@functools.partial(jax.jit, static_argnames=("gamma", "policy_noise", "noise_clip"))
-def update_critics(
-    agent: TD3Agent, batch: dict[str, Array], gamma: float, policy_noise: float, noise_clip: float, key: Array
-) -> tuple[TD3Agent, float, Array]:
-    """Update twin critics using TD3 loss with target policy smoothing.
-
-    Returns:
-        Updated agent, critic loss, new random key
-    """
-    # Unpack batch
-    critic_obs = batch["critic_obs"]
-    actions = batch["actions"]
-    rewards = batch["rewards"]
-    next_critic_obs = batch["next_critic_obs"]
-    next_actor_obs = batch["next_actor_obs"]
-    dones = batch["dones"]
-
-    # Target policy smoothing: add clipped noise to target actions
-    target_actions, key = agent.get_action_sample(
-        agent.target_actor_params, next_actor_obs, key, std=policy_noise, noise_clip=noise_clip
-    )
-
-    # Compute target Q: min of twin Q targets
-    target_q1 = agent.get_q(agent.target_critic1_params, next_critic_obs, target_actions)
-    target_q2 = agent.get_q(agent.target_critic2_params, next_critic_obs, target_actions)
-    target_q = jp.minimum(target_q1, target_q2)
-    target_q = rewards + gamma * (1.0 - dones.astype(jp.float32)) * target_q
-
-    # Shared MSE loss function for both critics
-    def mse_loss(params: dict) -> Array:
-        q = agent.get_q(params, critic_obs, actions)
-        return jp.mean((q - target_q) ** 2)
-
-    c_grad_fn = jax.value_and_grad(mse_loss)
-
-    # Update both critics using the same loss function
-    c1_loss, c1_grads = c_grad_fn(agent.critic1_state.params)
-    c2_loss, c2_grads = c_grad_fn(agent.critic2_state.params)
-
-    critic1_state = agent.critic1_state.apply_gradients(grads=c1_grads)
-    critic2_state = agent.critic2_state.apply_gradients(grads=c2_grads)
-
-    agent = agent.replace(critic1_state=critic1_state, critic2_state=critic2_state)
-    critic_loss = (c1_loss + c2_loss) / 2.0
-
-    return agent, critic_loss, key
-
-
-@functools.partial(jax.jit, static_argnames=("tau",))
-def update_actor(agent: TD3Agent, batch: dict[str, Array], tau: float) -> tuple[TD3Agent, float]:
-    """Update actor to maximize Q1(s, actor(s)), then soft-update all target networks.
-
-    Returns:
-        Updated agent, actor loss
-    """
-    actor_obs = batch["actor_obs"]
-    critic_obs = batch["critic_obs"]
-
-    def actor_loss_fn(params: dict) -> Array:
-        actions = agent.get_action_mean(params, actor_obs)
-        # Use critic1 for actor update (TD3 uses Q1 only)
-        q1 = agent.get_q(agent.critic1_state.params, critic_obs, actions)
-        return -jp.mean(q1)  # Maximize Q
-
-    actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(agent.actor_state.params)
-    actor_state = agent.actor_state.apply_gradients(grads=actor_grads)
-
-    # Soft update all target networks
-    agent = agent.replace(
-        actor_state=actor_state,
-        target_actor_params=optax.incremental_update(actor_state.params, agent.target_actor_params, tau),
-        target_critic1_params=optax.incremental_update(
-            agent.critic1_state.params, agent.target_critic1_params, tau
-        ),
-        target_critic2_params=optax.incremental_update(
-            agent.critic2_state.params, agent.target_critic2_params, tau
-        ),
-    )
-
-    return agent, actor_loss
 
 
 if __name__ == "__main__":
@@ -349,7 +182,7 @@ if __name__ == "__main__":
     agent = TD3Agent.create(
         key=key,
         actor_obs_dim=actor_obs_dim,
-        critic_obs_dim=critic_obs_dim,
+        obs_dim=critic_obs_dim,
         act_dim=act_dim,
         hidden_size=64,
         actor_lr=3e-4,

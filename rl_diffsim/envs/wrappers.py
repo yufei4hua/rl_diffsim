@@ -455,10 +455,6 @@ class PrivilegedCriticObs(Wrapper):
 
     The actor sees standard observations (pos, quat, vel, ang_vel, last_actions).
     The critic additionally sees privileged info: rotor velocities (4D).
-
-    Also implements the TD3 reward function:
-    r = -C_rp * ||p||^2 - C_rq * (1-q_w^2) - C_rv * ||v||^2 - C_rw * ||w||^2
-        - C_ra * ||a - hover||^2 + C_rs
     """
 
     base: struct.PyTreeNode = struct.field(pytree_node=True)
@@ -478,69 +474,8 @@ class PrivilegedCriticObs(Wrapper):
         return batch_space(self.single_observation_space, self.num_envs)
 
     @classmethod
-    def create(
-        cls,
-        base: struct.PyTreeNode,
-        hover_action: Array = jp.array([0.25, 0.25, 0.25, 0.25]),
-        C_rp: float = 1.0,
-        C_rq: float = 0.1,
-        C_rv: float = 0.1,
-        C_rw: float = 0.1,
-        C_ra: float = 0.01,
-        C_rs: float = 0.1,
-    ) -> "PrivilegedCriticObs":
-        """Create a PrivilegedCriticObs wrapper.
-
-        Parameters:
-            base: The jittable environment to wrap (should have dict observations).
-            hover_action: Normalized hover action baseline for action penalty.
-            C_rp, C_rq, C_rv, C_rw, C_ra, C_rs: Reward coefficients.
-
-        Returns:
-            PrivilegedCriticObs: Configured wrapper instance.
-        """
-        hover_action = jp.array(hover_action, dtype=jp.float32)
-
-        def _compute_reward(
-            obs: dict[str, Array], action: Array, base_reward: Array, terminated: Array
-        ) -> Array:
-            """Compute TD3 reward function.
-
-            r = -C_rp * ||p||^2 - C_rq * (1-q_w^2) - C_rv * ||v||^2 - C_rw * ||w||^2
-                - C_ra * ||a - hover||^2 + C_rs
-            """
-            pos = obs["pos"]  # (num_envs, 3) - relative to goal
-            quat = obs["quat"]  # (num_envs, 4)
-            vel = obs["vel"]  # (num_envs, 3)
-            ang_vel = obs["ang_vel"]  # (num_envs, 3)
-
-            # Position error (squared L2 norm)
-            r_pos = -C_rp * jp.sum(pos**2, axis=-1)
-
-            # Orientation error: penalize deviation from upright (q_w = 1 when upright)
-            # quat is [x, y, z, w] format, so w is at index 3
-            q_w = quat[:, 3]
-            r_quat = -C_rq * (1.0 - q_w**2)
-
-            # Velocity penalty
-            r_vel = -C_rv * jp.sum(vel**2, axis=-1)
-
-            # Angular velocity penalty
-            r_angvel = -C_rw * jp.sum(ang_vel**2, axis=-1)
-
-            # Action penalty (deviation from hover)
-            action_diff = action - hover_action
-            r_action = -C_ra * jp.sum(action_diff**2, axis=-1)
-
-            # Survival bonus
-            r_survival = C_rs
-
-            reward = r_pos + r_quat + r_vel + r_angvel + r_action + r_survival
-
-            # Zero reward on termination
-            reward = jp.where(terminated, 0.0, reward)
-
-            return reward
+    def create(cls, base: struct.PyTreeNode) -> "PrivilegedCriticObs":
+        """Create a PrivilegedCriticObs wrapper."""
 
         def _reset(
             env: "PrivilegedCriticObs", *, seed: int | None = None, options: dict | None = None
@@ -557,11 +492,6 @@ class PrivilegedCriticObs(Wrapper):
         def _step(env: "PrivilegedCriticObs", action: Array) -> tuple["PrivilegedCriticObs", tuple[Any, ...]]:
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
             env = env.replace(base=base_env)
-
-            # Compute TD3 reward (replaces base reward)
-            reward = _compute_reward(obs, action, reward, terminated)
-
-            # Add privileged obs: rotor velocities (key sorts last alphabetically)
             rotor_vel = env.unwrapped.data.states.rotor_vel[:, 0, :]  # (num_envs, 4)
             obs["~privileged_obs"] = rotor_vel
 
@@ -647,6 +577,67 @@ class StackObs(Wrapper):
             return env, (obs, reward, terminated, truncated, info)
 
         return cls(base=base, n_obs=n_obs, prev_obs=prev_obs, step=jax.jit(_step), reset=jax.jit(_reset))
+
+
+# region StopLargeAngVel
+@struct.dataclass
+class StopLargeAngVel(Wrapper):
+    """Wrapper to terminate episodes when angular velocity exceeds a threshold.
+
+    This helps prevent NaN issues caused by extreme angular velocities that can
+    arise from large action outputs during early training.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode, ang_vel_threshold: float = 100.0) -> "StopLargeAngVel":
+        """Create a StopLargeAngVel wrapper around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+            ang_vel_threshold: Maximum allowed angular velocity magnitude (rad/s).
+                               Episodes terminate if any component exceeds this.
+
+        Returns:
+            StopLargeAngVel: Configured wrapper instance.
+        """
+
+        def _replace_unwrapped(
+            node: struct.PyTreeNode, new_unwrapped: struct.PyTreeNode
+        ) -> struct.PyTreeNode:
+            """Recursively replace the unwrapped env in a wrapper chain."""
+            if not hasattr(node, "base"):
+                return new_unwrapped
+            return node.replace(base=_replace_unwrapped(node.base, new_unwrapped))
+
+        def _reset(
+            env: "StopLargeAngVel", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["StopLargeAngVel", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def _step(env: "StopLargeAngVel", actions: Array) -> tuple["StopLargeAngVel", tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
+
+            # Check angular velocity threshold
+            ang_vel = obs["ang_vel"]  # (num_envs, 3)
+            ang_vel_exceeded = jp.any(jp.abs(ang_vel) > ang_vel_threshold, axis=-1)
+            terminated = terminated | ang_vel_exceeded
+
+            # Update _marked_for_reset so the base env will reset these envs on next step
+            new_marked = base_env.unwrapped._marked_for_reset | ang_vel_exceeded
+            unwrapped = base_env.unwrapped.replace(_marked_for_reset=new_marked)
+            base_env = _replace_unwrapped(base_env, unwrapped)
+
+            env = env.replace(base=base_env)
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
 # region FlattenObs

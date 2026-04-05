@@ -347,14 +347,9 @@ def update_policy(
 
         # === Critic Update ===
         # Target policy smoothing
-        key, noise_key = jax.random.split(key)
-        target_actions = agent.get_action_mean(agent.target_actor_params, next_obs)
-        noise = jp.clip(
-            jax.random.normal(noise_key, target_actions.shape) * args.policy_noise,
-            -args.noise_clip,
-            args.noise_clip,
+        target_actions, key = agent.get_action_sample(
+            agent.target_actor_params, next_obs, key, std=args.policy_noise, noise_clip=args.noise_clip
         )
-        target_actions = jp.clip(target_actions + noise, -1.0, 1.0)
 
         # Compute target Q
         target_q1 = agent.get_q(agent.target_critic1_params, next_obs, target_actions)
@@ -532,22 +527,22 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         # Logging
         global_step = args.learning_starts + (i + 1) * args.rollout_batchsize
 
-        # Log completed episodes (like PPO)
-        for step_idx in range(args.rollout_steps):
-            step_dones = rollout_data.dones[step_idx]
-            if jp.any(step_dones):
-                step_rewards = rollout_data.sum_rewards[step_idx]
-                mean_reward = float(jp.mean(step_rewards[step_dones]))
-                reward_history.append(mean_reward)
-                if wandb_enabled:
-                    wandb.log({"train/episode_reward": mean_reward}, step=global_step)
+        # # Log completed episodes (like PPO)
+        # for step_idx in range(args.rollout_steps):
+        #     step_dones = rollout_data.dones[step_idx]
+        #     if jp.any(step_dones):
+        #         step_rewards = rollout_data.sum_rewards[step_idx]
+        #         mean_reward = float(jp.mean(step_rewards[step_dones]))
+        #         reward_history.append(mean_reward)
+        #         if wandb_enabled:
+        #             wandb.log({"train/episode_reward": mean_reward}, step=global_step)
 
-        if i % 10 == 0:
-            if wandb_enabled:
-                wandb.log(
-                    {"losses/critic_loss": float(critic_loss), "losses/actor_loss": float(actor_loss)},
-                    step=global_step,
-                )
+        # if i % 10 == 0:
+        #     if wandb_enabled:
+        #         wandb.log(
+        #             {"losses/critic_loss": float(critic_loss), "losses/actor_loss": float(actor_loss)},
+        #             step=global_step,
+        #         )
 
         # Progress print every 100 iterations
         if i % 100 == 0:

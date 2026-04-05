@@ -271,7 +271,9 @@ def collect_rollout(
     """
     n_steps = args.rollout_steps if not random_action else args.learning_starts // args.num_envs
 
-    def step_once(carry, _):
+    def step_once(
+        carry: tuple[struct.PyTreeNode, Array, Array, Array, Array], _: Any
+    ) -> tuple[tuple[struct.PyTreeNode, Array, Array, Array, Array], RolloutData]:
         env, key, sum_rewards, obs, done = carry
 
         # Action selection
@@ -321,26 +323,36 @@ def update_policy(
     Returns:
         (agent, mean_critic_loss, mean_actor_loss, key)
     """
+    # Prefetch all samples upfront - better memory access patterns
+    sample_keys = jax.random.split(key, args.updates_epochs + 1)
+    key = sample_keys[0]
+    sample_keys = sample_keys[1:]
 
-    def update_epoch(carry, idx):
+    def sample_batch(key: Array) -> RolloutData:
+        return buffer.sample(buffer, args.batch_size, key)
+
+    batches = jax.vmap(sample_batch)(sample_keys)
+
+    def update_epoch(
+        carry: tuple[TD3Agent, Array], idx: int
+    ) -> tuple[tuple[TD3Agent, Array], tuple[Array, Array]]:
         agent, key = carry
 
-        # Sample batch
-        key, sample_key = jax.random.split(key)
-        batch = buffer.sample(buffer, args.batch_size, sample_key)
-
-        obs = batch.observations
-        actions = batch.actions
-        rewards = batch.rewards
-        next_obs = batch.next_observations
-        dones = batch.dones
+        # Index into prefetched batches
+        obs = batches.observations[idx]
+        actions = batches.actions[idx]
+        rewards = batches.rewards[idx]
+        next_obs = batches.next_observations[idx]
+        dones = batches.dones[idx]
 
         # === Critic Update ===
         # Target policy smoothing
         key, noise_key = jax.random.split(key)
         target_actions = agent.get_action_mean(agent.target_actor_params, next_obs)
         noise = jp.clip(
-            jax.random.normal(noise_key, target_actions.shape) * args.policy_noise, -args.noise_clip, args.noise_clip
+            jax.random.normal(noise_key, target_actions.shape) * args.policy_noise,
+            -args.noise_clip,
+            args.noise_clip,
         )
         target_actions = jp.clip(target_actions + noise, -1.0, 1.0)
 
@@ -349,23 +361,25 @@ def update_policy(
         target_q2 = agent.get_q(agent.target_critic2_params, next_obs, target_actions)
         target_q = rewards + args.gamma * (1.0 - dones.astype(jp.float32)) * jp.minimum(target_q1, target_q2)
 
-        def critic_loss_fn(params, target_q=target_q):
-            q = agent.get_q(params, obs, actions)
-            return jp.mean((q - target_q) ** 2)
+        # Twin critic loss
+        def critic_loss_fn(c1_params: dict[str, Any], c2_params: dict[str, Any]) -> Array:
+            q1 = agent.get_q(c1_params, obs, actions)
+            q2 = agent.get_q(c2_params, obs, actions)
+            return jp.mean((q1 - target_q) ** 2) + jp.mean((q2 - target_q) ** 2)
 
-        c1_loss, c1_grads = jax.value_and_grad(critic_loss_fn)(agent.critic1_state.params)
-        c2_loss, c2_grads = jax.value_and_grad(critic_loss_fn)(agent.critic2_state.params)
+        (critic_loss, (c1_grads, c2_grads)) = jax.value_and_grad(critic_loss_fn, argnums=(0, 1))(
+            agent.critic1_state.params, agent.critic2_state.params
+        )
 
         critic1_state = agent.critic1_state.apply_gradients(grads=c1_grads)
         critic2_state = agent.critic2_state.apply_gradients(grads=c2_grads)
         agent = agent.replace(critic1_state=critic1_state, critic2_state=critic2_state)
-        critic_loss = (c1_loss + c2_loss) / 2.0
 
         # === Actor Update (delayed) ===
-        def do_actor_update(ag):
-            def actor_loss_fn(params):
+        def do_actor_update(ag: TD3Agent) -> tuple[TD3Agent, Array]:
+            def actor_loss_fn(params: dict[str, Any]) -> Array:
                 a = ag.get_action_mean(params, obs)
-                return -jp.mean(ag.get_q(ag.critic1_state.params, obs, a))
+                return -jp.mean(ag.get_q(critic1_state.params, obs, a))
 
             a_loss, a_grads = jax.value_and_grad(actor_loss_fn)(ag.actor_state.params)
             actor_state = ag.actor_state.apply_gradients(grads=a_grads)
@@ -373,17 +387,19 @@ def update_policy(
             # Soft update targets
             ag = ag.replace(
                 actor_state=actor_state,
-                target_actor_params=optax.incremental_update(actor_state.params, ag.target_actor_params, args.tau),
+                target_actor_params=optax.incremental_update(
+                    actor_state.params, ag.target_actor_params, args.tau
+                ),
                 target_critic1_params=optax.incremental_update(
-                    ag.critic1_state.params, ag.target_critic1_params, args.tau
+                    critic1_state.params, ag.target_critic1_params, args.tau
                 ),
                 target_critic2_params=optax.incremental_update(
-                    ag.critic2_state.params, ag.target_critic2_params, args.tau
+                    critic2_state.params, ag.target_critic2_params, args.tau
                 ),
             )
             return ag, a_loss
 
-        def skip_actor_update(ag):
+        def skip_actor_update(ag: TD3Agent) -> tuple[TD3Agent, Array]:
             return ag, jp.array(0.0)
 
         agent, actor_loss = lax.cond(idx % args.policy_delay == 0, do_actor_update, skip_actor_update, agent)

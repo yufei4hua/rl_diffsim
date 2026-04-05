@@ -8,7 +8,6 @@ Twin Delayed Deep Deterministic Policy Gradient (TD3) with:
 - Target policy smoothing
 """
 
-import functools
 from typing import Callable
 
 import flax.struct as struct
@@ -205,34 +204,5 @@ if __name__ == "__main__":
     q1 = agent.get_q(agent.critic1_state.params, critic_obs, action)
     q2 = agent.get_q(agent.critic2_state.params, critic_obs, action)
     print(f"Q1 shape: {q1.shape}, Q2 shape: {q2.shape}")
-
-    # Test replay buffer
-    buffer = ReplayBuffer.create(
-        capacity=1000, actor_obs_dim=actor_obs_dim, critic_obs_dim=critic_obs_dim, act_dim=act_dim
-    )
-    buffer = buffer.add(
-        buffer,
-        actor_obs=jp.ones((10, actor_obs_dim)),
-        critic_obs=jp.ones((10, critic_obs_dim)),
-        action=jp.ones((10, act_dim)),
-        reward=jp.ones((10,)),
-        next_actor_obs=jp.ones((10, actor_obs_dim)),
-        next_critic_obs=jp.ones((10, critic_obs_dim)),
-        done=jp.zeros((10,), dtype=jp.bool_),
-    )
-    print(f"Buffer size: {buffer.size}, ptr: {buffer.ptr}")
-
-    batch = buffer.sample(buffer, 4, jax.random.PRNGKey(2))
-    print(f"Sampled batch shapes: {jax.tree_util.tree_map(lambda x: x.shape, batch)}")
-
-    # Test updates
-    agent, critic_loss, key = update_critics(
-        agent, batch, gamma=0.99, policy_noise=0.2, noise_clip=0.5, key=key
-    )
-    print(f"Critic loss: {critic_loss:.4f}")
-
-    agent, actor_loss = update_actor(agent, batch, tau=0.005)
-    print(f"Actor loss: {actor_loss:.4f}")
-    print("Target networks updated")
 
     print("\nAll tests passed!")

@@ -60,7 +60,7 @@ class Args:
     learning_starts: int = 400
     """timesteps before training starts (random exploration)"""
     rollout_steps: int = 100
-    """N: number of env steps per rollout before training (macro-iteration)"""
+    """N: number of steps per env per rollout (macro-iteration)"""
     updates_epochs: int = 100
     """M: number of gradient updates per rollout (controls G/U ratio)"""
 
@@ -318,12 +318,8 @@ def collect_rollout(
 def update_policy(
     args: Args, agent: TD3Agent, buffer: ReplayBuffer, key: Array
 ) -> tuple[TD3Agent, Array, Array, Array]:
-    """Perform M TD3 policy updates with delayed actor updates.
-
-    Returns:
-        (agent, mean_critic_loss, mean_actor_loss, key)
-    """
-    # Prefetch all samples upfront - better memory access patterns
+    """Perform M TD3 policy updates with delayed actor updates."""
+    # Pre-sample all batches
     sample_keys = jax.random.split(key, args.updates_epochs + 1)
     key = sample_keys[0]
     sample_keys = sample_keys[1:]
@@ -333,93 +329,101 @@ def update_policy(
 
     batches = jax.vmap(sample_batch)(sample_keys)
 
-    def update_epoch(
-        carry: tuple[TD3Agent, Array], idx: int
+    # Update Batch Epochs (update_critic * policy_delay + update_actor * 1)
+    def update_batch_epochs(
+        carry: tuple[TD3Agent, Array], batch_offset: int
     ) -> tuple[tuple[TD3Agent, Array], tuple[Array, Array]]:
         agent, key = carry
 
-        # Index into prefetched batches
-        obs = batches.observations[idx]
-        actions = batches.actions[idx]
-        rewards = batches.rewards[idx]
-        next_obs = batches.next_observations[idx]
-        dones = batches.dones[idx]
+        # Critic Update (*policy_delay)
+        def update_critic(
+            carry: tuple[TD3Agent, Array], local_idx: int
+        ) -> tuple[tuple[TD3Agent, Array], Array]:
+            agent, key = carry
+            idx = batch_offset * args.policy_delay + local_idx
 
-        # === Critic Update ===
-        # Target policy smoothing
-        target_actions, key = agent.get_action_sample(
-            agent.target_actor_params, next_obs, key, std=args.policy_noise, noise_clip=args.noise_clip
-        )
+            obs = batches.observations[idx]
+            actions = batches.actions[idx]
+            rewards = batches.rewards[idx]
+            next_obs = batches.next_observations[idx]
+            dones = batches.dones[idx]
 
-        # Compute target Q
-        target_q1 = agent.get_q(agent.target_critic1_params, next_obs, target_actions)
-        target_q2 = agent.get_q(agent.target_critic2_params, next_obs, target_actions)
-        target_q = rewards + args.gamma * (1.0 - dones.astype(jp.float32)) * jp.minimum(target_q1, target_q2)
+            # Target policy smoothing
+            target_actions, key = agent.get_action_sample(
+                agent.target_actor_params, next_obs, key, std=args.policy_noise, noise_clip=args.noise_clip
+            )
 
-        # Twin critic loss
-        def critic_loss_fn(c1_params: dict[str, Any], c2_params: dict[str, Any]) -> Array:
-            q1 = agent.get_q(c1_params, obs, actions)
-            q2 = agent.get_q(c2_params, obs, actions)
-            return jp.mean((q1 - target_q) ** 2) + jp.mean((q2 - target_q) ** 2)
+            # Compute target Q
+            target_q1 = agent.get_q(agent.target_critic1_params, next_obs, target_actions)
+            target_q2 = agent.get_q(agent.target_critic2_params, next_obs, target_actions)
+            target_q = rewards + args.gamma * (1.0 - dones.astype(jp.float32)) * jp.minimum(
+                target_q1, target_q2
+            )
 
-        (critic_loss, (c1_grads, c2_grads)) = jax.value_and_grad(critic_loss_fn, argnums=(0, 1))(
-            agent.critic1_state.params, agent.critic2_state.params
-        )
+            # Twin critic loss
+            def critic_loss_fn(c1_params: dict[str, Any], c2_params: dict[str, Any]) -> Array:
+                q1 = agent.get_q(c1_params, obs, actions)
+                q2 = agent.get_q(c2_params, obs, actions)
+                return jp.mean((q1 - target_q) ** 2) + jp.mean((q2 - target_q) ** 2)
 
-        critic1_state = agent.critic1_state.apply_gradients(grads=c1_grads)
-        critic2_state = agent.critic2_state.apply_gradients(grads=c2_grads)
-        agent = agent.replace(critic1_state=critic1_state, critic2_state=critic2_state)
+            (critic_loss, (c1_grads, c2_grads)) = jax.value_and_grad(critic_loss_fn, argnums=(0, 1))(
+                agent.critic1_state.params, agent.critic2_state.params
+            )
 
-        # === Actor Update (delayed) ===
-        def do_actor_update(ag: TD3Agent) -> tuple[TD3Agent, Array]:
+            critic1_state = agent.critic1_state.apply_gradients(grads=c1_grads)
+            critic2_state = agent.critic2_state.apply_gradients(grads=c2_grads)
+            agent = agent.replace(critic1_state=critic1_state, critic2_state=critic2_state)
+
+            return (agent, key), critic_loss
+
+        (agent, key), critic_losses = lax.scan(
+            update_critic, (agent, key), jp.arange(args.policy_delay), unroll=args.policy_delay
+        )  # unroll update_critic() loop
+
+        # Actor Update (*1)
+        def update_actor(agent: TD3Agent, obs: Array) -> tuple[TD3Agent, Array]:
             def actor_loss_fn(params: dict[str, Any]) -> Array:
-                a = ag.get_action_mean(params, obs)
-                return -jp.mean(ag.get_q(critic1_state.params, obs, a))
+                a = agent.get_action_mean(params, obs)
+                return -jp.mean(agent.get_q(agent.critic1_state.params, obs, a))
 
-            a_loss, a_grads = jax.value_and_grad(actor_loss_fn)(ag.actor_state.params)
-            actor_state = ag.actor_state.apply_gradients(grads=a_grads)
+            actor_loss, a_grads = jax.value_and_grad(actor_loss_fn)(agent.actor_state.params)
+            actor_state = agent.actor_state.apply_gradients(grads=a_grads)
 
             # Soft update targets
-            ag = ag.replace(
+            agent = agent.replace(
                 actor_state=actor_state,
                 target_actor_params=optax.incremental_update(
-                    actor_state.params, ag.target_actor_params, args.tau
+                    actor_state.params, agent.target_actor_params, args.tau
                 ),
                 target_critic1_params=optax.incremental_update(
-                    critic1_state.params, ag.target_critic1_params, args.tau
+                    agent.critic1_state.params, agent.target_critic1_params, args.tau
                 ),
                 target_critic2_params=optax.incremental_update(
-                    critic2_state.params, ag.target_critic2_params, args.tau
+                    agent.critic2_state.params, agent.target_critic2_params, args.tau
                 ),
             )
-            return ag, a_loss
+            return agent, actor_loss
 
-        def skip_actor_update(ag: TD3Agent) -> tuple[TD3Agent, Array]:
-            return ag, jp.array(0.0)
+        last_idx = batch_offset * args.policy_delay + args.policy_delay - 1
+        obs = batches.observations[last_idx]
+        agent, actor_loss = update_actor(agent, obs)
 
-        agent, actor_loss = lax.cond(idx % args.policy_delay == 0, do_actor_update, skip_actor_update, agent)
+        return (agent, key), (jp.mean(critic_losses), actor_loss)
 
-        return (agent, key), (critic_loss, actor_loss)
-
+    num_actor_updates = args.updates_epochs // args.policy_delay
     (agent, key), (critic_losses, actor_losses) = lax.scan(
-        update_epoch, (agent, key), jp.arange(args.updates_epochs), unroll=args.policy_delay
+        update_batch_epochs, (agent, key), jp.arange(num_actor_updates)
     )
 
     mean_critic_loss = jp.mean(critic_losses)
-    mean_actor_loss = jp.mean(actor_losses) * args.policy_delay
+    mean_actor_loss = jp.mean(actor_losses)
 
     return agent, mean_critic_loss, mean_actor_loss, key
 
 
 # region train_td3
 def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool = False) -> tuple:
-    """Train TD3 agent.
-
-    Structure:
-    1. Warmup JIT compilation
-    2. Pre-exploration with random actions
-    3. Training loop: collect_rollout -> update_policy
-    """
+    """Train TD3 agent."""
     if wandb_enabled and wandb.run is None:
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity, config=vars(args))
 

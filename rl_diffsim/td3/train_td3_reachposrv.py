@@ -24,10 +24,11 @@ import wandb
 from rl_diffsim.envs.reach_pos_env import ReachPosEnv
 from rl_diffsim.envs.wrappers import (
     ActionPenalty,
+    AngleReward,
     FlattenJaxObservation,
     NormalizeActions,
-    PrivilegedCriticObs,
     RecordData,
+    StopLargeAngVel,
 )
 from rl_diffsim.td3.td3_agent import TD3Agent
 
@@ -48,34 +49,32 @@ class Args:
     wandb_entity: str = "fresssack"
     """the entity (team) of wandb's project"""
 
-    # Training
-    total_timesteps: int = 1_000_000
+    # Algorithm specific arguments
+    total_timesteps: int = 600_000
     """total timesteps of the experiments"""
-    num_envs: int = 4
+    num_envs: int = 16
     """the number of parallel game environments"""
-    buffer_size: int = 1_000_00
+    num_steps: int = 32
+    """N: number of steps per env per rollout (macro-iteration)"""
+    updates_epochs: int = 48
+    """M: number of gradient updates per rollout (controls G/U ratio)"""
+    buffer_size: int = 4 * 262_144  # 1_000_000
     """replay buffer capacity"""
     batch_size: int = 256
     """minibatch size for updates"""
-    learning_starts: int = 400
+    learning_starts: int = 2 * 32_768  # 16_384
     """timesteps before training starts (random exploration)"""
-    rollout_steps: int = 100
-    """N: number of steps per env per rollout (macro-iteration)"""
-    updates_epochs: int = 100
-    """M: number of gradient updates per rollout (controls G/U ratio)"""
-
-    # TD3 hyperparameters
-    actor_lr: float = 1e-4
+    actor_lr: float = 4e-4
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 2e-4
+    critic_lr: float = 4e-4
     """the learning rate of the critic optimizer"""
     gamma: float = 0.99
     """the discount factor gamma"""
-    tau: float = 0.005
+    tau: float = 0.05
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 2
+    policy_delay: int = 4
     """update actor every N critic updates"""
-    exploration_noise: float = 0.1
+    exploration_noise: float = 0.2
     """std of exploration noise during data collection"""
     policy_noise: float = 0.2
     """std of noise added to target policy (smoothing)"""
@@ -94,29 +93,10 @@ class Args:
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
 
-    # Reward coefficients
-    C_rp: float = 1.0
-    """position error coefficient"""
-    C_rq: float = 0.1
-    """orientation error coefficient"""
-    C_rv: float = 0.1
-    """velocity penalty coefficient"""
-    C_rw: float = 0.1
-    """angular velocity penalty coefficient"""
-    C_ra: float = 0.01
-    """action deviation from hover coefficient"""
-    C_rab: float = 0.25
-    """hover action baseline (normalized)"""
-    C_rs: float = 0.1
-    """survival bonus"""
-
-    # Wrapper settings (reuse ActionPenalty for action history)
-    num_actions: int = 1
-    """number of previous actions to include in observation"""
-    act_coefs: tuple = (0.0,) * 4
-    """action energy penalty coefficients (handled in PrivilegedCriticObs)"""
-    d_act_coefs: tuple = (0.0,) * 4
-    """action smoothness penalty coefficients"""
+    # Wrapper settings
+    rpy_coef: float = 0.15
+    act_coefs: tuple = (0.05,) * 4
+    d_act_coefs: tuple = (0.05,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -125,10 +105,17 @@ class Args:
         assert args.updates_epochs % args.policy_delay == 0, (
             f"updates_epochs ({args.updates_epochs}) must be divisible by policy_delay ({args.policy_delay})"
         )
-        rollout_batchsize = int(args.rollout_steps * args.num_envs)
+        rollout_batchsize = int(args.num_steps * args.num_envs)
         num_iterations = (args.total_timesteps - args.learning_starts) // rollout_batchsize
-
-        return replace(args, rollout_batchsize=rollout_batchsize, num_iterations=num_iterations)
+        act_coefs = (args.act_coefs[0],) * 4  # make sure all four coefficients are the same
+        d_act_coefs = (args.d_act_coefs[0],) * 4
+        return replace(
+            args,
+            rollout_batchsize=rollout_batchsize,
+            num_iterations=num_iterations,
+            act_coefs=act_coefs,
+            d_act_coefs=d_act_coefs,
+        )
 
 
 # region MakeEnvs
@@ -145,32 +132,23 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         reset_rotor=reset_rotor,
     )
 
+    env = StopLargeAngVel.create(env, ang_vel_threshold=100.0)
     env = NormalizeActions.create(env)
-    hover_action = jp.array([args.C_rab] * 4, dtype=jp.float32)
+    env = AngleReward.create(env, rpy_coef=args.rpy_coef)
     env = ActionPenalty.create(
         env,
-        num_actions=args.num_actions,
-        init_last_actions=None,
-        hover_action=hover_action,
+        num_actions=1,
+        init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
+        hover_action=jp.array([0.25, 0.25, 0.25, 0.25]),
         act_coefs=args.act_coefs,
         d_act_coefs=args.d_act_coefs,
-    )
-    env = PrivilegedCriticObs.create(
-        env,
-        hover_action=hover_action,
-        C_rp=args.C_rp,
-        C_rq=args.C_rq,
-        C_rv=args.C_rv,
-        C_rw=args.C_rw,
-        C_ra=args.C_ra,
-        C_rs=args.C_rs,
     )
     env = FlattenJaxObservation.create(env)
 
     return env
 
 
-# region RolloutData
+# region Utils
 @struct.dataclass
 class RolloutData:
     """Class for storing rollout data."""
@@ -183,7 +161,6 @@ class RolloutData:
     sum_rewards: Array
 
 
-# region ReplayBuffer
 class ReplayBuffer(struct.PyTreeNode):
     """Preallocated circular replay buffer."""
 
@@ -269,7 +246,7 @@ def collect_rollout(
         (envs, buffer, next_obs, next_done, sum_rewards, key, rollout_data)
         rollout_data: RolloutData with sum_rewards for logging completed episodes
     """
-    n_steps = args.rollout_steps if not random_action else args.learning_starts // args.num_envs
+    n_steps = args.num_steps if not random_action else args.learning_starts // args.num_envs
 
     def step_once(
         carry: tuple[struct.PyTreeNode, Array, Array, Array, Array], _: Any
@@ -279,6 +256,9 @@ def collect_rollout(
         # Action selection
         if random_action:
             action, key = agent.get_random_action(args.num_envs, key)
+            # action, key = agent.get_action_sample(
+            #     agent.actor_state.params, obs, key, std=args.exploration_noise
+            # ) # only sample policy distribution
         else:
             action, key = agent.get_action_sample(
                 agent.actor_state.params, obs, key, std=args.exploration_noise
@@ -433,7 +413,6 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
     # Create environments
     envs = make_jitted_envs(args.num_envs, jax_device, args)
-    print(envs.single_action_space.shape)
 
     # Create agent
     key, init_key = jax.random.split(key)
@@ -441,7 +420,7 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         key=init_key,
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
-        actor_obs_dim=envs.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
+        # actor_obs_dim=envs.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
         hidden_size=args.hidden_size,
         num_layers=args.num_layers,
         actor_lr=args.actor_lr,
@@ -462,105 +441,101 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     done = jp.zeros((args.num_envs,), dtype=jp.bool_)
     sum_rewards = jp.zeros((args.num_envs,), dtype=jp.float32)
 
-    print(f"Pre-exploration: {args.rollout_batchsize} rollouts ({args.learning_starts} timesteps)")
-    print(f"Training: {args.num_iterations} iterations (N={args.rollout_steps}, M={args.updates_epochs})")
+    print(f"Pre-exploration: {args.learning_starts} timesteps")
+    print(f"Training: {args.num_iterations} iterations (N={args.num_steps}, M={args.updates_epochs})")
 
-    # JIT warmup
+    @jax.jit
+    def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
+        envs, agent, buffer, obs, done, sum_rewards, key = carry
+
+        # 1. Collect rollout
+        envs, buffer, obs, done, sum_rewards, key, rollout_data = collect_rollout(
+            envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=False
+        )
+
+        # 2. Update policy
+        agent, critic_loss, actor_loss, key = update_policy(args, agent, buffer, key)
+
+        return (envs, agent, buffer, obs, done, sum_rewards, key), (rollout_data, critic_loss, actor_loss)
+
+    # JIT warmup (only what's needed for training)
     print("JIT compiling... ", end="", flush=True)
     warmup_start = time.time()
-
-    # Warmup collect_rollout
-    _, _, _, _, sum_rewards, key, _ = collect_rollout(
+    envs, buffer, obs, done, sum_rewards, key, pre_rollout_data = collect_rollout(
         envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=True
     )
-    _, _, _, _, sum_rewards, key, _ = collect_rollout(
-        envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=False
-    )
-
-    # Warmup update_policy
-    agent, _, _, key = update_policy(args, agent, buffer, key)
-    agent.actor_state.params["params"]["Dense_0"]["kernel"].block_until_ready()
+    (
+        (envs, warmup_agent, buffer, obs, done, sum_rewards, key),
+        (all_rollout_data, all_critic_loss, all_actor_loss),
+    ) = lax.scan(train_iteration, (envs, agent, buffer, obs, done, sum_rewards, key), length=2)
+    warmup_agent.actor_state.params["params"]["Dense_0"]["kernel"].block_until_ready()
     print(f"done ({time.time() - warmup_start:.2f}s)")
 
-    # Reset for actual training
+    # Training
     envs, (obs, _) = envs.reset(envs, seed=args.seed)
     done = jp.zeros((args.num_envs,), dtype=jp.bool_)
     sum_rewards = jp.zeros((args.num_envs,), dtype=jp.float32)
-    buffer = ReplayBuffer.create(
-        capacity=args.buffer_size,
-        obs_dim=envs.single_observation_space.shape[0],
-        act_dim=envs.single_action_space.shape[0],
-    )
-    buffer = jax.device_put(buffer)
+    buffer = buffer.reset(buffer)
 
-    reward_history = []
     train_start = time.time()
-
-    # === Pre-exploration ===
     print("Phase 1: Pre-exploration...")
-
-    envs, buffer, obs, done, sum_rewards, key, rollout_data = collect_rollout(
+    envs, buffer, obs, done, sum_rewards, key, pre_rollout_data = collect_rollout(
         envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=True
     )
 
-    # Log completed episodes (like PPO)
-    for step_idx in range(args.rollout_steps):
-        step_dones = rollout_data.dones[step_idx]
+    print("Phase 2: Training...")
+    # Run training loop using scan
+    (
+        (envs, agent, buffer, obs, done, sum_rewards, key),
+        (all_rollout_data, all_critic_loss, all_actor_loss),
+    ) = lax.scan(
+        train_iteration, (envs, agent, buffer, obs, done, sum_rewards, key), jp.arange(args.num_iterations)
+    )
+
+    obs.block_until_ready()
+    training_time = time.time() - train_start
+    sps = args.total_timesteps / training_time
+    print(f"Training {args.total_timesteps} steps took {training_time:.2f}s ({sps:.0f} SPS)")
+
+    # === Post-training logging ===
+    reward_history = []
+
+    # Log pre-exploration episodes
+    for step_idx in range(pre_rollout_data.dones.shape[0]):
+        step_dones = pre_rollout_data.dones[step_idx]
         if jp.any(step_dones):
-            step_rewards = rollout_data.sum_rewards[step_idx]
-            mean_reward = float(jp.mean(step_rewards[step_dones]))
-            reward_history.append(mean_reward)
+            step_rewards = pre_rollout_data.sum_rewards[step_idx]
+            reward_history.append(float(jp.mean(step_rewards[step_dones])))
 
     if len(reward_history) > 0:
         print(f"Pre-exploration: {len(reward_history)} episodes, mean reward: {np.mean(reward_history):.2f}")
         if wandb_enabled:
             wandb.log({"train/episode_reward": np.mean(reward_history)}, step=args.learning_starts)
 
-    # === Training ===
-    print("Phase 2: Training...")
-
-    for i in range(args.num_iterations):
-        # Collect rollout
-        envs, buffer, obs, done, sum_rewards, key, rollout_data = collect_rollout(
-            envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=False
-        )
-
-        # Update policy
-        agent, critic_loss, actor_loss, key = update_policy(args, agent, buffer, key)
-
-        # Logging
-        global_step = args.learning_starts + (i + 1) * args.rollout_batchsize
-
-        # # Log completed episodes (like PPO)
-        # for step_idx in range(args.rollout_steps):
-        #     step_dones = rollout_data.dones[step_idx]
-        #     if jp.any(step_dones):
-        #         step_rewards = rollout_data.sum_rewards[step_idx]
-        #         mean_reward = float(jp.mean(step_rewards[step_dones]))
-        #         reward_history.append(mean_reward)
-        #         if wandb_enabled:
-        #             wandb.log({"train/episode_reward": mean_reward}, step=global_step)
-
-        # if i % 10 == 0:
-        #     if wandb_enabled:
-        #         wandb.log(
-        #             {"losses/critic_loss": float(critic_loss), "losses/actor_loss": float(actor_loss)},
-        #             step=global_step,
-        #         )
-
-        # Progress print every 100 iterations
-        if i % 100 == 0:
-            elapsed = time.time() - train_start
-            sps = global_step / elapsed
-            print(f"Iter {i}/{args.num_iterations}, step {global_step}, SPS: {sps:.0f}")
-
-    # Final sync
-    agent.actor_state.params["params"]["Dense_0"]["kernel"].block_until_ready()
-    training_time = time.time() - train_start
-    sps = args.total_timesteps / training_time
-    print(f"Training {args.total_timesteps} steps took {training_time:.2f}s ({sps:.0f} SPS)")
-
+    # Log training iterations
     if wandb_enabled:
+        for iter_idx in range(args.num_iterations):
+            global_step = args.learning_starts + (iter_idx + 1) * args.rollout_batchsize
+
+            # Log episode rewards
+            for step_idx in range(args.num_steps):
+                step_dones = all_rollout_data.dones[iter_idx, step_idx]
+                if jp.any(step_dones):
+                    step_rewards = all_rollout_data.sum_rewards[iter_idx, step_idx]
+                    mean_reward = float(jp.mean(step_rewards[step_dones]))
+                    reward_history.append(mean_reward)
+                    wandb.log({"train/episode_reward": mean_reward}, step=global_step)
+
+            # Log losses every 10 iterations
+            if iter_idx % 10 == 0:
+                wandb.log(
+                    {
+                        "losses/critic_loss": float(all_critic_loss[iter_idx]),
+                        "losses/actor_loss": float(all_actor_loss[iter_idx]),
+                    },
+                    step=global_step,
+                )
+
         wandb.log({"charts/SPS": sps}, step=args.total_timesteps)
 
     # Save model
@@ -590,7 +565,7 @@ def evaluate_td3(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
-        actor_obs_dim=eval_env.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
+        # actor_obs_dim=eval_env.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
         hidden_size=args.hidden_size,
         num_layers=args.num_layers,
     )

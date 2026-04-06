@@ -52,33 +52,33 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 600_000
     """total timesteps of the experiments"""
-    num_envs: int = 16
+    num_envs: int = 8
     """the number of parallel game environments"""
     num_steps: int = 32
     """N: number of steps per env per rollout (macro-iteration)"""
     updates_epochs: int = 48
     """M: number of gradient updates per rollout (controls G/U ratio)"""
-    buffer_size: int = 4 * 262_144  # 1_000_000
+    buffer_size: int = 262_144
     """replay buffer capacity"""
-    batch_size: int = 256
+    batch_size: int = 512
     """minibatch size for updates"""
-    learning_starts: int = 2 * 32_768  # 16_384
+    learning_starts: int = 16_384
     """timesteps before training starts (random exploration)"""
-    actor_lr: float = 4e-4
+    actor_lr: float = 4.9e-4
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 4e-4
+    critic_lr: float = 6.9e-4
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.99
+    gamma: float = 0.98
     """the discount factor gamma"""
     tau: float = 0.05
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 4
+    policy_delay: int = 8
     """update actor every N critic updates"""
     exploration_noise: float = 0.2
     """std of exploration noise during data collection"""
     policy_noise: float = 0.2
     """std of noise added to target policy (smoothing)"""
-    noise_clip: float = 0.5
+    noise_clip: float = 0.12
     """clip target policy noise"""
 
     # Network architecture
@@ -93,10 +93,19 @@ class Args:
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
 
-    # Wrapper settings
-    rpy_coef: float = 0.15
-    act_coefs: tuple = (0.05,) * 4
-    d_act_coefs: tuple = (0.05,) * 4
+    # Envs & Wrapper settings
+    pos_min: Array = (-0.5, -0.5, 1.0)
+    pos_max: Array = (0.5, 0.5, 2.0)
+    goal_pmin: Array = (-0.0, -0.0, 1.5)
+    goal_pmax: Array = (0.0, 0.0, 1.5)
+    vel_min: float = -1.0
+    vel_max: float = 1.0
+    ang_vel_min: Array = (-1.0, -1.0, -1.0)
+    ang_vel_max: Array = (1.0, 1.0, 1.0)
+    num_last_actions: int = 3
+    rpy_coef: float = 0.30
+    act_coefs: tuple = (0.19,) * 4
+    d_act_coefs: tuple = (0.13,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -130,6 +139,15 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         control="rotor_vel",
         device=jax_device,
         reset_rotor=reset_rotor,
+        max_episode_time=5.0,
+        pos_min=jp.array(args.pos_min),
+        pos_max=jp.array(args.pos_max),
+        goal_pmin=jp.array(args.goal_pmin),
+        goal_pmax=jp.array(args.goal_pmax),
+        ang_vel_min=jp.array(args.ang_vel_min),
+        ang_vel_max=jp.array(args.ang_vel_max),
+        vel_min=args.vel_min,
+        vel_max=args.vel_max,
     )
 
     env = StopLargeAngVel.create(env, ang_vel_threshold=100.0)
@@ -137,7 +155,7 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
     env = AngleReward.create(env, rpy_coef=args.rpy_coef)
     env = ActionPenalty.create(
         env,
-        num_actions=1,
+        num_actions=args.num_last_actions,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
         hover_action=jp.array([0.25, 0.25, 0.25, 0.25]),
         act_coefs=args.act_coefs,
@@ -565,7 +583,8 @@ def evaluate_td3(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
-        # actor_obs_dim=eval_env.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
+        # actor_obs_dim=eval_env.single_observation_space.shape[0] - 4,
+        # last 4 obs are privileged critic obs
         hidden_size=args.hidden_size,
         num_layers=args.num_layers,
     )

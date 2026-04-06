@@ -28,7 +28,6 @@ from rl_diffsim.envs.wrappers import (
     FlattenJaxObservation,
     NormalizeActions,
     RecordData,
-    StopLargeAngVel,
 )
 from rl_diffsim.td3.td3_agent import TD3Agent
 
@@ -52,9 +51,9 @@ class Args:
     # Algorithm specific arguments
     total_timesteps: int = 300_000
     """total timesteps of the experiments"""
-    num_envs: int = 32
+    num_envs: int = 16
     """the number of parallel game environments"""
-    num_steps: int = 32
+    num_steps: int = 24
     """N: number of steps per env per rollout (macro-iteration)"""
     updates_epochs: int = 48
     """M: number of gradient updates per rollout (controls G/U ratio)"""
@@ -64,21 +63,21 @@ class Args:
     """minibatch size for updates"""
     learning_starts: int = 65_536
     """timesteps before training starts (random exploration)"""
-    actor_lr: float = 0.00192316862486802
+    actor_lr: float = 0.0017489005211975934
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 0.000976944281311745
+    critic_lr: float = 0.0011526032458357583
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.982935930212536
+    gamma: float = 0.982896493822861
     """the discount factor gamma"""
-    tau: float = 0.09425963729145902
+    tau: float = 0.19481974159090312
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 4
+    policy_delay: int = 2
     """update actor every N critic updates"""
     exploration_noise: float = 0.2
     """std of exploration noise during data collection"""
     policy_noise: float = 0.2
     """std of noise added to target policy (smoothing)"""
-    noise_clip: float = 0.13649021088853652
+    noise_clip: float = 0.10550942818281409
     """clip target policy noise"""
 
     # Network architecture
@@ -103,9 +102,9 @@ class Args:
     ang_vel_min: Array = (-1.0, -1.0, -1.0)
     ang_vel_max: Array = (1.0, 1.0, 1.0)
     num_last_actions: int = 1
-    rpy_coef: float = 0.2003802997804056
-    act_coefs: tuple = (0.09689788721987093,) * 4
-    d_act_coefs: tuple = (0.1444068499642413,) * 4
+    rpy_coef: float = 0.20506035936210104
+    act_coefs: tuple = (0.07514871103816087,) * 4
+    d_act_coefs: tuple = (0.10373663103609186,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":

@@ -16,6 +16,7 @@ from crazyflow.utils import leaf_replace
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 from jax import Array
+
 from rl_diffsim.envs.drone_env import DroneEnv, create_action_space
 
 
@@ -157,9 +158,7 @@ class ReachPosEnv(DroneEnv):
             pos = jax.random.uniform(key=pos_key, shape=shape, minval=pmin, maxval=pmax)
             vel = jax.random.uniform(key=vel_key, shape=shape, minval=vmin, maxval=vmax)
             ang_vel = jax.random.uniform(key=ang_vel_key, shape=shape, minval=wmin, maxval=wmax)
-            data = data.replace(
-                states=leaf_replace(data.states, mask, pos=pos, vel=vel, ang_vel=ang_vel)
-            )
+            data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel, ang_vel=ang_vel))
             return data
 
         reset_rotor_randomization = build_reset_rotor_fn(physics if reset_rotor else "no_reset_rotor")

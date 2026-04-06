@@ -20,19 +20,6 @@ from flax.training import train_state
 from jax import Array
 
 
-@struct.dataclass
-class TD3RolloutData:
-    """TD3 rollout data for post-scan logging."""
-
-    rewards: Array  # [num_envs] per step
-    dones: Array  # [num_envs] per step
-    episode_rewards: Array  # [num_envs] cumulative at step
-    episode_lengths: Array  # [num_envs] lengths at step
-    critic_loss: Array  # scalar per step
-    actor_loss: Array  # scalar per step
-    did_update: Array  # bool, whether updates occurred
-
-
 class ActorNet(nn.Module):
     """Deterministic actor network for TD3."""
 

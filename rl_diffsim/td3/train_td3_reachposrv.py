@@ -50,35 +50,35 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 600_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
-    num_envs: int = 8
+    num_envs: int = 32
     """the number of parallel game environments"""
     num_steps: int = 32
     """N: number of steps per env per rollout (macro-iteration)"""
     updates_epochs: int = 48
     """M: number of gradient updates per rollout (controls G/U ratio)"""
-    buffer_size: int = 262_144
+    buffer_size: int = 131_072  # 262_144
     """replay buffer capacity"""
     batch_size: int = 512
     """minibatch size for updates"""
-    learning_starts: int = 16_384
+    learning_starts: int = 65_536
     """timesteps before training starts (random exploration)"""
-    actor_lr: float = 4.9e-4
+    actor_lr: float = 0.00192316862486802
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 6.9e-4
+    critic_lr: float = 0.000976944281311745
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.98
+    gamma: float = 0.982935930212536
     """the discount factor gamma"""
-    tau: float = 0.05
+    tau: float = 0.09425963729145902
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 8
+    policy_delay: int = 4
     """update actor every N critic updates"""
     exploration_noise: float = 0.2
     """std of exploration noise during data collection"""
     policy_noise: float = 0.2
     """std of noise added to target policy (smoothing)"""
-    noise_clip: float = 0.12
+    noise_clip: float = 0.13649021088853652
     """clip target policy noise"""
 
     # Network architecture
@@ -102,10 +102,10 @@ class Args:
     vel_max: float = 1.0
     ang_vel_min: Array = (-1.0, -1.0, -1.0)
     ang_vel_max: Array = (1.0, 1.0, 1.0)
-    num_last_actions: int = 3
-    rpy_coef: float = 0.30
-    act_coefs: tuple = (0.19,) * 4
-    d_act_coefs: tuple = (0.13,) * 4
+    num_last_actions: int = 1
+    rpy_coef: float = 0.2003802997804056
+    act_coefs: tuple = (0.09689788721987093,) * 4
+    d_act_coefs: tuple = (0.1444068499642413,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -150,7 +150,6 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         vel_max=args.vel_max,
     )
 
-    env = StopLargeAngVel.create(env, ang_vel_threshold=100.0)
     env = NormalizeActions.create(env)
     env = AngleReward.create(env, rpy_coef=args.rpy_coef)
     env = ActionPenalty.create(

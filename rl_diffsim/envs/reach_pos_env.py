@@ -16,7 +16,6 @@ from crazyflow.utils import leaf_replace
 from gymnasium import spaces
 from gymnasium.vector.utils import batch_space
 from jax import Array
-
 from rl_diffsim.envs.drone_env import DroneEnv, create_action_space
 
 
@@ -61,6 +60,10 @@ class ReachPosEnv(DroneEnv):
         reset_rotor: bool = False,
         pos_min: Array = jp.array([-1.0, -1.0, 1.0]),
         pos_max: Array = jp.array([1.0, 1.0, 2.0]),
+        goal_pmin: Array = jp.array([-1.0, -1.0, 0.5]),
+        goal_pmax: Array = jp.array([1.0, 1.0, 1.5]),
+        ang_vel_min: Array = jp.zeros(3),
+        ang_vel_max: Array = jp.zeros(3),
         vel_min: float = -1.0,
         vel_max: float = 1.0,
     ) -> "ReachPosEnv":
@@ -81,6 +84,10 @@ class ReachPosEnv(DroneEnv):
             reset_rotor: Whether to reset rotor speeds on environment reset.
             pos_min: Minimum position for randomization on reset.
             pos_max: Maximum position for randomization on reset.
+            goal_pmin: Minimum goal position for random goal sampling.
+            goal_pmax: Maximum goal position for random goal sampling.
+            ang_vel_min: Minimum initial angular velocity for randomization.
+            ang_vel_max: Maximum initial angular velocity for randomization.
             vel_min: Minimum velocity for randomization on reset.
             vel_max: Maximum velocity for randomization on reset.
 
@@ -135,20 +142,36 @@ class ReachPosEnv(DroneEnv):
                     return _no_reset_rotor
 
         def _reset_randomization(
-            data: SimData, mask: Array, pmin: Array, pmax: Array, vmin: float, vmax: float
+            data: SimData,
+            mask: Array,
+            pmin: Array,
+            pmax: Array,
+            vmin: float,
+            vmax: float,
+            wmin: Array,
+            wmax: Array,
         ) -> SimData:
             shape = (data.core.n_worlds, data.core.n_drones, 3)
-            key, pos_key, vel_key = jax.random.split(data.core.rng_key, 3)
+            key, pos_key, vel_key, ang_vel_key = jax.random.split(data.core.rng_key, 4)
             data = data.replace(core=data.core.replace(rng_key=key))
             pos = jax.random.uniform(key=pos_key, shape=shape, minval=pmin, maxval=pmax)
             vel = jax.random.uniform(key=vel_key, shape=shape, minval=vmin, maxval=vmax)
-            data = data.replace(states=leaf_replace(data.states, mask, pos=pos, vel=vel))
+            ang_vel = jax.random.uniform(key=ang_vel_key, shape=shape, minval=wmin, maxval=wmax)
+            data = data.replace(
+                states=leaf_replace(data.states, mask, pos=pos, vel=vel, ang_vel=ang_vel)
+            )
             return data
 
         reset_rotor_randomization = build_reset_rotor_fn(physics if reset_rotor else "no_reset_rotor")
 
         reset_randomization = functools.partial(
-            _reset_randomization, pmin=pos_min, pmax=pos_max, vmin=vel_min, vmax=vel_max
+            _reset_randomization,
+            pmin=pos_min,
+            pmax=pos_max,
+            vmin=vel_min,
+            vmax=vel_max,
+            wmin=ang_vel_min,
+            wmax=ang_vel_max,
         )
         sim.reset_pipeline += (reset_randomization, reset_rotor_randomization)
         sim.build_reset_fn()
@@ -194,9 +217,7 @@ class ReachPosEnv(DroneEnv):
             return obs
 
         def _sample_goal(key: Array, goal: Array, mask: Array | None) -> Array:
-            pmin = jp.array([-1.0, -1.0, 0.5])
-            pmax = jp.array([1.0, 1.0, 1.5])
-            new_goal = jax.random.uniform(key, shape=goal.shape, minval=pmin, maxval=pmax)
+            new_goal = jax.random.uniform(key, shape=goal.shape, minval=goal_pmin, maxval=goal_pmax)
             if mask is not None:
                 new_goal = jp.where(mask[..., None], new_goal, goal)
             return new_goal

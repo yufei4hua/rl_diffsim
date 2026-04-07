@@ -164,22 +164,39 @@ class NormalizeActions(Wrapper):
         return batch_space(self.single_action_space, self.num_envs)
 
     @classmethod
-    def create(cls, base: struct.PyTreeNode) -> "NormalizeActions":
+    def create(cls, base: struct.PyTreeNode, neutral: Array | None = None) -> "NormalizeActions":
         """Create a NormalizeActions wrapper around `base`.
 
         Parameters:
             base: The jittable base environment to wrap.
+            neutral: Zero will be mapped to this action output.
 
         Returns:
             NormalizeActions: wrapper with jitted step/reset.
         """
         # Read simulator action bounds from base (may be numpy arrays)
-        action_sim_low = jp.array(base.single_action_space.low)
-        action_sim_high = jp.array(base.single_action_space.high)
-
-        # Precompute scale and mean for rescaling from [-1,1] -> [low, high]
-        scale = (action_sim_high - action_sim_low) / 2.0
-        mean = (action_sim_high + action_sim_low) / 2.0
+        low = jp.array(base.single_action_space.low)
+        high = jp.array(base.single_action_space.high)
+        if neutral is None:
+            k0 = (high + low) / 2.0
+            k1 = (high - low) / 2.0
+            k2 = jp.zeros_like(k0)
+        else:
+            # Precompute coefficients for rescaling from [-1,0,1] -> [low, neutral, high]
+            # Math: f(x) = N + ((H-L)/2)*x + ((H+L-2 N)/2)*x^2
+            k0 = neutral
+            k1 = (high - low) / 2.0
+            k2 = (high + low - 2.0 * neutral) / 2.0
+            # Ensure monotonicity (sacrifice further boundary)
+            is_monotonic = jp.abs(k1) >= 2.0 * jp.abs(k2)
+            k2_fix_high = (neutral - low) / 2.0
+            k1_fix_high = 2.0 * k2_fix_high
+            k2_fix_low = (neutral - high) / 2.0
+            k1_fix_low = -2.0 * k2_fix_low
+            k1_fixed = jp.where(k2 > 0, k1_fix_high, k1_fix_low)
+            k2_fixed = jp.where(k2 > 0, k2_fix_high, k2_fix_low)
+            k1 = jp.where(is_monotonic, k1, k1_fixed)
+            k2 = jp.where(is_monotonic, k2, k2_fixed)
 
         def _reset(
             env: "NormalizeActions", *, seed: int | None = None, options: dict | None = None
@@ -190,8 +207,9 @@ class NormalizeActions(Wrapper):
 
         def _step(env: "NormalizeActions", actions: Array) -> tuple["NormalizeActions", tuple[Any, ...]]:
             # actions are expected in [-1, 1]; clip and rescale to simulator range
-            action = jp.clip(actions, -1.0, 1.0) * scale + mean
-            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            actions = jp.clip(actions, -1.0, 1.0)
+            actions = k0 + k1 * actions + k2 * (actions**2)
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
             env = env.replace(base=base_env)
             return env, (obs, reward, terminated, truncated, info)
 

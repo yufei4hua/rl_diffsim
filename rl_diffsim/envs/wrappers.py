@@ -164,19 +164,27 @@ class NormalizeActions(Wrapper):
         return batch_space(self.single_action_space, self.num_envs)
 
     @classmethod
-    def create(cls, base: struct.PyTreeNode, neutral: Array | None = None) -> "NormalizeActions":
+    def create(
+        cls,
+        base: struct.PyTreeNode,
+        neutral: Array | None = None,
+        action_low: Array | None = None,
+        action_high: Array | None = None,
+    ) -> "NormalizeActions":
         """Create a NormalizeActions wrapper around `base`.
 
         Parameters:
             base: The jittable base environment to wrap.
-            neutral: Zero will be mapped to this action output.
+            low: Action lower bound, will be mapped to -1.
+            high: Action upper bound, will be mapped to 1.
+            neutral: Action neutral level, will be mapped to 0. Use quadratic mapping if not None.
 
         Returns:
             NormalizeActions: wrapper with jitted step/reset.
         """
         # Read simulator action bounds from base (may be numpy arrays)
-        low = jp.array(base.single_action_space.low)
-        high = jp.array(base.single_action_space.high)
+        low = jp.array(base.single_action_space.low) if action_low is None else jp.array(action_low)
+        high = jp.array(base.single_action_space.high) if action_high is None else jp.array(action_high)
         if neutral is None:
             k0 = (high + low) / 2.0
             k1 = (high - low) / 2.0
@@ -207,7 +215,7 @@ class NormalizeActions(Wrapper):
 
         def _step(env: "NormalizeActions", actions: Array) -> tuple["NormalizeActions", tuple[Any, ...]]:
             # actions are expected in [-1, 1]; clip and rescale to simulator range
-            actions = jp.clip(actions, -1.0, 1.0)
+            # actions = jp.clip(actions, -1.0, 1.0)
             actions = k0 + k1 * actions + k2 * (actions**2)
             base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
             env = env.replace(base=base_env)

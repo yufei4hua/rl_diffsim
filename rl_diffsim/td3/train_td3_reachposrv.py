@@ -49,39 +49,39 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 300_000
+    total_timesteps: int = 800_000
     """total timesteps of the experiments"""
-    num_envs: int = 16
+    num_envs: int = 128
     """the number of parallel game environments"""
-    num_steps: int = 24
+    num_steps: int = 8
     """N: number of steps per env per rollout (macro-iteration)"""
-    updates_epochs: int = 48
+    updates_epochs: int = 96
     """M: number of gradient updates per rollout (controls G/U ratio)"""
-    buffer_size: int = 131_072  # 262_144
+    buffer_size: int = 524_288  # 131_072, 262_144, 524_288
     """replay buffer capacity"""
-    batch_size: int = 512
+    batch_size: int = 256
     """minibatch size for updates"""
-    learning_starts: int = 65_536
+    learning_starts: int = 32_768  # 16_384, 32_768, 65_536, 98_304
     """timesteps before training starts (random exploration)"""
-    actor_lr: float = 0.0017489005211975934
+    actor_lr: float = 0.0012151744143342417
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 0.0011526032458357583
+    critic_lr: float = 0.00393225704647615
     """the learning rate of the critic optimizer"""
-    gamma: float = 0.982896493822861
+    gamma: float = 0.98
     """the discount factor gamma"""
-    tau: float = 0.19481974159090312
+    tau: float = 0.4085677703296839
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 2
+    policy_delay: int = 8
     """update actor every N critic updates"""
-    exploration_noise: float = 0.2
+    exploration_noise: float = 0.16879396100655386
     """std of exploration noise during data collection"""
-    policy_noise: float = 0.2
+    policy_noise: float = 0.12420127309560389
     """std of noise added to target policy (smoothing)"""
-    noise_clip: float = 0.10550942818281409
+    noise_clip: float = 0.1
     """clip target policy noise"""
 
     # Network architecture
-    hidden_size: int = 64
+    hidden_size: int = 48
     """hidden size of actor and critic networks"""
     num_layers: int = 2
     """number of hidden layers in networks"""
@@ -92,19 +92,20 @@ class Args:
     num_iterations: int = 0
     """the number of iterations (computed in runtime)"""
 
-    # Envs & Wrapper settings
-    pos_min: Array = (-0.5, -0.5, 1.0)
-    pos_max: Array = (0.5, 0.5, 2.0)
+    # Envs settings
+    pos_min: Array = (-0.5, -0.5, 1.1)
+    pos_max: Array = (0.5, 0.5, 1.9)
     goal_pmin: Array = (-0.0, -0.0, 1.5)
     goal_pmax: Array = (0.0, 0.0, 1.5)
-    vel_min: float = -1.0
-    vel_max: float = 1.0
-    ang_vel_min: Array = (-1.0, -1.0, -1.0)
-    ang_vel_max: Array = (1.0, 1.0, 1.0)
-    num_last_actions: int = 1
-    rpy_coef: float = 0.20506035936210104
-    act_coefs: tuple = (0.07514871103816087,) * 4
-    d_act_coefs: tuple = (0.10373663103609186,) * 4
+    vel_min: float = -0.5
+    vel_max: float = 0.5
+    ang_vel_min: Array = (-0.5,)*3
+    ang_vel_max: Array = (0.5,)*3
+    # Wrapper settings
+    num_last_actions: int = 4
+    rpy_coef: float = 0.22475363434159937
+    act_coefs: tuple = (0.06693405392107592,) * 4
+    d_act_coefs: tuple = (0.22842111933516657,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -133,12 +134,12 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         num_envs=num_envs,
         freq=100,
         sim_freq=500,
-        drone_model="cf21B_500",
+        drone_model="cf2x_L250",
         physics="first_principles",
         control="rotor_vel",
         device=jax_device,
         reset_rotor=reset_rotor,
-        max_episode_time=5.0,
+        max_episode_time=7.0,
         pos_min=jp.array(args.pos_min),
         pos_max=jp.array(args.pos_max),
         goal_pmin=jp.array(args.goal_pmin),
@@ -149,13 +150,13 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         vel_max=args.vel_max,
     )
 
-    env = NormalizeActions.create(env)
+    env = NormalizeActions.create(env, neutral=jp.array([18967.0] * 4))
     env = AngleReward.create(env, rpy_coef=args.rpy_coef)
     env = ActionPenalty.create(
         env,
         num_actions=args.num_last_actions,
         init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
-        hover_action=jp.array([0.25, 0.25, 0.25, 0.25]),
+        hover_action=jp.array([0.0, 0.0, 0.0, 0.0]),
         act_coefs=args.act_coefs,
         d_act_coefs=args.d_act_coefs,
     )

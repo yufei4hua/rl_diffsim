@@ -43,7 +43,7 @@ def train():
 
         # Score: higher reward and lower position error is better
         final_reward = np.mean(episode_rewards)
-        score = mean_rewards - training_time * 5.0
+        score = mean_rewards  # - training_time * 5.0
 
         run.log({"score": score})
         run.log({"mean_rewards": mean_rewards})
@@ -59,31 +59,31 @@ sweep_configuration = {
     "metric": {"goal": "maximize", "name": "score"},
     "parameters": {
         # TD3 algorithm parameters
-        "num_envs": {"values": [16, 32]},
-        "num_steps": {"values": [24, 32, 48]},
-        "updates_epochs": {"values": [32, 48]},
-        "batch_size": {"values": [256, 512]},
-        "buffer_size": {"values": [131_072, 262144]},
-        # "learning_starts": {"values": [32768, 65536, 98304]},
-        "actor_lr": {"distribution": "log_uniform_values", "min": 6e-4, "max": 3e-3},
-        "critic_lr": {"distribution": "log_uniform_values", "min": 5e-4, "max": 1.4e-3},
-        "gamma": {"distribution": "uniform", "min": 0.98, "max": 0.99},
-        "tau": {"distribution": "uniform", "min": 0.04, "max": 0.20},
-        "policy_delay": {"values": [2, 4, 8]},
-        # "exploration_noise": {"distribution": "uniform", "min": 0.1, "max": 0.25},
-        # "policy_noise": {"distribution": "uniform", "min": 0.1, "max": 0.25},
-        "noise_clip": {"distribution": "uniform", "min": 0.10, "max": 0.16},
+        "num_envs": {"values": [16, 32, 48, 64, 96, 128]},
+        "num_steps": {"values": [4, 8, 16, 24, 32]},
+        "updates_epochs": {"values": [32, 48, 64, 96]},
+        "batch_size": {"values": [128, 256, 512, 768]},
+        "buffer_size": {"values": [131_072, 262_144, 393_216, 524_288]},
+        "learning_starts": {"values": [16384, 32768, 65536, 98304]},
+        "actor_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 6e-3},
+        "critic_lr": {"distribution": "log_uniform_values", "min": 1e-3, "max": 6e-3},
+        # "gamma": {"distribution": "uniform", "min": 0.98, "max": 0.99},
+        "tau": {"distribution": "uniform", "min": 0.04, "max": 0.60},
+        "policy_delay": {"values": [2, 4, 6, 8]},
+        "exploration_noise": {"distribution": "uniform", "min": 0.1, "max": 0.25},
+        "policy_noise": {"distribution": "uniform", "min": 0.1, "max": 0.2},
+        # "noise_clip": {"distribution": "uniform", "min": 0.10, "max": 0.16},
         # Network architecture
-        # "hidden_size": {"values": [32, 64]},
+        # "hidden_size": {"values": [32, 48]},
         # "num_layers": {"values": [2, 3]},
         # Wrapper settings
-        # "num_last_actions": {"values": [1, 2, 3]},
-        "rpy_coef": {"distribution": "uniform", "min": 0.18, "max": 0.27},
-        "act_coefs_0": {"distribution": "uniform", "min": 0.07, "max": 0.13},
+        # "num_last_actions": {"values": [1, 2, 4, 8]},
+        "rpy_coef": {"distribution": "uniform", "min": 0.15, "max": 0.25},
+        "act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.3},
         # "act_coefs_1": {"distribution": "uniform", "min": 0.05, "max": 0.4},
         # "act_coefs_2": {"distribution": "uniform", "min": 0.05, "max": 0.4},
         # "act_coefs_3": {"distribution": "uniform", "min": 0.05, "max": 0.4},
-        "d_act_coefs_0": {"distribution": "uniform", "min": 0.10, "max": 0.18},
+        "d_act_coefs_0": {"distribution": "uniform", "min": 0.05, "max": 0.3},
         # "d_act_coefs_1": {"distribution": "uniform", "min": 0.01, "max": 0.1},
         # "d_act_coefs_2": {"distribution": "uniform", "min": 0.01, "max": 0.1},
         # "d_act_coefs_3": {"distribution": "uniform", "min": 0.01, "max": 0.1},
@@ -95,4 +95,4 @@ sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=f"{Args().wandb_project_name}-sweep", entity=Args().wandb_entity
 )
 
-wandb.agent(sweep_id, function=train, count=100)
+wandb.agent(sweep_id, function=train, count=150)

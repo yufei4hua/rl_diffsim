@@ -526,6 +526,130 @@ class PrivilegedCriticObs(Wrapper):
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
+# region CollectObsStatistics
+@struct.dataclass
+class CollectObsStatistics(Wrapper):
+    """Wrapper to collect observation statistics from a single rollout.
+
+    Apply this after FlattenJaxObservation to receive flat observations.
+    Run a policy once, then call `report_statistics()` to get mean/var per dim.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+    obs_sum: Array = struct.field(pytree_node=True)
+    obs_sumsq: Array = struct.field(pytree_node=True)
+    count: Array = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode) -> "CollectObsStatistics":
+        """Create a CollectObsStatistics wrapper around `base`."""
+        obs_shape = base.single_observation_space.shape
+        obs_sum = jp.zeros(obs_shape, dtype=jp.float64)
+        obs_sumsq = jp.zeros(obs_shape, dtype=jp.float64)
+        count = jp.zeros((), dtype=jp.float64)
+
+        def _reset(
+            env: "CollectObsStatistics", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["CollectObsStatistics", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def _step(
+            env: "CollectObsStatistics", action: Array
+        ) -> tuple["CollectObsStatistics", tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            env = env.replace(base=base_env)
+
+            # Update running stats (obs shape: (num_envs, obs_dim))
+            new_obs_sum = env.obs_sum + jp.sum(obs, axis=0)
+            new_obs_sumsq = env.obs_sumsq + jp.sum(obs**2, axis=0)
+            new_count = env.count + obs.shape[0]
+            env = env.replace(obs_sum=new_obs_sum, obs_sumsq=new_obs_sumsq, count=new_count)
+
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(
+            base=base,
+            obs_sum=obs_sum,
+            obs_sumsq=obs_sumsq,
+            count=count,
+            step=jax.jit(_step),
+            reset=jax.jit(_reset),
+        )
+
+    def report_statistics(self) -> tuple[Array, Array]:
+        """Compute and print mean/std for each observation dimension."""
+        mean = self.obs_sum / self.count
+        var = (self.obs_sumsq / self.count) - mean**2
+        std = jp.sqrt(var + 1e-8)
+
+        # Get original dict observation space from FlattenJaxObservation's base
+        orig_obs_space = self.base.base.base.single_observation_space
+        sorted_keys = sorted(orig_obs_space.spaces.keys())
+
+        print(f"Collected {int(self.count)} samples")
+        print("Observation keys (alphabetical, as flattened):")
+        idx = 0
+        for key in sorted_keys:
+            space = orig_obs_space.spaces[key]
+            dim = int(jp.prod(jp.array(space.shape)))
+            print(f"  {key}: dims [{idx}:{idx + dim}], shape {space.shape}")
+            idx += dim
+        mean_str = "[" + ", ".join(f"{x:.6f}" for x in mean.tolist()) + "]"
+        std_str = "[" + ", ".join(f"{x:.6f}" for x in std.tolist()) + "]"
+        print(f"mean = {mean_str}")
+        print(f"std = {std_str}")
+
+        return mean, std
+
+
+# region NormalizeObs
+@struct.dataclass
+class NormalizeObs(Wrapper):
+    """Wrapper to normalize flattened observations with mean and scale.
+
+    Apply this after FlattenJaxObservation. Use mean/scale from CollectObsStatistics.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode, mean: Array, scale: Array) -> "NormalizeObs":
+        """Create a NormalizeObs wrapper.
+
+        Args:
+            base: The jittable environment to wrap (after FlattenJaxObservation).
+            mean: Array of shape (obs_dim,) to subtract from observations.
+            scale: Array of shape (obs_dim,) to divide observations by.
+        """
+        assert mean.shape == scale.shape == base.single_observation_space.shape, (
+            "Mean/scale must match obs shape."
+        )
+
+        def _reset(
+            env: "NormalizeObs", *, seed: int | None = None, options: dict | None = None
+        ) -> tuple["NormalizeObs", tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            norm_obs = (obs - mean) / scale
+            return env, (norm_obs, info)
+
+        def _step(env: "NormalizeObs", action: Array) -> tuple["NormalizeObs", tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            env = env.replace(base=base_env)
+            norm_obs = (obs - mean) / scale
+            return env, (norm_obs, reward, terminated, truncated, info)
+
+        return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
+
+
 # region StackObs
 @struct.dataclass
 class StackObs(Wrapper):

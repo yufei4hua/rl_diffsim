@@ -59,7 +59,7 @@ class CriticNet(nn.Module):
 class TD3Agent(struct.PyTreeNode):
     """TD3 agent with asymmetric actor-critic observations."""
 
-    actor_state: train_state.TrainState = struct.field(pytree_node=True)
+    actor_states: train_state.TrainState = struct.field(pytree_node=True)
     critic1_state: train_state.TrainState = struct.field(pytree_node=True)
     critic2_state: train_state.TrainState = struct.field(pytree_node=True)
     target_actor_params: dict = struct.field(pytree_node=True)
@@ -105,7 +105,7 @@ class TD3Agent(struct.PyTreeNode):
         critic_tx = optax.adamw(learning_rate=critic_lr, eps=1e-5)
 
         # Create train states (both critics share the same apply_fn)
-        actor_state = train_state.TrainState.create(apply_fn=actor.apply, params=actor_params, tx=actor_tx)
+        actor_states = train_state.TrainState.create(apply_fn=actor.apply, params=actor_params, tx=actor_tx)
         critic1_state = train_state.TrainState.create(
             apply_fn=critic.apply, params=critic1_params, tx=critic_tx
         )
@@ -146,7 +146,7 @@ class TD3Agent(struct.PyTreeNode):
             return critic.apply(params, obs, action)
 
         return cls(
-            actor_state=actor_state,
+            actor_states=actor_states,
             critic1_state=critic1_state,
             critic2_state=critic2_state,
             target_actor_params=target_actor_params,
@@ -178,12 +178,12 @@ if __name__ == "__main__":
 
     # Test action inference
     obs = jp.ones((2, actor_obs_dim), dtype=jp.float32)
-    action = agent.get_action_mean(agent.actor_state.params, obs)
+    action = agent.get_action_mean(agent.actor_states.params, obs)
     print(f"Deterministic action shape: {action.shape}")
 
     # Test noisy action
     key = jax.random.PRNGKey(1)
-    noisy_action, key = agent.get_action_sample(agent.actor_state.params, obs, key, std=0.1)
+    noisy_action, key = agent.get_action_sample(agent.actor_states.params, obs, key, std=0.1)
     print(f"Noisy action shape: {noisy_action.shape}")
 
     # Test Q-value inference

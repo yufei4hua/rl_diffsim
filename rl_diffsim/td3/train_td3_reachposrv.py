@@ -285,11 +285,11 @@ def collect_rollout(
         if random_action:
             action, key = agent.get_random_action(args.num_envs, key)
             # action, key = agent.get_action_sample(
-            #     agent.actor_state.params, obs, key, std=args.exploration_noise
+            #     agent.actor_states.params, obs, key, std=args.exploration_noise
             # ) # only sample policy distribution
         else:
             action, key = agent.get_action_sample(
-                agent.actor_state.params, obs, key, std=args.exploration_noise
+                agent.actor_states.params, obs, key, std=args.exploration_noise
             )
 
         # Step environment
@@ -394,14 +394,14 @@ def update_policy(
                 a = agent.get_action_mean(params, obs)
                 return -jp.mean(agent.get_q(agent.critic1_state.params, obs, a))
 
-            actor_loss, a_grads = jax.value_and_grad(actor_loss_fn)(agent.actor_state.params)
-            actor_state = agent.actor_state.apply_gradients(grads=a_grads)
+            actor_loss, a_grads = jax.value_and_grad(actor_loss_fn)(agent.actor_states.params)
+            actor_states = agent.actor_states.apply_gradients(grads=a_grads)
 
             # Soft update targets
             agent = agent.replace(
-                actor_state=actor_state,
+                actor_states=actor_states,
                 target_actor_params=optax.incremental_update(
-                    actor_state.params, agent.target_actor_params, args.tau
+                    actor_states.params, agent.target_actor_params, args.tau
                 ),
                 target_critic1_params=optax.incremental_update(
                     agent.critic1_state.params, agent.target_critic1_params, args.tau
@@ -496,7 +496,7 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         (envs, warmup_agent, buffer, obs, done, sum_rewards, key),
         (all_rollout_data, all_critic_loss, all_actor_loss),
     ) = lax.scan(train_iteration, (envs, agent, buffer, obs, done, sum_rewards, key), length=2)
-    warmup_agent.actor_state.params["params"]["Dense_0"]["kernel"].block_until_ready()
+    warmup_agent.actor_states.params["params"]["Dense_0"]["kernel"].block_until_ready()
     print(f"done ({time.time() - warmup_start:.2f}s)")
 
     # Training
@@ -570,7 +570,7 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     if model_path is not None:
         model_path.parent.mkdir(parents=True, exist_ok=True)
         params = {
-            "actor": agent.actor_state.params,
+            "actor": agent.actor_states.params,
             "critic1": agent.critic1_state.params,
             "critic2": agent.critic2_state.params,
         }
@@ -601,7 +601,7 @@ def evaluate_td3(
 
     with open(model_path, "rb") as f:
         params = pickle.load(f)
-    agent = agent.replace(actor_state=agent.actor_state.replace(params=params["actor"]))
+    agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
 
     episode_rewards = []
     episode_lengths = []
@@ -614,7 +614,7 @@ def evaluate_td3(
         steps = 0
 
         while not done:
-            action = agent.get_action_mean(agent.actor_state.params, obs)
+            action = agent.get_action_mean(agent.actor_states.params, obs)
             eval_env, (obs, reward, terminated, truncated, _) = eval_env.step(eval_env, action)
 
             if render:

@@ -27,6 +27,9 @@ from rl_diffsim.envs.wrappers import (
     AngleReward,
     FlattenJaxObservation,
     NormalizeActions,
+    NormalizeObs,
+    PrivilegedCriticObs,
+    QuatToMatrixObs,
     RecordData,
 )
 from rl_diffsim.td3.td3_agent import TD3Agent
@@ -49,13 +52,13 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 800_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
     num_envs: int = 128
     """the number of parallel game environments"""
     num_steps: int = 8
     """N: number of steps per env per rollout (macro-iteration)"""
-    updates_epochs: int = 96
+    updates_epochs: int = 72
     """M: number of gradient updates per rollout (controls G/U ratio)"""
     buffer_size: int = 524_288  # 131_072, 262_144, 524_288
     """replay buffer capacity"""
@@ -63,19 +66,19 @@ class Args:
     """minibatch size for updates"""
     learning_starts: int = 32_768  # 16_384, 32_768, 65_536, 98_304
     """timesteps before training starts (random exploration)"""
-    actor_lr: float = 0.0012151744143342417
+    actor_lr: float = 1.4e-3
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 0.00393225704647615
+    critic_lr: float = 3.9e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
-    tau: float = 0.4085677703296839
+    tau: float = 0.4
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 8
+    policy_delay: int = 4
     """update actor every N critic updates"""
-    exploration_noise: float = 0.16879396100655386
+    exploration_noise: float = 0.18
     """std of exploration noise during data collection"""
-    policy_noise: float = 0.12420127309560389
+    policy_noise: float = 0.1
     """std of noise added to target policy (smoothing)"""
     noise_clip: float = 0.1
     """clip target policy noise"""
@@ -99,13 +102,13 @@ class Args:
     goal_pmax: Array = (0.0, 0.0, 1.5)
     vel_min: float = -0.5
     vel_max: float = 0.5
-    ang_vel_min: Array = (-0.5,)*3
-    ang_vel_max: Array = (0.5,)*3
+    ang_vel_min: Array = (-0.5,) * 3
+    ang_vel_max: Array = (0.5,) * 3
     # Wrapper settings
     num_last_actions: int = 4
-    rpy_coef: float = 0.22475363434159937
-    act_coefs: tuple = (0.06693405392107592,) * 4
-    d_act_coefs: tuple = (0.22842111933516657,) * 4
+    rpy_coef: float = 0.22
+    act_coefs: tuple = (0.0669,) * 4
+    d_act_coefs: tuple = (0.2284,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -160,7 +163,15 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         act_coefs=args.act_coefs,
         d_act_coefs=args.d_act_coefs,
     )
+    # env = QuatToMatrixObs.create(env)
+    env = PrivilegedCriticObs.create(env)
     env = FlattenJaxObservation.create(env)
+    obs_dim = env.single_observation_space.shape[0]
+    env = NormalizeObs.create(
+        env,
+        mean=jp.array([0.0] * (obs_dim - 4) + [18967.0] * 4),
+        scale=jp.array([1.0] * (obs_dim - 4) + [3000.0] * 4),
+    )
 
     return env
 
@@ -437,7 +448,7 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
         key=init_key,
         obs_dim=envs.single_observation_space.shape[0],
         act_dim=envs.single_action_space.shape[0],
-        # actor_obs_dim=envs.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
+        actor_obs_dim=envs.single_observation_space.shape[0] - 4,  # last 4 obs are privileged critic obs
         hidden_size=args.hidden_size,
         num_layers=args.num_layers,
         actor_lr=args.actor_lr,
@@ -582,7 +593,7 @@ def evaluate_td3(
         key=jax.random.PRNGKey(0),
         obs_dim=eval_env.single_observation_space.shape[0],
         act_dim=eval_env.single_action_space.shape[0],
-        # actor_obs_dim=eval_env.single_observation_space.shape[0] - 4,
+        actor_obs_dim=eval_env.single_observation_space.shape[0] - 4,
         # last 4 obs are privileged critic obs
         hidden_size=args.hidden_size,
         num_layers=args.num_layers,

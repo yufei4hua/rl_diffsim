@@ -790,6 +790,57 @@ class StopLargeAngVel(Wrapper):
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
+# region QuatToMatrixObs
+class QuatToMatrixObs(Wrapper):
+    """Wrapper to convert quaternion observations to rotation matrices."""
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @property
+    def single_observation_space(self) -> spaces.Space:
+        """Base single_observation_space with 'quat' replaced by 'rot_mat'."""
+        spec = {k: v for k, v in self.base.single_observation_space.items()}
+        quat_space = spec.pop("quat")
+        rot_mat_shape = quat_space.shape[:-1] + (3, 3)
+        spec["rot_mat"] = spaces.Box(low=-1.0, high=1.0, shape=rot_mat_shape, dtype=np.float32)
+        return spaces.Dict(spec)
+
+    @property
+    def observation_space(self) -> spaces.Space:
+        """Batched observation space matching the wrapper's num_envs."""
+        return batch_space(self.single_observation_space, self.num_envs)
+
+    @classmethod
+    def create(cls, base: struct.PyTreeNode) -> QuatToMatrixObs:
+        """Create a QuatToMatrixObs around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+
+        Returns:
+            QuatToMatrixObs: Configured wrapper instance.
+        """
+
+        def reset(
+            env: QuatToMatrixObs, *, seed: int | None = None, options: dict | None = None
+        ) -> tuple[QuatToMatrixObs, tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            obs["rot_mat"] = R.from_quat(obs.pop("quat")).as_matrix()
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def step(env: QuatToMatrixObs, action: Array) -> tuple[QuatToMatrixObs, tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, action)
+            obs["rot_mat"] = R.from_quat(obs.pop("quat")).as_matrix()
+            env = env.replace(base=base_env)
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(base=base, step=step, reset=reset)
+
+
 # region FlattenObs
 @struct.dataclass
 class FlattenJaxObservation(Wrapper):

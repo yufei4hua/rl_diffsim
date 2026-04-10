@@ -127,7 +127,7 @@ class ReachPosEnv(DroneEnv):
             def _reset_rotor_first_principles(data: SimData, mask: Array) -> SimData:
                 rotor_vel = 18967.0 * jp.ones(
                     (data.core.n_worlds, data.core.n_drones, data.states.rotor_vel.shape[-1])
-                )
+                )  # TODO: calculate hover rotor velocity based on drone parameters
                 data = data.replace(states=leaf_replace(data.states, mask, rotor_vel=rotor_vel))
                 return data
 
@@ -243,7 +243,7 @@ class ReachPosEnv(DroneEnv):
         def _reward(terminated: Array, pos: Array, goal: Array) -> Array:
             # distance to next trajectory point
             norm_distance = jp.linalg.norm(pos - goal, axis=-1)
-            reward = jp.exp(-2.0 * norm_distance)
+            reward = jp.exp(-6.0 * norm_distance)
             reward = jp.where(terminated, -1.0, reward)
             return reward
 

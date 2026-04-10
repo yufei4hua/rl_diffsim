@@ -146,7 +146,8 @@ class RotvelRL(Controller):
 
         # i = 100  # Debug: ignore trajectory and just test policy output
         goal_pos = self.trajectory[i]
-        goal_vel = np.zeros_like(self.trajectory_vel[i])
+        goal_vel = self.trajectory_vel[i]
+        # goal_vel = np.zeros_like(self.trajectory_vel[i])
         obs_rl = self._obs_rl(goal_pos, goal_vel, obs)
         obs_rl = jp.array([obs_rl])
         act = self.agent.get_action_mean(self.agent.actor_states.params, obs_rl)

@@ -29,7 +29,6 @@ from rl_diffsim.envs.wrappers import (
     NormalizeActions,
     NormalizeObs,
     PrivilegedCriticObs,
-    QuatToMatrixObs,
     RecordData,
 )
 from rl_diffsim.td3.td3_agent import TD3Agent
@@ -52,23 +51,23 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 300_000
+    total_timesteps: int = 400_000
     """total timesteps of the experiments"""
     num_envs: int = 128
     """the number of parallel game environments"""
     num_steps: int = 8
     """N: number of steps per env per rollout (macro-iteration)"""
-    updates_epochs: int = 72
+    updates_epochs: int = 48
     """M: number of gradient updates per rollout (controls G/U ratio)"""
     buffer_size: int = 524_288  # 131_072, 262_144, 524_288
     """replay buffer capacity"""
-    batch_size: int = 256
+    batch_size: int = 768
     """minibatch size for updates"""
     learning_starts: int = 32_768  # 16_384, 32_768, 65_536, 98_304
     """timesteps before training starts (random exploration)"""
     actor_lr: float = 1.4e-3
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 3.9e-3
+    critic_lr: float = 3.6e-3
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
@@ -96,8 +95,8 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Envs settings
-    pos_min: Array = (-0.5, -0.5, 1.1)
-    pos_max: Array = (0.5, 0.5, 1.9)
+    pos_min: Array = (-0.4, -0.4, 1.1)
+    pos_max: Array = (0.4, 0.4, 1.9)
     goal_pmin: Array = (-0.0, -0.0, 1.5)
     goal_pmax: Array = (0.0, 0.0, 1.5)
     vel_min: float = -0.5
@@ -107,8 +106,8 @@ class Args:
     # Wrapper settings
     num_last_actions: int = 4
     rpy_coef: float = 0.22
-    act_coefs: tuple = (0.0669,) * 4
-    d_act_coefs: tuple = (0.2284,) * 4
+    act_coefs: tuple = (0.07,) * 4
+    d_act_coefs: tuple = (0.15,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -475,7 +474,6 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
     @jax.jit
     def train_iteration(carry: tuple, _) -> tuple[tuple, tuple]:
         envs, agent, buffer, obs, done, sum_rewards, key = carry
-
         # 1. Collect rollout
         envs, buffer, obs, done, sum_rewards, key, rollout_data = collect_rollout(
             envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=False
@@ -486,41 +484,46 @@ def train_td3(args: Args, model_path: Path, jax_device: str, wandb_enabled: bool
 
         return (envs, agent, buffer, obs, done, sum_rewards, key), (rollout_data, critic_loss, actor_loss)
 
+    @jax.jit
+    def train_fn(
+        envs: struct.PyTreeNode,
+        agent: TD3Agent,
+        obs: Array,
+        done: Array,
+        sum_rewards: Array,
+        key: Array,
+        buffer: ReplayBuffer,
+    ) -> tuple[TD3Agent, tuple[RolloutData, RolloutData, Array, Array]]:
+        envs, buffer, obs, done, sum_rewards, key, pre_rollout_data = collect_rollout(
+            envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=True
+        )
+        # Run training loop using scan
+        (
+            (envs, agent, buffer, obs, done, sum_rewards, key),
+            (all_rollout_data, all_critic_loss, all_actor_loss),
+        ) = lax.scan(
+            train_iteration, (envs, agent, buffer, obs, done, sum_rewards, key), length=args.num_iterations
+        )
+        return agent, (pre_rollout_data, all_rollout_data, all_critic_loss, all_actor_loss)
+
     # JIT warmup (only what's needed for training)
     print("JIT compiling... ", end="", flush=True)
     warmup_start = time.time()
-    envs, buffer, obs, done, sum_rewards, key, pre_rollout_data = collect_rollout(
-        envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=True
-    )
-    (
-        (envs, warmup_agent, buffer, obs, done, sum_rewards, key),
-        (all_rollout_data, all_critic_loss, all_actor_loss),
-    ) = lax.scan(train_iteration, (envs, agent, buffer, obs, done, sum_rewards, key), length=2)
-    warmup_agent.actor_states.params["params"]["Dense_0"]["kernel"].block_until_ready()
+    warmup_agent, _ = train_fn(envs, agent, obs, done, sum_rewards, key, buffer)
+    jax.block_until_ready(warmup_agent.actor_states.params["params"]["Dense_0"]["kernel"])
     print(f"done ({time.time() - warmup_start:.2f}s)")
 
     # Training
-    envs, (obs, _) = envs.reset(envs, seed=args.seed)
     done = jp.zeros((args.num_envs,), dtype=jp.bool_)
     sum_rewards = jp.zeros((args.num_envs,), dtype=jp.float32)
     buffer = buffer.reset(buffer)
 
     train_start = time.time()
-    print("Phase 1: Pre-exploration...")
-    envs, buffer, obs, done, sum_rewards, key, pre_rollout_data = collect_rollout(
-        envs, args, agent, obs, done, sum_rewards, key, buffer, random_action=True
+    print("Start training TD3...")
+    agent, (pre_rollout_data, all_rollout_data, all_critic_loss, all_actor_loss) = train_fn(
+        envs, agent, obs, done, sum_rewards, key, buffer
     )
-
-    print("Phase 2: Training...")
-    # Run training loop using scan
-    (
-        (envs, agent, buffer, obs, done, sum_rewards, key),
-        (all_rollout_data, all_critic_loss, all_actor_loss),
-    ) = lax.scan(
-        train_iteration, (envs, agent, buffer, obs, done, sum_rewards, key), jp.arange(args.num_iterations)
-    )
-
-    obs.block_until_ready()
+    jax.block_until_ready(obs)
     training_time = time.time() - train_start
     sps = args.total_timesteps / training_time
     print(f"Training {args.total_timesteps} steps took {training_time:.2f}s ({sps:.0f} SPS)")

@@ -21,6 +21,7 @@ import optax
 from jax import Array
 
 import wandb
+from rl_diffsim.envs.figure_8_env import FigureEightEnv
 from rl_diffsim.envs.reach_pos_env import ReachPosEnv
 from rl_diffsim.envs.wrappers import (
     ActionPenalty,
@@ -29,6 +30,7 @@ from rl_diffsim.envs.wrappers import (
     NormalizeActions,
     NormalizeObs,
     PrivilegedCriticObs,
+    QuatToMatrixObs,
     RecordData,
 )
 from rl_diffsim.td3.td3_agent import TD3Agent
@@ -51,31 +53,31 @@ class Args:
     """the entity (team) of wandb's project"""
 
     # Algorithm specific arguments
-    total_timesteps: int = 400_000
+    total_timesteps: int = 300_000
     """total timesteps of the experiments"""
-    num_envs: int = 128
+    num_envs: int = 48
     """the number of parallel game environments"""
-    num_steps: int = 8
+    num_steps: int = 16
     """N: number of steps per env per rollout (macro-iteration)"""
-    updates_epochs: int = 48
+    updates_epochs: int = 96
     """M: number of gradient updates per rollout (controls G/U ratio)"""
-    buffer_size: int = 524_288  # 131_072, 262_144, 524_288
+    buffer_size: int = 262_144  # 131_072, 262_144, 524_288
     """replay buffer capacity"""
-    batch_size: int = 768
+    batch_size: int = 512
     """minibatch size for updates"""
-    learning_starts: int = 32_768  # 16_384, 32_768, 65_536, 98_304
+    learning_starts: int = 16_384  # 16_384, 32_768, 65_536, 98_304
     """timesteps before training starts (random exploration)"""
-    actor_lr: float = 1.4e-3
+    actor_lr: float = 0.00205602004214704
     """the learning rate of the actor optimizer"""
-    critic_lr: float = 3.6e-3
+    critic_lr: float = 0.0027706469470873086
     """the learning rate of the critic optimizer"""
     gamma: float = 0.98
     """the discount factor gamma"""
-    tau: float = 0.4
+    tau: float = 0.5
     """target network update rate (Polyak averaging)"""
-    policy_delay: int = 4
+    policy_delay: int = 8
     """update actor every N critic updates"""
-    exploration_noise: float = 0.18
+    exploration_noise: float = 0.2460568487712772
     """std of exploration noise during data collection"""
     policy_noise: float = 0.1
     """std of noise added to target policy (smoothing)"""
@@ -95,19 +97,20 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
     # Envs settings
-    pos_min: Array = (-0.4, -0.4, 1.1)
-    pos_max: Array = (0.4, 0.4, 1.9)
+    pos_min: Array = (-0.24743822110265976, -0.24743822110265976, 1.2525617788973402)
+    pos_max: Array = (0.24743822110265976, 0.24743822110265976, 1.7474382211026598)
     goal_pmin: Array = (-0.0, -0.0, 1.5)
     goal_pmax: Array = (0.0, 0.0, 1.5)
-    vel_min: float = -0.5
-    vel_max: float = 0.5
-    ang_vel_min: Array = (-0.5,) * 3
-    ang_vel_max: Array = (0.5,) * 3
+    vel_min: float = -0.21660093536733904
+    vel_max: float = 0.21660093536733904
+    ang_vel_min: Array = (-0.5545283844691475,) * 3
+    ang_vel_max: Array = (0.5545283844691475,) * 3
     # Wrapper settings
     num_last_actions: int = 4
-    rpy_coef: float = 0.22
-    act_coefs: tuple = (0.07,) * 4
-    d_act_coefs: tuple = (0.15,) * 4
+    rpy_coef: float = 0.3918075444432536
+    yaw_coef: float = 0.9101597510548902
+    act_coefs: tuple = (0.05139002411790307,) * 4
+    d_act_coefs: tuple = (0.273423708064949,) * 4
 
     @staticmethod
     def create(**kwargs: Any) -> "Args":
@@ -154,6 +157,7 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
 
     env = NormalizeActions.create(env, neutral=jp.array([18967.0] * 4))
     env = AngleReward.create(env, rpy_coef=args.rpy_coef)
+    # env = AngleRewardV2.create(env, tilt_weight=args.rpy_coef, yaw_weight=args.yaw_coef)
     env = ActionPenalty.create(
         env,
         num_actions=args.num_last_actions,
@@ -162,7 +166,7 @@ def make_jitted_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bo
         act_coefs=args.act_coefs,
         d_act_coefs=args.d_act_coefs,
     )
-    # env = QuatToMatrixObs.create(env)
+    env = QuatToMatrixObs.create(env)
     env = PrivilegedCriticObs.create(env)
     env = FlattenJaxObservation.create(env)
     obs_dim = env.single_observation_space.shape[0]
@@ -642,9 +646,152 @@ def evaluate_td3(
     return fig, rmse_pos, episode_rewards, episode_lengths
 
 
+def make_eval_envs(num_envs: int, jax_device: str, args: Args, reset_rotor: bool = True) -> FigureEightEnv:
+    """Create wrapped Figure-8 envs for tracking evaluation.
+
+    This keeps action/observation wrapper behavior aligned with reach-position training,
+    while omitting critic-only privileged observations and observation normalization.
+    """
+    env: FigureEightEnv = FigureEightEnv.create(
+        num_envs=num_envs,
+        freq=100,
+        sim_freq=500,
+        drone_model="cf2x_L250",
+        physics="first_principles",
+        control="rotor_vel",
+        device=jax_device,
+        reset_rotor=reset_rotor,
+        max_episode_time=10.0,
+        trajectory_time=10.0,
+        n_samples=0,
+        samples_dt=0.1,
+        reset_randomization=lambda data, mask: data,
+        reset_velocity=True,
+        multi_start=False,
+    )
+
+    env = NormalizeActions.create(env, neutral=jp.array([18967.0] * 4))
+    env = QuatToMatrixObs.create(env)
+    env = ActionPenalty.create(
+        env,
+        num_actions=args.num_last_actions,
+        init_last_actions=jp.array([[0.0, 0.0, 0.0, 0.0]]),
+        hover_action=jp.array([0.0, 0.0, 0.0, 0.0]),
+        act_coefs=args.act_coefs,
+        d_act_coefs=args.d_act_coefs,
+    )
+    env = FlattenJaxObservation.create(env)
+
+    return env
+
+
+def _build_figure8_reference(
+    trajectory_time: float, max_episode_time: float, freq: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a figure-8 reference and reference velocity."""
+    n_steps = int(np.ceil(max_episode_time * freq))
+    n_loops = max_episode_time / trajectory_time
+    t = np.linspace(0.0, 2.0 * np.pi * n_loops, n_steps)
+    radius = 1.0
+
+    x = radius * np.sin(t)
+    y = np.zeros_like(t)
+    z = radius / 2.0 * np.sin(2.0 * t) + 1.25
+    trajectory = np.array([x, y, z]).T
+
+    d_x = radius * np.cos(t) * (2.0 * np.pi / trajectory_time)
+    d_y = np.zeros_like(t)
+    d_z = radius * np.cos(2.0 * t) * (2.0 * np.pi / trajectory_time)
+    trajectory_vel = np.array([d_x, d_y, d_z]).T
+
+    return trajectory, trajectory_vel
+
+
+def evaluate_td3_tracking(
+    args: Args, n_eval: int, model_path: Path, render: bool, plot: bool = True
+) -> tuple[Any, float, list, list]:
+    """Evaluate TD3 actor on Figure-8 tracking with goal-relative position/velocity observations."""
+    eval_env = make_eval_envs(num_envs=1, jax_device=args.jax_device, args=args)
+    eval_env = RecordData.create(eval_env)
+
+    with open(model_path, "rb") as f:
+        params = pickle.load(f)
+
+    # Infer dimensions from checkpoint so eval is robust to architecture sweeps.
+    actor_input_dim = params["actor"]["params"]["Dense_0"]["kernel"].shape[0]
+    act_dim = params["actor"]["params"][f"Dense_{args.num_layers}"]["kernel"].shape[1]
+
+    agent = TD3Agent.create(
+        key=jax.random.PRNGKey(0),
+        obs_dim=eval_env.single_observation_space.shape[0],
+        act_dim=act_dim,
+        actor_obs_dim=actor_input_dim,
+        hidden_size=args.hidden_size,
+        num_layers=args.num_layers,
+    )
+    agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
+
+    trajectory, trajectory_vel = _build_figure8_reference(
+        trajectory_time=10.0, max_episode_time=10.0, freq=eval_env.unwrapped.freq
+    )
+
+    # Flattened observation indices for [ang_vel, last_actions, pos, quat, vel].
+    num_last_actions = args.num_last_actions
+    last_actions_dim = num_last_actions * eval_env.single_action_space.shape[0]
+    pos_slice = slice(3 + last_actions_dim, 6 + last_actions_dim)
+    vel_slice = slice(10 + 5 + last_actions_dim, 13 + 5 + last_actions_dim)
+    # vel_slice = slice(10 + last_actions_dim, 13 + last_actions_dim)
+
+    episode_rewards = []
+    episode_lengths = []
+    ep_seed = args.seed
+
+    for ep in range(n_eval):
+        eval_env, (obs, _) = eval_env.reset(eval_env, seed=(ep_seed := ep_seed + 1))
+        done = False
+        episode_reward = 0.0
+        steps = 0
+
+        while not done:
+            traj_idx = min(steps, trajectory.shape[0] - 1)
+            goal_pos = jp.asarray(trajectory[traj_idx], dtype=obs.dtype)
+            goal_vel = jp.asarray(trajectory_vel[traj_idx], dtype=obs.dtype)
+            # Convert absolute state features to goal-relative tracking features.
+            obs_tracking = obs.at[:, pos_slice].set(obs[:, pos_slice] - goal_pos[None, :])
+            obs_tracking = obs_tracking.at[:, vel_slice].set(obs[:, vel_slice] - goal_vel[None, :])
+            action = agent.get_action_mean(agent.actor_states.params, obs_tracking)
+            eval_env, (obs, reward, terminated, truncated, _) = eval_env.step(eval_env, action)
+
+            if render:
+                fps = 50
+                if ((steps * fps) % eval_env.unwrapped.freq) < fps:
+                    eval_env.render()
+
+            done = bool(terminated | truncated)
+            episode_reward += float(np.asarray(reward).item())
+            steps += 1
+
+        episode_rewards.append(episode_reward)
+        episode_lengths.append(steps)
+        print(f"Tracking episode {ep + 1}/{n_eval}: reward={episode_reward:.2f}, length={steps}")
+
+    fig = eval_env.plot_eval(save_path=f"{args.exp_name}_tracking_eval_plot.png") if plot else None
+    rmse_pos = eval_env.calc_rmse()
+
+    print(f"Tracking Eval Mean Reward: {np.mean(episode_rewards):.2f}, RMSE: {rmse_pos * 1000:.3f} mm")
+    eval_env.close()
+
+    return fig, rmse_pos, episode_rewards, episode_lengths
+
+
 # region Main
 def main(
-    wandb_enabled: bool = True, train: bool = True, n_eval: int = 1, render: bool = False, plot: bool = True
+    wandb_enabled: bool = True,
+    train: bool = True,
+    n_eval: int = 1,
+    render: bool = False,
+    plot: bool = True,
+    tracking_eval: bool = True,
 ):
     """Main entry point."""
     args = Args.create()
@@ -655,6 +802,10 @@ def main(
         reward_history, training_time = train_td3(args, model_path, jax_device, wandb_enabled)
 
     if n_eval > 0:
+        if tracking_eval:
+            fig, rmse_pos, episode_rewards, episode_lengths = evaluate_td3_tracking(
+                args, n_eval, model_path, render, plot
+            )
         fig, rmse_pos, episode_rewards, episode_lengths = evaluate_td3(args, n_eval, model_path, render, plot)
         if wandb_enabled and train:
             logs = {

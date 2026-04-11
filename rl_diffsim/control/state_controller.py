@@ -149,4 +149,6 @@ class StateController(Controller):
     def episode_callback(self):
         """Reset the internal state."""
         self._tick = 0
-        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png", traj_plane=[0, 1])
+        self.eval_recorder.plot_eval(
+            save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png", traj_plane=[0, 1]
+        )

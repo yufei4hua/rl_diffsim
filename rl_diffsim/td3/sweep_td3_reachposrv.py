@@ -70,6 +70,7 @@ def train():
         run.log({"rmse_pos_mm": rmse_pos_mm})
         run.log({"mean_episode_length": np.mean(episode_lengths)})
 
+
 # 2: Define the search space
 sweep_configuration = {
     "method": "bayes",  # "random", "bayes", "grid"

@@ -92,7 +92,7 @@ def _format_c_array_1d(name: str, arr: np.ndarray, cols: int = 8) -> str:
         chunk = ", ".join(_c_float_literal(float(v)) for v in flat[i : i + cols])
         lines.append("  " + chunk + ("," if i + cols < flat.size else ""))
     body = "\n".join(lines)
-    return f"static const float {name}[{flat.size}] = {{\n{body}\n}};\n"
+    return f"static __fp16 {name}[{flat.size}] = {{\n{body}\n}};\n"
 
 
 def _format_dense_layer(layer_idx: int, k: np.ndarray, b: np.ndarray) -> str:

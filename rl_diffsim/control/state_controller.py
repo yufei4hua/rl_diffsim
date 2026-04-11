@@ -41,24 +41,24 @@ class StateController(Controller):
         super().__init__(obs, info, config)
         self.freq = config.env.freq
 
-        self.algo_name = "bptt"
+        self.algo_name = "td3"
         self.exp_name = "f8state"
 
         # Figure-8 trajectory
         # Create the figure eight trajectory
-        num_loops = 1
-        self.trajectory_time = 10.0 * num_loops
+        num_loops = 3
+        self.trajectory_time = 5.5 * num_loops
         n_steps = int(np.ceil(self.trajectory_time * self.freq))
         t = np.linspace(0, 2 * np.pi * num_loops, n_steps)
-        radius = 0.5  # Radius for the circles
+        radius = 1.0  # Radius for the circles
         t_dot = 2 * np.pi * num_loops / self.trajectory_time
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
-        y = np.zeros_like(t)  # y is 0 everywhere
-        z = radius / 2 * np.sin(2 * t) + 1.5  # Scale amplitude for 1-meter diameter
+        z = np.zeros_like(t) + 1.25  # y is 0 everywhere
+        y = radius / 2 * np.sin(2 * t)  # Scale amplitude for 1-meter diameter
         self.trajectory = np.array([x, y, z]).T
         d_x = radius * np.cos(t) * t_dot
-        d_y = np.zeros_like(t)
-        d_z = radius * np.cos(2 * t) * t_dot
+        d_z = np.zeros_like(t)
+        d_y = radius * np.cos(2 * t) * t_dot
         self.trajectory_vel = np.array([d_x, d_y, d_z]).T
         dd_x = -radius * np.sin(t) * t_dot**2
         dd_y = np.zeros_like(t)
@@ -149,4 +149,4 @@ class StateController(Controller):
     def episode_callback(self):
         """Reset the internal state."""
         self._tick = 0
-        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png")
+        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png", traj_plane=[0, 1])

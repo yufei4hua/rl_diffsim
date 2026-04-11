@@ -67,7 +67,7 @@ class RotvelRL(Controller):
         # # Set trajectory parameters
         self.n_samples = 1
         self.samples_dt = 0.1
-        self.trajectory_time = 10.0
+        self.trajectory_time = 5.5
         self.sample_offsets = np.array(np.arange(self.n_samples) * self.freq * self.samples_dt, dtype=int)
         self._tick = 0
 
@@ -77,12 +77,12 @@ class RotvelRL(Controller):
         t = np.linspace(0, 2 * np.pi, n_steps)
         radius = 1  # Radius for the circles
         x = radius * np.sin(t)  # Scale amplitude for 1-meter diameter
-        y = np.zeros_like(t)  # y is 0 everywhere
-        z = radius / 2 * np.sin(2 * t) + 1.25  # Scale amplitude for 1-meter diameter
+        z = np.zeros_like(t) + 1.25  # y is 0 everywhere
+        y = radius / 2 * np.sin(2 * t)  # Scale amplitude for 1-meter diameter
         self.trajectory = np.array([x, y, z]).T  # (n_steps, 3)
         d_x = radius * np.cos(t) * (2 * np.pi / self.trajectory_time)
-        d_y = np.zeros_like(t)
-        d_z = radius * np.cos(2 * t) * (2 * np.pi / self.trajectory_time)
+        d_z = np.zeros_like(t)
+        d_y = radius * np.cos(2 * t) * (2 * np.pi / self.trajectory_time)
         self.trajectory_vel = np.array([d_x, d_y, d_z]).T  # (n_steps, 3)
 
         # Load RL policy
@@ -108,7 +108,7 @@ class RotvelRL(Controller):
         )
         self.agent = agent.replace(actor_states=agent.actor_states.replace(params=params["actor"]))
         self.num_last_actions = 4
-        init_action = np.full(act_dim, 0.25, dtype=np.float32)
+        init_action = np.full(act_dim, 0.0, dtype=np.float32)
         self.last_actions = np.broadcast_to(init_action[None, :], (self.num_last_actions, act_dim)).copy()
 
         # warm up jax policy
@@ -170,6 +170,7 @@ class RotvelRL(Controller):
         obs_rl = {k: obs[k] for k in obs_rl_key}
         obs_rl["pos"] = obs["pos"] - goal_pos  # (3,)
         obs_rl["vel"] = obs_rl["vel"] - goal_vel  # (3,)
+        obs_rl["rot_mat"] = R.from_quat(obs_rl.pop("quat")).as_matrix().flatten()  # (9,)
         obs_rl["last_actions"] = self.last_actions.reshape(-1)  # (num_last_actions * act_dim,)
         # alphabetical key order: important for flax policy
         ordered_keys = sorted(obs_rl.keys())
@@ -245,4 +246,4 @@ class RotvelRL(Controller):
     def episode_callback(self):
         """Reset the integral error."""
         self._tick = 0
-        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png")
+        self.eval_recorder.plot_eval(save_path=f"{self.algo_name}_{self.exp_name}_deploy_plot.png", traj_plane=[0, 1])

@@ -308,6 +308,68 @@ class AngleReward(Wrapper):
         return cls(base=base, step=jax.jit(_step), reset=jax.jit(_reset))
 
 
+# region AngleReward
+@struct.dataclass
+class AngleRewardV2(Wrapper):
+    """Wrapper to separately penalize tilt (roll+pitch) and yaw from upright orientation.
+
+    Uses differentiable quaternion arithmetic instead of Euler angles or scipy magnitude:
+      - tilt: 2*(qx^2+qy^2) = 1-cos(tilt_angle), measures deviation of body z from world z
+      - yaw:  2*qz^2/(qz^2+qw^2+eps), swing-twist decomposition around z-axis
+
+    Both are smooth and have no gradient singularities, unlike arccos-based approaches.
+    """
+
+    base: struct.PyTreeNode = struct.field(pytree_node=True)
+
+    step: Callable = struct.field(pytree_node=False)
+    reset: Callable = struct.field(pytree_node=False)
+
+    @classmethod
+    def create(
+        cls, base: struct.PyTreeNode, tilt_weight: float = 0.08, yaw_weight: float = 0.0
+    ) -> AngleRewardV2:
+        """Create an AngleRewardV2 around `base`.
+
+        Parameters:
+            base: The jittable base environment to wrap.
+            tilt_weight: Weight for roll+pitch tilt penalty.
+                Penalty = 2*(qx^2+qy^2) = 1-cos(tilt_angle), range [0, 2].
+                Zero when upright, 2 when upside-down.
+            yaw_weight: Weight for yaw penalty. Defaults to 0 (throw task is yaw-agnostic).
+                Penalty = 2*qz^2/(qz^2+qw^2+eps), range [0, 2], via swing-twist decomposition.
+
+        Returns:
+            AngleRewardV2: A configured wrapper with jitted step/reset.
+        """
+
+        def reset(
+            env: AngleRewardV2, *, seed: int | None = None, options: dict | None = None
+        ) -> tuple[AngleRewardV2, tuple[Any, Any]]:
+            base_env, (obs, info) = env.base.reset(env.base, seed=seed, options=options)
+            env = env.replace(base=base_env)
+            return env, (obs, info)
+
+        def _reward(reward: Array, observations: dict[str, Array]) -> Array:
+            """Differentiable tilt and yaw penalties using quaternion components directly."""
+            quat = observations["quat"]  # (num_envs, 4) in [qx, qy, qz, qw] convention
+            qx, qy, qz, qw = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
+            # Tilt: angle between body z-axis and world z-axis.
+            # dot(R*z_body, z_world) = 1 - 2*(qx^2+qy^2), so 1-cos(tilt) = 2*(qx^2+qy^2).
+            tilt = 2.0 * (qx**2 + qy**2)
+            # Yaw: swing-twist decomposition around z-axis gives 1-cos(yaw) = 2*qz^2/(qz^2+qw^2).
+            yaw = 2.0 * qz**2 / (qz**2 + qw**2 + 1e-6)
+            return reward - tilt_weight * tilt - yaw_weight * yaw
+
+        def step(env: AngleRewardV2, actions: Array) -> tuple[AngleRewardV2, tuple[Any, ...]]:
+            base_env, (obs, reward, terminated, truncated, info) = env.base.step(env.base, actions)
+            reward = _reward(reward, obs)
+            env = env.replace(base=base_env)
+            return env, (obs, reward, terminated, truncated, info)
+
+        return cls(base=base, step=step, reset=reset)
+
+
 # region ActionNoise
 @struct.dataclass
 class ActionNoise(Wrapper):
